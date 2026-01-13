@@ -1,0 +1,46 @@
+{
+  "name": "contextual-recall",
+  "version": "0.1.0",
+  "description": "Browser extension for semantic memory and activity intelligence",
+  "main": "extension/background.js",
+  "scripts": {
+    "build": "webpack --mode production",
+    "dev": "webpack --mode development --watch",
+    "test": "jest",
+    "lint": "eslint extension/**/*.js",
+    "format": "prettier --write \"**/*.{js,json,md}\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bigale/contextual-recall.git"
+  },
+  "keywords": [
+    "browser-extension",
+    "semantic-search",
+    "rag",
+    "vector-database",
+    "knowledge-management",
+    "activity-intelligence",
+    "ixml",
+    "wasm"
+  ],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/bigale/contextual-recall/issues"
+  },
+  "homepage": "https://github.com/bigale/contextual-recall#readme",
+  "dependencies": {
+    "@xenova/transformers": "^2.9.0",
+    "vectordb": "^0.4.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.254",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4",
+    "copy-webpack-plugin": "^11.0.0",
+    "eslint": "^8.56.0",
+    "prettier": "^3.1.1",
+    "jest": "^29.7.0"
+  }
+}
