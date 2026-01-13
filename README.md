@@ -5,11 +5,17 @@
 > "Show me what I was working on last Tuesday about invoice processing"
 > → Get answers in <1 second with complete context.
 
+**One tool. Two modes. Zero compromises.**
+- **Personal Mode**: Your private semantic memory (default)
+- **Enterprise Mode**: Optional team intelligence with privacy-preserving aggregation
+
 ---
 
 ## What Is This?
 
 Contextual Recall automatically captures and indexes everything you view in your browser, creating a **semantic memory** you can query in natural language. Ask questions about your past activity and get instant, accurate answers with full context.
+
+**Key Design**: One-size-fits-all architecture works for individual users AND enterprise deployments - same codebase, same privacy guarantees, different scale.
 
 **Key Insight**: Your browser activity is a knowledge graph that's **both personal memory AND business intelligence**, without the privacy violations of traditional monitoring.
 
@@ -126,7 +132,7 @@ User Query → Semantic Search → LLM Summary → Answer
 1. Install from Chrome Web Store (or load unpacked for development)
 2. Grant permissions (tabs, storage, webNavigation)
 3. Browse normally - capture happens automatically
-4. Click extension icon to query your history
+4. Click extension icon to open sidebar and query your history
 
 ### For Developers
 
