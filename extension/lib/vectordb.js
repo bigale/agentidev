@@ -120,7 +120,10 @@ class VectorDB {
    * Calculate cosine similarity between two vectors
    */
   cosineSimilarity(a, b) {
-    if (!a || !b || a.length !== b.length) return 0;
+    if (!a || !b || a.length !== b.length) {
+      console.warn('[VectorDB] Dimension mismatch:', a?.length, 'vs', b?.length);
+      return 0;
+    }
 
     let dotProduct = 0;
     let normA = 0;

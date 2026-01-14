@@ -13,7 +13,6 @@
 
 import { vectorDB } from './lib/vectordb.js';
 import { initEmbeddings, generateEmbedding, isInitialized } from './lib/embeddings.js';
-import { chunkContent, extractCodeBlocks } from './lib/chunker.js';
 
 console.log('Contextual Recall: Background service worker started');
 
@@ -65,6 +64,11 @@ chrome.action.onClicked.addListener((tab) => {
 
 // Listen for messages from content scripts and sidebar
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Ignore embeddings/offscreen messages - those are handled by offscreen document
+  if (message.type && message.type.startsWith('EMBEDDINGS_')) {
+    return false; // Let offscreen document handle this
+  }
+
   if (message.type === 'CAPTURE_PAGE') {
     handlePageCapture(message.data, sender.tab)
       .then(() => sendResponse({ success: true }))
@@ -114,9 +118,20 @@ async function handlePageCapture(data, tab) {
     // Classify content type (simple heuristics for now)
     const contentType = classifyContent(data);
 
-    // Chunk content based on type (semantic chunking)
+    // Chunk content using offscreen document (has DOM APIs)
     console.log(`[Capture] Chunking content (type: ${contentType})...`);
-    const chunks = chunkContent(data.html, contentType);
+    const chunkResponse = await chrome.runtime.sendMessage({
+      type: 'EMBEDDINGS_CHUNK',
+      html: data.html,
+      contentType: contentType
+    });
+
+    if (!chunkResponse || !chunkResponse.chunks) {
+      console.error('[Capture] Chunking failed:', chunkResponse?.error);
+      return;
+    }
+
+    const chunks = chunkResponse.chunks;
     console.log(`[Capture] Created ${chunks.length} chunks`);
 
     // Store each chunk separately with its own embedding
@@ -128,13 +143,17 @@ async function handlePageCapture(data, tab) {
       let embedding;
       if (isInitialized()) {
         try {
+          console.log('[Capture] Generating neural embedding for chunk', i, '- text length:', chunk.text.length);
           embedding = await generateEmbedding(chunk.text);
+          console.log('[Capture] Neural embedding generated - dimension:', embedding.length);
         } catch (error) {
           console.error('[Capture] Neural embedding failed, using TF-IDF:', error);
           embedding = generateSimpleEmbedding(chunk.text);
+          console.log('[Capture] TF-IDF embedding generated - dimension:', embedding.length);
         }
       } else {
         embedding = generateSimpleEmbedding(chunk.text);
+        console.log('[Capture] TF-IDF embedding generated (not initialized) - dimension:', embedding.length);
       }
 
       // Store chunk in database
@@ -198,23 +217,31 @@ async function handleQuery(query, filter = 'all') {
       try {
         console.log('[Query] Generating neural query embedding...');
         queryEmbedding = await generateEmbedding(query);
+        console.log('[Query] Neural query embedding - dimension:', queryEmbedding.length);
       } catch (error) {
         console.error('[Query] Neural embedding failed, using TF-IDF:', error);
         queryEmbedding = generateSimpleEmbedding(query);
+        console.log('[Query] TF-IDF query embedding - dimension:', queryEmbedding.length);
       }
     } else {
       console.log('[Query] Embeddings not ready, using TF-IDF');
       queryEmbedding = generateSimpleEmbedding(query);
+      console.log('[Query] TF-IDF query embedding - dimension:', queryEmbedding.length);
     }
 
     // Vector search with filter
+    const threshold = isInitialized() ? 0.3 : 0.1;
+    console.log('[Query] Searching with threshold:', threshold);
     const results = await vectorDB.search(queryEmbedding, {
       limit: 10,
       filter: filter,
-      threshold: isInitialized() ? 0.3 : 0.1 // Higher threshold for neural embeddings
+      threshold: threshold
     });
 
-    console.log(`Found ${results.length} results`);
+    console.log(`[Query] Found ${results.length} results`);
+    if (results.length > 0) {
+      console.log('[Query] Top result score:', results[0].score);
+    }
     return results;
 
   } catch (error) {

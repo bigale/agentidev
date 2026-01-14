@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Contextual Recall - Offscreen Document</title>
+</head>
+<body>
+  <!--
+    Offscreen Document for running Web Workers
+
+    Chrome extensions can't create Workers in Service Workers,
+    but they CAN create an offscreen document that creates Workers.
+
+    This document loads transformers.js via Web Worker and handles
+    embedding generation requests from the service worker.
+  -->
+  <script src="offscreen.js" type="module"></script>
+</body>
+</html>

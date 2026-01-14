@@ -4,12 +4,38 @@
  * Generates semantic embeddings for text using all-MiniLM-L6-v2 model.
  * Runs locally in the browser (no API calls).
  *
- * Note: Uses CDN for transformers.js to avoid bundling complexity
+ * Uses Offscreen Document API to create Web Workers (Service Workers can't create Workers directly)
  */
 
-let pipeline = null;
-let extractor = null;
+let initialized = false;
 let initPromise = null;
+let offscreenCreated = false;
+
+/**
+ * Create offscreen document if needed
+ */
+async function setupOffscreenDocument() {
+  // Check if offscreen document already exists
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL('offscreen.html')]
+  });
+
+  if (existingContexts.length > 0) {
+    offscreenCreated = true;
+    return;
+  }
+
+  // Create offscreen document
+  await chrome.offscreen.createDocument({
+    url: chrome.runtime.getURL('offscreen.html'),
+    reasons: ['WORKERS'],
+    justification: 'Run transformers.js in Web Worker for embedding generation'
+  });
+
+  offscreenCreated = true;
+  console.log('[Embeddings] Offscreen document created');
+}
 
 /**
  * Initialize the embedding model
@@ -21,40 +47,46 @@ export async function initEmbeddings() {
   }
 
   // If already initialized, return immediately
-  if (extractor) {
+  if (initialized) {
     return true;
   }
 
   initPromise = (async () => {
     try {
-      console.log('[Embeddings] Initializing transformers.js...');
+      console.log('[Embeddings] Setting up offscreen document...');
 
-      // Import transformers.js from CDN (works in service workers)
-      const { pipeline: pipelineFunc, env } = await import(
-        'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2'
-      );
+      // Create offscreen document (can create Web Workers)
+      await setupOffscreenDocument();
 
-      // Configure transformers.js for Chrome extension
-      env.allowLocalModels = false;
-      env.allowRemoteModels = true;
-      env.useBrowserCache = true;
-
-      pipeline = pipelineFunc;
-
-      console.log('[Embeddings] Loading all-MiniLM-L6-v2 model (384-dim)...');
+      // Initialize embeddings in offscreen document
+      console.log('[Embeddings] Initializing model...');
       console.log('[Embeddings] First load will download ~50MB model files...');
 
-      // Load the embedding model (all-MiniLM-L6-v2)
-      // This model produces 384-dimensional embeddings
-      // First load downloads ~50MB, cached afterwards
-      extractor = await pipeline(
-        'feature-extraction',
-        'Xenova/all-MiniLM-L6-v2'
-      );
+      const response = await chrome.runtime.sendMessage({
+        type: 'EMBEDDINGS_INIT'
+      });
 
-      console.log('[Embeddings] Model loaded successfully');
+      console.log('[Embeddings] Received response:', JSON.stringify(response));
+      console.log('[Embeddings] Response type:', typeof response);
+      console.log('[Embeddings] Response keys:', Object.keys(response || {}));
+      console.log('[Embeddings] Response.success:', response?.success);
+
+      if (!response) {
+        console.error('[Embeddings] No response from offscreen document - check offscreen console');
+        initPromise = null;
+        return false;
+      }
+
+      if (response.success) {
+        initialized = true;
+        console.log('[Embeddings] Model loaded successfully');
+      } else {
+        console.error('[Embeddings] Model initialization failed:', response.error);
+        console.error('[Embeddings] Full response:', response);
+      }
+
       initPromise = null;
-      return true;
+      return response.success;
     } catch (error) {
       console.error('[Embeddings] Failed to initialize:', error);
       initPromise = null;
@@ -69,7 +101,7 @@ export async function initEmbeddings() {
  * Generate embedding for a text string
  */
 export async function generateEmbedding(text) {
-  if (!extractor) {
+  if (!initialized) {
     // Auto-initialize if needed
     const success = await initEmbeddings();
     if (!success) {
@@ -78,20 +110,16 @@ export async function generateEmbedding(text) {
   }
 
   try {
-    // Truncate text to reasonable length (model has 512 token limit)
-    // ~500 chars ≈ ~128 tokens (rough estimate)
-    const truncated = text.substring(0, 2000);
-
-    // Generate embedding
-    const output = await extractor(truncated, {
-      pooling: 'mean',
-      normalize: true
+    const response = await chrome.runtime.sendMessage({
+      type: 'EMBEDDINGS_GENERATE',
+      text: text
     });
 
-    // Convert to regular array (from tensor)
-    const embedding = Array.from(output.data);
+    if (response.error) {
+      throw new Error(response.error);
+    }
 
-    return embedding;
+    return response.embedding;
   } catch (error) {
     console.error('[Embeddings] Failed to generate embedding:', error);
     throw error;
@@ -116,5 +144,5 @@ export async function generateEmbeddings(chunks) {
  * Check if embeddings are initialized
  */
 export function isInitialized() {
-  return extractor !== null;
+  return initialized;
 }
