@@ -12,19 +12,31 @@
  */
 
 import { vectorDB } from './lib/vectordb.js';
+import { initEmbeddings, generateEmbedding, isInitialized } from './lib/embeddings.js';
 
 console.log('Contextual Recall: Background service worker started');
 
-// Initialize database
+// Initialize database and embeddings
 let dbReady = false;
+let embeddingsReady = false;
 
 (async () => {
   try {
+    // Initialize database first (fast)
     await vectorDB.init();
     dbReady = true;
-    console.log('Vector database initialized');
+    console.log('[Background] Vector database initialized');
+
+    // Initialize embeddings in background (slow - downloads ~50MB on first run)
+    console.log('[Background] Starting embeddings initialization...');
+    embeddingsReady = await initEmbeddings();
+    if (embeddingsReady) {
+      console.log('[Background] Embeddings ready - neural search enabled');
+    } else {
+      console.warn('[Background] Embeddings failed - using TF-IDF fallback');
+    }
   } catch (error) {
-    console.error('Failed to initialize database:', error);
+    console.error('[Background] Initialization failed:', error);
   }
 })();
 
@@ -101,8 +113,21 @@ async function handlePageCapture(data, tab) {
     // Classify content type (simple heuristics for now)
     const contentType = classifyContent(data);
 
-    // Generate simple TF-IDF embedding (POC - will use transformers.js later)
-    const embedding = generateSimpleEmbedding(data.text);
+    // Generate embedding (neural if ready, TF-IDF fallback)
+    let embedding;
+    if (isInitialized()) {
+      try {
+        console.log('[Capture] Generating neural embedding...');
+        embedding = await generateEmbedding(data.text);
+        console.log('[Capture] Neural embedding generated (384-dim)');
+      } catch (error) {
+        console.error('[Capture] Neural embedding failed, using TF-IDF:', error);
+        embedding = generateSimpleEmbedding(data.text);
+      }
+    } else {
+      console.log('[Capture] Embeddings not ready, using TF-IDF (128-dim)');
+      embedding = generateSimpleEmbedding(data.text);
+    }
 
     // Store in database
     await vectorDB.addPage({
@@ -151,14 +176,26 @@ async function handleQuery(query, filter = 'all') {
     }
     await chrome.storage.local.set({ stats });
 
-    // Generate query embedding
-    const queryEmbedding = generateSimpleEmbedding(query);
+    // Generate query embedding (neural if ready, TF-IDF fallback)
+    let queryEmbedding;
+    if (isInitialized()) {
+      try {
+        console.log('[Query] Generating neural query embedding...');
+        queryEmbedding = await generateEmbedding(query);
+      } catch (error) {
+        console.error('[Query] Neural embedding failed, using TF-IDF:', error);
+        queryEmbedding = generateSimpleEmbedding(query);
+      }
+    } else {
+      console.log('[Query] Embeddings not ready, using TF-IDF');
+      queryEmbedding = generateSimpleEmbedding(query);
+    }
 
     // Vector search with filter
     const results = await vectorDB.search(queryEmbedding, {
       limit: 10,
       filter: filter,
-      threshold: 0.1 // Low threshold for POC
+      threshold: isInitialized() ? 0.3 : 0.1 // Higher threshold for neural embeddings
     });
 
     console.log(`Found ${results.length} results`);
