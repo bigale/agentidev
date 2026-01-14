@@ -1,0 +1,78 @@
+{ Markdown Grammar for iXML
+
+  Purpose: Parse Markdown documentation preserving semantic structure
+  Output: XML with heading hierarchy, code blocks, lists, links
+
+  Key Features:
+  - Preserves heading hierarchy (h1-h6)
+  - Extracts code blocks with language tags
+  - Captures lists (ordered, unordered)
+  - Preserves links and inline code
+
+  Example Input:
+    # API Documentation
+
+    ## Authentication
+
+    Use the `Authorization` header:
+
+    ```javascript
+    fetch('/api', { headers: { 'Authorization': 'Bearer token' } })
+    ```
+
+  Example Output:
+    <markdown>
+      <h1>API Documentation</h1>
+      <h2>Authentication</h2>
+      <paragraph>Use the <code>Authorization</code> header:</paragraph>
+      <code-block lang="javascript">fetch('/api', { headers: { 'Authorization': 'Bearer token' } })</code-block>
+    </markdown>
+}
+
+markdown: content* .
+
+content: heading | code-block | list | paragraph | blank-line .
+
+{ Headings (h1-h6) }
+heading: h1 | h2 | h3 | h4 | h5 | h6 .
+h1: -'# ', text, line-ending .
+h2: -'## ', text, line-ending .
+h3: -'### ', text, line-ending .
+h4: -'#### ', text, line-ending .
+h5: -'##### ', text, line-ending .
+h6: -'###### ', text, line-ending .
+
+{ Code blocks with language tag }
+code-block: code-block-with-lang | code-block-plain .
+code-block-with-lang: -'```', @lang: identifier, line-ending, code-content, -'```', line-ending .
+code-block-plain: -'```', line-ending, code-content, -'```', line-ending .
+code-content: code-line* .
+code-line: ~['`'], line-ending .
+
+{ Lists }
+list: unordered-list | ordered-list .
+unordered-list: list-item-ul+ .
+ordered-list: list-item-ol+ .
+list-item-ul: -['*'; '-'; '+'], -' ', inline-text, line-ending .
+list-item-ol: digit+, -'. ', inline-text, line-ending .
+
+{ Paragraphs with inline formatting }
+paragraph: inline-text, line-ending .
+inline-text: (inline-code | link | bold | italic | plain-text)+ .
+
+inline-code: -'`', text, -'`' .
+link: -'[', @text: link-text, -']', -'(', @url: link-url, -')' .
+link-text: (~[']'])+ .
+link-url: (~[')'])+ .
+bold: -'**', text, -'**' .
+italic: -'*', text, -'*' .
+
+{ Basic text and primitives }
+plain-text: (~['`'; '['; '*'; #a])+ .
+text: (~[#a])+ .
+identifier: ['a'-'z'; 'A'-'Z'; '0'-'9'; '-'; '_']+ .
+digit: ['0'-'9'] .
+
+{ Line handling }
+blank-line: -#a .
+line-ending: -#a .

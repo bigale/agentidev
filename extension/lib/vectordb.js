@@ -109,7 +109,10 @@ class VectorDB {
         snippet: this.generateSnippet(r.text),
         timestamp: r.timestamp,
         score: r.score,
-        contentType: r.contentType
+        contentType: r.contentType,
+        chunkType: r.metadata?.chunkType || 'unknown',
+        chunkIndex: r.metadata?.chunkIndex,
+        chunkTotal: r.metadata?.chunkTotal
       }));
   }
 
@@ -189,15 +192,18 @@ class VectorDB {
    * Get database statistics
    */
   async getStats() {
-    const pages = await this.getAllPages();
+    const chunks = await this.getAllPages();
 
     // Calculate total storage (rough estimate)
-    const storageBytes = pages.reduce((total, page) => {
+    const storageBytes = chunks.reduce((total, chunk) => {
       return total +
-        (page.text?.length || 0) +
-        (page.html?.length || 0) +
-        (page.embedding?.length || 0) * 4; // Float32 = 4 bytes
+        (chunk.text?.length || 0) +
+        (chunk.html?.length || 0) +
+        (chunk.embedding?.length || 0) * 4; // Float32 = 4 bytes
     }, 0);
+
+    // Count unique pages (by URL)
+    const uniqueUrls = new Set(chunks.map(c => c.url));
 
     // Count queries today
     const today = new Date().toDateString();
@@ -207,7 +213,8 @@ class VectorDB {
       : 0;
 
     return {
-      pagesIndexed: pages.length,
+      pagesIndexed: chunks.length, // Total chunks
+      pagesUnique: uniqueUrls.size, // Unique pages
       storageUsed: storageBytes,
       queriesToday: queriesToday
     };

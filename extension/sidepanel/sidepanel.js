@@ -116,17 +116,29 @@ function displayResults(results) {
     snippet.className = 'result-snippet';
     snippet.textContent = result.snippet || result.text?.substring(0, 200) + '...';
 
-    // Metadata (timestamp, relevance, etc.)
+    // Metadata (timestamp, relevance, chunk info)
     const meta = document.createElement('div');
     meta.className = 'result-meta';
 
     const timestamp = document.createElement('span');
     timestamp.textContent = formatTimestamp(result.timestamp);
 
+    const chunkInfo = document.createElement('span');
+    const chunkIcon = result.chunkType === 'heading' ? '📄' :
+                       result.chunkType === 'table' ? '📊' :
+                       result.chunkType === 'code' ? '💻' :
+                       result.chunkType === 'token' ? '📝' : '📎';
+    if (result.chunkTotal > 1) {
+      chunkInfo.textContent = `${chunkIcon} Part ${(result.chunkIndex || 0) + 1}/${result.chunkTotal}`;
+    } else {
+      chunkInfo.textContent = `${chunkIcon} ${result.chunkType}`;
+    }
+
     const relevance = document.createElement('span');
     relevance.textContent = `${Math.round(result.score * 100)}% match`;
 
     meta.appendChild(timestamp);
+    meta.appendChild(chunkInfo);
     meta.appendChild(relevance);
 
     // Assemble item

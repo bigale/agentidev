@@ -13,6 +13,7 @@
 
 import { vectorDB } from './lib/vectordb.js';
 import { initEmbeddings, generateEmbedding, isInitialized } from './lib/embeddings.js';
+import { chunkContent, extractCodeBlocks } from './lib/chunker.js';
 
 console.log('Contextual Recall: Background service worker started');
 
@@ -113,35 +114,50 @@ async function handlePageCapture(data, tab) {
     // Classify content type (simple heuristics for now)
     const contentType = classifyContent(data);
 
-    // Generate embedding (neural if ready, TF-IDF fallback)
-    let embedding;
-    if (isInitialized()) {
-      try {
-        console.log('[Capture] Generating neural embedding...');
-        embedding = await generateEmbedding(data.text);
-        console.log('[Capture] Neural embedding generated (384-dim)');
-      } catch (error) {
-        console.error('[Capture] Neural embedding failed, using TF-IDF:', error);
-        embedding = generateSimpleEmbedding(data.text);
+    // Chunk content based on type (semantic chunking)
+    console.log(`[Capture] Chunking content (type: ${contentType})...`);
+    const chunks = chunkContent(data.html, contentType);
+    console.log(`[Capture] Created ${chunks.length} chunks`);
+
+    // Store each chunk separately with its own embedding
+    let chunksIndexed = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+
+      // Generate embedding for this chunk (neural if ready, TF-IDF fallback)
+      let embedding;
+      if (isInitialized()) {
+        try {
+          embedding = await generateEmbedding(chunk.text);
+        } catch (error) {
+          console.error('[Capture] Neural embedding failed, using TF-IDF:', error);
+          embedding = generateSimpleEmbedding(chunk.text);
+        }
+      } else {
+        embedding = generateSimpleEmbedding(chunk.text);
       }
-    } else {
-      console.log('[Capture] Embeddings not ready, using TF-IDF (128-dim)');
-      embedding = generateSimpleEmbedding(data.text);
+
+      // Store chunk in database
+      await vectorDB.addPage({
+        url: data.url,
+        title: chunk.title || data.title,
+        text: chunk.text,
+        html: data.html, // Keep full HTML for context
+        timestamp: data.timestamp,
+        contentType: contentType,
+        embedding: embedding,
+        metadata: {
+          ...data.metadata,
+          chunkIndex: i,
+          chunkTotal: chunks.length,
+          chunkType: chunk.type
+        }
+      });
+
+      chunksIndexed++;
     }
 
-    // Store in database
-    await vectorDB.addPage({
-      url: data.url,
-      title: data.title,
-      text: data.text,
-      html: data.html,
-      timestamp: data.timestamp,
-      contentType: contentType,
-      embedding: embedding,
-      metadata: data.metadata
-    });
-
-    console.log('Page indexed:', data.url);
+    console.log(`[Capture] Indexed ${chunksIndexed} chunks from:`, data.url);
 
     // Update stats
     const stats = await vectorDB.getStats();
