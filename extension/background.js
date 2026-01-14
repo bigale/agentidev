@@ -86,7 +86,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'GET_STATS') {
     getStats()
       .then(stats => sendResponse(stats))
-      .catch(error => sendResponse({ pagesIndexed: 0, storageUsed: 0, queriesToday: 0 }));
+      .catch(error => {
+        console.error('[Background] GET_STATS error:', error);
+        sendResponse({ pagesIndexed: 0, storageUsed: 0, queriesToday: 0 });
+      });
     return true; // Async response
   }
 });
@@ -143,17 +146,13 @@ async function handlePageCapture(data, tab) {
       let embedding;
       if (isInitialized()) {
         try {
-          console.log('[Capture] Generating neural embedding for chunk', i, '- text length:', chunk.text.length);
           embedding = await generateEmbedding(chunk.text);
-          console.log('[Capture] Neural embedding generated - dimension:', embedding.length);
         } catch (error) {
           console.error('[Capture] Neural embedding failed, using TF-IDF:', error);
           embedding = generateSimpleEmbedding(chunk.text);
-          console.log('[Capture] TF-IDF embedding generated - dimension:', embedding.length);
         }
       } else {
         embedding = generateSimpleEmbedding(chunk.text);
-        console.log('[Capture] TF-IDF embedding generated (not initialized) - dimension:', embedding.length);
       }
 
       // Store chunk in database
@@ -215,32 +214,26 @@ async function handleQuery(query, filter = 'all') {
     let queryEmbedding;
     if (isInitialized()) {
       try {
-        console.log('[Query] Generating neural query embedding...');
         queryEmbedding = await generateEmbedding(query);
-        console.log('[Query] Neural query embedding - dimension:', queryEmbedding.length);
       } catch (error) {
         console.error('[Query] Neural embedding failed, using TF-IDF:', error);
         queryEmbedding = generateSimpleEmbedding(query);
-        console.log('[Query] TF-IDF query embedding - dimension:', queryEmbedding.length);
       }
     } else {
-      console.log('[Query] Embeddings not ready, using TF-IDF');
       queryEmbedding = generateSimpleEmbedding(query);
-      console.log('[Query] TF-IDF query embedding - dimension:', queryEmbedding.length);
     }
 
     // Vector search with filter
     const threshold = isInitialized() ? 0.3 : 0.1;
-    console.log('[Query] Searching with threshold:', threshold);
     const results = await vectorDB.search(queryEmbedding, {
       limit: 10,
       filter: filter,
       threshold: threshold
     });
 
-    console.log(`[Query] Found ${results.length} results`);
+    console.log(`[Query] "${query}" - Found ${results.length} results`);
     if (results.length > 0) {
-      console.log('[Query] Top result score:', results[0].score);
+      console.log(`[Query] Top match: ${results[0].title} (${Math.round(results[0].score * 100)}% similarity)`);
     }
     return results;
 

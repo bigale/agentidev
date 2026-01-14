@@ -121,7 +121,6 @@ class VectorDB {
    */
   cosineSimilarity(a, b) {
     if (!a || !b || a.length !== b.length) {
-      console.warn('[VectorDB] Dimension mismatch:', a?.length, 'vs', b?.length);
       return 0;
     }
 

@@ -16,6 +16,11 @@ let debounceTimer = null;
 // Load statistics on startup
 loadStats();
 
+// Refresh stats every 5 seconds
+setInterval(() => {
+  loadStats();
+}, 5000);
+
 // Search on Enter key
 queryInput.addEventListener('keypress', (e) => {
   if (e.key === 'Enter') {
@@ -79,6 +84,9 @@ async function performSearch() {
     } else {
       resultsDiv.innerHTML = '<div class="loading">No results found. Try a different query.</div>';
     }
+
+    // Refresh stats after search
+    loadStats();
   });
 }
 
