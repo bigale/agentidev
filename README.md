@@ -5,9 +5,11 @@
 > "Show me what I was working on last Tuesday about invoice processing"
 > → Get answers in <1 second with complete context.
 
-**One tool. Two modes. Zero compromises.**
-- **Personal Mode**: Your private semantic memory (default)
-- **Enterprise Mode**: Optional team intelligence with privacy-preserving aggregation
+**One tool. Three modes. Zero compromises.**
+- **🔍 Search Mode**: Semantic search across your browsing history
+- **💬 Q&A Mode**: Ask natural language questions with LLM-powered answers
+- **🕷️ Extract Mode**: Intelligent web scraping with automatic pagination
+- **Enterprise Mode**: Optional team intelligence with privacy-preserving aggregation (future)
 
 ---
 
@@ -59,6 +61,14 @@ Contextual Recall automatically captures and indexes everything you view in your
 - "What are the top 10 most-referenced specs?"
 - Identify knowledge gaps and workflow bottlenecks
 - Prioritize documentation improvements
+
+### 🕷️ Intelligent Web Scraping (NEW)
+- **LLM-powered extraction** - Automatically infer schema from any website
+- **Multi-page crawling** - Follow pagination automatically
+- **Token-efficient** - Schema inference once (~1200 tokens), reuse for subsequent pages (~300 tokens)
+- **8 preset templates** - Products, jobs, articles, events, properties, contacts, reviews, tables
+- **Export options** - JSON and CSV export for extracted data
+- **Token budget management** - 3500 token budget allows ~10 pages max
 
 ---
 
@@ -218,20 +228,37 @@ npm run build
 
 ## Roadmap
 
-### Phase 1: Personal Knowledge Recall (Current)
+### Phase 1: Personal Knowledge Recall ✅ **COMPLETE**
 - [x] Architecture design
 - [x] Repository setup
 - [x] Chrome extension MVP ✅ **COMPLETE** (manifest, service worker, offscreen document, sidebar UI)
 - [x] Basic semantic search ✅ **COMPLETE** (all-MiniLM-L6-v2, 384-dim vectors, IndexedDB)
 - [x] Content capture & chunking ✅ **COMPLETE** (DOM-based, automatic indexing)
 - [x] Offscreen + Web Worker architecture ✅ **COMPLETE** (transformers.js working)
-- [ ] **LLM Q&A integration** ← NEXT (Phi-3-mini or Gemma-2B) - [See Task Plan](docs/phase1-llm-task-plan.md)
-- [ ] LanceDB WASM integration (after LLM)
+- [x] LLM Q&A integration ✅ **COMPLETE** (Phi-3-mini, token budget management) - [See Task Plan](docs/phase1-llm-task-plan.md)
+- [ ] LanceDB WASM integration ← NEXT
 - [ ] 10 common iXML grammars (after LanceDB)
 
-**Current Status**: Semantic search working! Next: Add LLM for natural language Q&A.
+**Current Status**: Phase 1 complete! Search, Q&A, and Extract modes working.
 
-**Implementation Time**: 2-3 days for LLM integration
+### Phase 2A: Intelligent Web Scraping ✅ **COMPLETE**
+- [x] Schema inference with LLM ✅ **COMPLETE** (lib/schema-inference.js)
+- [x] Recursive extractor engine ✅ **COMPLETE** (lib/recursive-extractor.js)
+- [x] Multi-page pagination ✅ **COMPLETE** (automatic "Next" button detection)
+- [x] 8 preset templates ✅ **COMPLETE** (products, jobs, articles, events, properties, contacts, reviews, tables)
+- [x] Extract mode UI ✅ **COMPLETE** (sidepanel integration)
+- [x] JSON/CSV export ✅ **COMPLETE**
+
+**Status**: Extract mode ready for testing! [See Testing Guide](docs/phase2a-extract-mode-testing.md)
+
+**Token Budget**: 3500 tokens allows ~10 pages (1200 for first page schema inference, 300 per subsequent page)
+
+### Phase 2B: Advanced Extraction (Future)
+- [ ] Deep link following (extract across linked pages)
+- [ ] Dynamic content handling (wait for AJAX/lazy loading)
+- [ ] Recursive schema refinement (improve schema across pages)
+- [ ] Incremental export (stream results during extraction)
+- [ ] Background extraction (continue in background)
 
 ### Phase 2: Team Collaboration (Q2 2026)
 - [ ] Opt-in metadata sharing
