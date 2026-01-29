@@ -11,6 +11,16 @@
 
 console.log('Contextual Recall: Content script loaded');
 
+// Listen for messages from extension (for extraction mode)
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'GET_PAGE_CONTENT') {
+    // Get page content for extraction
+    const content = getPageContent();
+    sendResponse(content);
+    return true; // Async response
+  }
+});
+
 // Wait for page to be fully loaded
 if (document.readyState === 'complete') {
   capturePage();
@@ -58,4 +68,89 @@ function capturePage() {
       }
     });
   });
+}
+
+/**
+ * Get page content for extraction (cleaner version without scripts/styles)
+ */
+function getPageContent() {
+  // Clone the document to avoid modifying the page
+  const clone = document.documentElement.cloneNode(true);
+
+  // Remove unwanted elements
+  const unwantedSelectors = [
+    'script',
+    'style',
+    'noscript',
+    'iframe',
+    'svg',
+    '.ad', '.ads', '.advertisement',
+    '#ad', '#ads',
+    '[id*="cookie"]',
+    '[class*="cookie"]',
+    'header nav',
+    'footer'
+  ];
+
+  unwantedSelectors.forEach(selector => {
+    try {
+      const elements = clone.querySelectorAll(selector);
+      elements.forEach(el => el.remove());
+    } catch (e) {
+      // Ignore selector errors
+    }
+  });
+
+  // Get clean HTML
+  const cleanHTML = clone.outerHTML;
+
+  // Get visible text
+  const visibleText = document.body.innerText;
+
+  return {
+    url: window.location.href,
+    title: document.title,
+    html: cleanHTML,
+    text: visibleText,
+    timestamp: new Date().toISOString(),
+    metadata: {
+      domain: window.location.hostname,
+      path: window.location.pathname,
+      hasTable: document.querySelector('table') !== null,
+      hasList: document.querySelector('ul, ol') !== null,
+      itemCount: estimateItemCount()
+    }
+  };
+}
+
+/**
+ * Estimate number of items on page (for progress indication)
+ */
+function estimateItemCount() {
+  // Count common item containers
+  const selectors = [
+    'article',
+    '[class*="product"]',
+    '[class*="item"]',
+    '[class*="card"]',
+    '[class*="listing"]',
+    '[class*="result"]',
+    'li'
+  ];
+
+  let maxCount = 0;
+
+  selectors.forEach(selector => {
+    try {
+      const count = document.querySelectorAll(selector).length;
+      if (count > maxCount && count < 1000) {
+        // Ignore if too many (probably not actual items)
+        maxCount = count;
+      }
+    } catch (e) {
+      // Ignore selector errors
+    }
+  });
+
+  return maxCount;
 }

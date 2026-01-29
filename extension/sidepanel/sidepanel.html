@@ -323,7 +323,8 @@
     <!-- Mode Selector -->
     <div class="mode-selector">
       <button id="mode-search" class="mode-btn active">🔍 Search</button>
-      <button id="mode-qa" class="mode-btn">💬 Ask Question</button>
+      <button id="mode-qa" class="mode-btn">💬 Q&A</button>
+      <button id="mode-extract" class="mode-btn">🕷️ Extract</button>
     </div>
 
     <div class="search-box">
@@ -356,6 +357,68 @@
       </div>
 
       <div id="answer-metadata" class="answer-metadata"></div>
+    </div>
+
+    <!-- Extract Container (Extract Mode) -->
+    <div id="extract-container" style="display:none;">
+      <div class="extract-controls">
+        <label for="extract-template" style="font-size: 12px; display: block; margin-bottom: 4px; color: #5f6368;">
+          Template:
+        </label>
+        <select id="extract-template" style="width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;">
+          <option value="products">🛍️ E-commerce Products</option>
+          <option value="jobs">💼 Job Listings</option>
+          <option value="articles">📰 News Articles</option>
+          <option value="events">🎫 Events</option>
+          <option value="properties">🏠 Real Estate</option>
+          <option value="contacts">📞 Contact Information</option>
+          <option value="reviews">⭐ Reviews</option>
+          <option value="table">📊 Data Table</option>
+          <option value="custom">✏️ Custom Extraction</option>
+        </select>
+
+        <label for="extract-prompt" style="font-size: 12px; display: block; margin-bottom: 4px; color: #5f6368;">
+          What to extract:
+        </label>
+        <textarea id="extract-prompt" rows="3" style="width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; resize: vertical;" placeholder="Describe what you want to extract..."></textarea>
+
+        <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #5f6368;">
+            <input type="checkbox" id="extract-pagination" checked>
+            Follow pagination
+          </label>
+          <label style="font-size: 13px; color: #5f6368; display: flex; align-items: center; gap: 6px;">
+            Max pages:
+            <input type="number" id="extract-max-pages" value="10" min="1" max="50" style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;">
+          </label>
+        </div>
+
+        <button id="extract-button" style="width: 100%; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 4px; font-size: 14px; font-weight: 500; cursor: pointer;">
+          🕷️ Extract Now
+        </button>
+      </div>
+
+      <div id="extract-results" style="display:none; margin-top: 16px;">
+        <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h3 style="font-size: 14px; font-weight: 600; color: #202124;">
+              Extracted <span id="extract-item-count">0</span> items
+            </h3>
+            <div style="display: flex; gap: 8px;">
+              <button id="export-json" style="padding: 6px 12px; background: #f1f3f4; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; cursor: pointer;">
+                📋 JSON
+              </button>
+              <button id="export-csv" style="padding: 6px 12px; background: #f1f3f4; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; cursor: pointer;">
+                📊 CSV
+              </button>
+            </div>
+          </div>
+
+          <div id="extract-stats" style="font-size: 11px; color: #5f6368; margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 12px;"></div>
+
+          <div id="extract-preview" style="max-height: 400px; overflow-y: auto; background: #f8f9fa; padding: 12px; border-radius: 4px; font-family: monospace; font-size: 11px; white-space: pre-wrap;"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Search Results (Search Mode) -->

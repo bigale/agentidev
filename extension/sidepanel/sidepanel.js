@@ -12,14 +12,28 @@ const answerText = document.getElementById('answer-text');
 const answerSources = document.getElementById('answer-sources');
 const sourceList = document.getElementById('source-list');
 const answerMetadata = document.getElementById('answer-metadata');
+const extractContainer = document.getElementById('extract-container');
+const extractTemplate = document.getElementById('extract-template');
+const extractPrompt = document.getElementById('extract-prompt');
+const extractPagination = document.getElementById('extract-pagination');
+const extractMaxPages = document.getElementById('extract-max-pages');
+const extractButton = document.getElementById('extract-button');
+const extractResults = document.getElementById('extract-results');
+const extractItemCount = document.getElementById('extract-item-count');
+const extractStats = document.getElementById('extract-stats');
+const extractPreview = document.getElementById('extract-preview');
+const exportJSON = document.getElementById('export-json');
+const exportCSV = document.getElementById('export-csv');
 const filtersDiv = document.getElementById('filters');
 const settingsButton = document.getElementById('settings-button');
 const modeSearchBtn = document.getElementById('mode-search');
 const modeQABtn = document.getElementById('mode-qa');
+const modeExtractBtn = document.getElementById('mode-extract');
 
-let currentMode = 'search'; // 'search' or 'qa'
+let currentMode = 'search'; // 'search', 'qa', or 'extract'
 let currentFilter = 'all';
 let debounceTimer = null;
+let lastExtractionResults = null;
 
 // Load statistics on startup
 loadStats();
@@ -80,6 +94,10 @@ modeQABtn.addEventListener('click', () => {
   setMode('qa');
 });
 
+modeExtractBtn.addEventListener('click', () => {
+  setMode('extract');
+});
+
 function setMode(mode) {
   currentMode = mode;
 
@@ -87,18 +105,111 @@ function setMode(mode) {
     // Activate search mode
     modeSearchBtn.classList.add('active');
     modeQABtn.classList.remove('active');
+    modeExtractBtn.classList.remove('active');
+    queryInput.style.display = 'block';
+    filtersDiv.style.display = 'flex';
     queryInput.placeholder = 'Search your browsing history...';
     answerContainer.style.display = 'none';
+    extractContainer.style.display = 'none';
     resultsDiv.style.display = 'block';
   } else if (mode === 'qa') {
     // Activate Q&A mode
     modeQABtn.classList.add('active');
     modeSearchBtn.classList.remove('active');
+    modeExtractBtn.classList.remove('active');
+    queryInput.style.display = 'block';
+    filtersDiv.style.display = 'flex';
     queryInput.placeholder = 'Ask a question about your history...';
     resultsDiv.style.display = 'none';
+    extractContainer.style.display = 'none';
     answerContainer.style.display = 'block';
+  } else if (mode === 'extract') {
+    // Activate Extract mode
+    modeExtractBtn.classList.add('active');
+    modeSearchBtn.classList.remove('active');
+    modeQABtn.classList.remove('active');
+    queryInput.style.display = 'none';
+    filtersDiv.style.display = 'none';
+    resultsDiv.style.display = 'none';
+    answerContainer.style.display = 'none';
+    extractContainer.style.display = 'block';
   }
 }
+
+// Template selection
+extractTemplate.addEventListener('change', (e) => {
+  const templateId = e.target.value;
+
+  // Update prompt based on template
+  const templates = {
+    'products': 'Extract all products with title, price, currency, rating, review count, image URL, and product URL',
+    'jobs': 'Extract all job listings with title, company, location, salary, job type, posted date, and apply URL',
+    'articles': 'Extract all articles with headline, author, publish date, summary, full text, and article URL',
+    'events': 'Extract all events with title, date, time, location, venue, price, and event URL',
+    'properties': 'Extract all properties with address, price, bedrooms, bathrooms, square footage, and listing URL',
+    'contacts': 'Extract all contacts with name, email, phone, company, title, and address',
+    'reviews': 'Extract all reviews with reviewer name, rating, review text, date, and helpful count',
+    'table': 'Extract all data from the table on this page',
+    'custom': ''
+  };
+
+  extractPrompt.value = templates[templateId] || '';
+  extractPrompt.disabled = templateId !== 'custom';
+});
+
+// Extract button
+extractButton.addEventListener('click', async () => {
+  const prompt = extractPrompt.value.trim();
+
+  if (!prompt) {
+    alert('Please enter an extraction prompt');
+    return;
+  }
+
+  // Show loading state
+  extractButton.disabled = true;
+  extractButton.textContent = '🕷️ Extracting...';
+  extractResults.style.display = 'none';
+
+  // Get current tab
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  // Send extraction request
+  chrome.runtime.sendMessage({
+    type: 'EXTRACT',
+    tabId: tab.id,
+    prompt: prompt,
+    options: {
+      followPagination: extractPagination.checked,
+      maxPages: parseInt(extractMaxPages.value) || 10
+    }
+  }, (response) => {
+    extractButton.disabled = false;
+    extractButton.textContent = '🕷️ Extract Now';
+
+    if (response && response.success) {
+      lastExtractionResults = response;
+      displayExtractionResults(response);
+    } else {
+      alert(`Extraction failed: ${response?.error || 'Unknown error'}`);
+    }
+  });
+});
+
+// Export handlers
+exportJSON.addEventListener('click', () => {
+  if (!lastExtractionResults) return;
+
+  const json = JSON.stringify(lastExtractionResults.items, null, 2);
+  downloadFile(json, 'extraction.json', 'application/json');
+});
+
+exportCSV.addEventListener('click', () => {
+  if (!lastExtractionResults || !lastExtractionResults.schema) return;
+
+  const csv = itemsToCSV(lastExtractionResults.items, lastExtractionResults.schema);
+  downloadFile(csv, 'extraction.csv', 'text/csv');
+});
 
 async function performSearch() {
   const query = queryInput.value.trim();
@@ -324,4 +435,65 @@ function formatBytes(bytes) {
   if (bytes === 0) return '0 MB';
   const mb = bytes / (1024 * 1024);
   return mb.toFixed(1) + ' MB';
+}
+
+function displayExtractionResults(results) {
+  // Show results container
+  extractResults.style.display = 'block';
+
+  // Update item count
+  extractItemCount.textContent = results.items?.length || 0;
+
+  // Display stats
+  const stats = [];
+  if (results.pagesProcessed) {
+    stats.push(`📄 ${results.pagesProcessed} pages`);
+  }
+  if (results.tokensUsed && results.tokenBudget) {
+    const percentUsed = Math.round((results.tokensUsed / results.tokenBudget.total) * 100);
+    stats.push(`🪙 ${results.tokensUsed}/${results.tokenBudget.total} tokens (${percentUsed}%)`);
+  }
+  extractStats.innerHTML = stats.join(' &nbsp;•&nbsp; ');
+
+  // Display preview
+  const preview = JSON.stringify(results.items, null, 2);
+  extractPreview.textContent = preview;
+}
+
+function itemsToCSV(items, schema) {
+  if (!items || items.length === 0 || !schema || !schema.fields) {
+    return '';
+  }
+
+  // Header row
+  const headers = schema.fields.map(f => f.name);
+  let csv = headers.join(',') + '\n';
+
+  // Data rows
+  items.forEach(item => {
+    const row = headers.map(header => {
+      const value = item[header];
+      if (value === null || value === undefined) return '';
+
+      // Escape quotes and wrap in quotes if contains comma or quote
+      const strValue = String(value);
+      if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
+        return '"' + strValue.replace(/"/g, '""') + '"';
+      }
+      return strValue;
+    });
+    csv += row.join(',') + '\n';
+  });
+
+  return csv;
+}
+
+function downloadFile(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }

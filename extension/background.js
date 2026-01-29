@@ -15,6 +15,7 @@ import { vectorDB } from './lib/vectordb.js';
 import { initEmbeddings, generateEmbedding, isInitialized } from './lib/embeddings.js';
 import { initLLM, generateAnswer, estimateTokens, isInitialized as isLLMInitialized } from './lib/llm.js';
 import { TokenBudgetManager } from './lib/token-budget.js';
+import { RecursiveExtractor } from './lib/recursive-extractor.js';
 
 console.log('Contextual Recall: Background service worker started');
 
@@ -113,6 +114,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(error => {
         console.error('[Background] QUERY_LLM error:', error);
         sendResponse({ result: null, error: error.message });
+      });
+    return true; // Async response
+  }
+
+  if (message.type === 'EXTRACT') {
+    handleExtraction(message.tabId, message.prompt, message.options)
+      .then(result => sendResponse(result))
+      .catch(error => {
+        console.error('[Background] EXTRACT error:', error);
+        sendResponse({ success: false, error: error.message, items: [], pagesProcessed: 0 });
       });
     return true; // Async response
   }
@@ -493,4 +504,55 @@ Answer:`;
       llmReady: true
     }
   };
+}
+
+/**
+ * Handle web scraping extraction with LLM
+ */
+async function handleExtraction(tabId, prompt, options = {}) {
+  if (!llmReady) {
+    console.warn('[Extract] LLM not ready');
+    return {
+      success: false,
+      error: 'LLM is still initializing. Please wait and try again.',
+      items: [],
+      pagesProcessed: 0
+    };
+  }
+
+  try {
+    console.log('[Extract] Starting extraction on tab', tabId);
+    console.log('[Extract] Prompt:', prompt);
+    console.log('[Extract] Options:', options);
+
+    // Create LLM interface for extractor
+    const llmInterface = {
+      generate: async (promptText, genOptions = {}) => {
+        return await generateAnswer(promptText, genOptions);
+      }
+    };
+
+    // Create extractor with token budget (3500 tokens - leaving 596 for overhead)
+    const extractor = new RecursiveExtractor(llmInterface, 3500);
+
+    // Run extraction
+    const result = await extractor.extract(tabId, prompt, options);
+
+    console.log('[Extract] Extraction complete:', {
+      success: result.success,
+      items: result.items?.length || 0,
+      pages: result.pagesProcessed
+    });
+
+    return result;
+
+  } catch (error) {
+    console.error('[Extract] Failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      items: [],
+      pagesProcessed: 0
+    };
+  }
 }
