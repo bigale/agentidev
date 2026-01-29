@@ -1,7 +1,7 @@
 /**
  * LLM Module using transformers.js
  *
- * Generates text responses using GPT-2 (default) or other supported models.
+ * Generates text responses using distilGPT-2 (default) or other supported models.
  * Runs locally in the browser (no API calls).
  *
  * Uses Offscreen Document API to create Web Workers (Service Workers can't create Workers directly)
@@ -18,13 +18,13 @@ let currentModel = null;
 
 /**
  * Initialize the LLM model
- * @param {string} modelName - Optional model name (defaults to GPT-2)
+ * @param {string} modelName - Optional model name (defaults to distilgpt2)
  * Supported models:
- * - Xenova/gpt2 (default, ~500MB, well-tested in browsers)
- * - Xenova/distilgpt2 (~300MB, faster but less capable)
- * - Xenova/gpt2-medium (~1.5GB, more capable but slower)
+ * - Xenova/distilgpt2 (default, ~300MB, most reliable in browsers)
+ * - Xenova/gpt2 (~500MB, more capable but heavier)
+ * - Xenova/gpt2-medium (~1.5GB, best quality but slowest)
  */
-export async function initLLM(modelName = 'Xenova/gpt2') {
+export async function initLLM(modelName = 'Xenova/distilgpt2') {
   // If already initializing, return the same promise
   if (initPromise) {
     return initPromise;
@@ -38,8 +38,8 @@ export async function initLLM(modelName = 'Xenova/gpt2') {
   initPromise = (async () => {
     try {
       console.log('[LLM] Initializing model:', modelName);
-      console.log('[LLM] First load will download ~500MB model files...');
-      console.log('[LLM] This may take 30-60 seconds. Please wait...');
+      console.log('[LLM] First load will download ~300MB model files...');
+      console.log('[LLM] This may take 20-40 seconds. Please wait...');
 
       const response = await chrome.runtime.sendMessage({
         type: 'LLM_INIT',

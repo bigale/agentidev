@@ -2,7 +2,7 @@
  * Web Worker for LLM (Text Generation)
  *
  * Runs transformers.js text generation in a separate Web Worker thread.
- * Supports GPT-2 (default), distilGPT-2, and other compatible models.
+ * Supports distilGPT-2 (default), GPT-2, and other compatible models.
  */
 
 let pipeline = null;
@@ -16,7 +16,7 @@ self.addEventListener('message', async (event) => {
   try {
     switch (type) {
       case 'INIT':
-        const modelName = data?.model || 'Xenova/gpt2';
+        const modelName = data?.model || 'Xenova/distilgpt2';
         const success = await initLLM(modelName);
         self.postMessage({ type: 'INIT_RESPONSE', success, model: currentModel, id });
         break;
@@ -56,7 +56,7 @@ self.addEventListener('message', async (event) => {
 
 /**
  * Initialize the LLM model
- * @param {string} modelName - Model identifier (e.g., gpt2, distilgpt2, gpt2-medium)
+ * @param {string} modelName - Model identifier (e.g., distilgpt2, gpt2, gpt2-medium)
  */
 async function initLLM(modelName) {
   if (generator && currentModel === modelName) {
@@ -86,16 +86,12 @@ async function initLLM(modelName) {
     pipeline = pipelineFunc;
 
     console.log(`[LLM Worker] Loading ${modelName}...`);
-    console.log('[LLM Worker] This may take 30-60 seconds on first run (~500MB download)');
+    console.log('[LLM Worker] This may take 20-40 seconds on first run (~300MB download)');
 
-    // Load the text generation model
+    // Load the text generation model (use defaults for maximum compatibility)
     generator = await pipeline(
       'text-generation',
-      modelName,
-      {
-        dtype: 'q4',         // 4-bit quantization for smaller size
-        device: 'wasm'       // WASM backend
-      }
+      modelName
     );
 
     currentModel = modelName;

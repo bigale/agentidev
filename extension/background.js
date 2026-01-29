@@ -40,10 +40,10 @@ let llmReady = false;
       console.warn('[Background] Embeddings failed - using TF-IDF fallback');
     }
 
-    // Initialize LLM in background (slow - downloads ~500MB on first run)
+    // Initialize LLM in background (downloads ~300MB on first run)
     // Note: This runs AFTER embeddings to avoid overwhelming the browser
     console.log('[Background] Starting LLM initialization...');
-    console.log('[Background] This may take 30-60 seconds on first run...');
+    console.log('[Background] This may take 20-40 seconds on first run...');
     llmReady = await initLLM();
     if (llmReady) {
       console.log('[Background] LLM ready - Q&A enabled');
