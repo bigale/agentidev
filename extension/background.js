@@ -391,8 +391,9 @@ async function handleLLMQuery(query, filter = 'all') {
   try {
     console.log('[LLM Query] Processing:', query);
 
-    // Initialize token budget for Qwen2-0.5B-Instruct (4K context)
-    const tokenBudget = new TokenBudgetManager(4096, 500);
+    // Initialize token budget for GPT-2 (1024 context window)
+    // Note: GPT-2 has a smaller context than originally planned, but works reliably
+    const tokenBudget = new TokenBudgetManager(1024, 256);
 
     // 1. Vector search to find relevant chunks
     const searchResults = await handleQuery(query, filter);
@@ -532,8 +533,8 @@ async function handleExtraction(tabId, prompt, options = {}) {
       }
     };
 
-    // Create extractor with token budget (3500 tokens - leaving 596 for overhead)
-    const extractor = new RecursiveExtractor(llmInterface, 3500);
+    // Create extractor with token budget (768 tokens - GPT-2 limit is 1024, leaving 256 for answer)
+    const extractor = new RecursiveExtractor(llmInterface, 768);
 
     // Run extraction
     const result = await extractor.extract(tabId, prompt, options);

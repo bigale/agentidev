@@ -1,7 +1,7 @@
 /**
  * LLM Module using transformers.js
  *
- * Generates text responses using Qwen2-0.5B-Instruct (default) or other supported models.
+ * Generates text responses using GPT-2 (default) or other supported models.
  * Runs locally in the browser (no API calls).
  *
  * Uses Offscreen Document API to create Web Workers (Service Workers can't create Workers directly)
@@ -18,13 +18,13 @@ let currentModel = null;
 
 /**
  * Initialize the LLM model
- * @param {string} modelName - Optional model name (defaults to Qwen2-0.5B-Instruct)
+ * @param {string} modelName - Optional model name (defaults to GPT-2)
  * Supported models:
- * - Xenova/Qwen2-0.5B-Instruct (default, ~500MB, instruction-tuned)
- * - Xenova/gpt2 (~500MB, general purpose)
+ * - Xenova/gpt2 (default, ~500MB, well-tested in browsers)
  * - Xenova/distilgpt2 (~300MB, faster but less capable)
+ * - Xenova/gpt2-medium (~1.5GB, more capable but slower)
  */
-export async function initLLM(modelName = 'Xenova/Qwen2-0.5B-Instruct') {
+export async function initLLM(modelName = 'Xenova/gpt2') {
   // If already initializing, return the same promise
   if (initPromise) {
     return initPromise;

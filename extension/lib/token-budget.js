@@ -1,17 +1,17 @@
 /**
  * Token Budget Manager for LLM Context Window Management
  *
- * Manages token allocation within 4K context window (Qwen2-0.5B-Instruct and similar models).
+ * Manages token allocation within limited context windows.
  * Supports hierarchical budget allocation for recursive queries (Phase 1.5).
  */
 
 export class TokenBudgetManager {
   /**
    * Create a new token budget manager
-   * @param {number} totalBudget - Total tokens available (default 4096 for most small LLMs)
+   * @param {number} totalBudget - Total tokens available (default 1024 for GPT-2)
    * @param {number} reservedForAnswer - Tokens reserved for LLM answer generation
    */
-  constructor(totalBudget = 4096, reservedForAnswer = 500) {
+  constructor(totalBudget = 1024, reservedForAnswer = 256) {
     this.total = totalBudget;
     this.used = 0;
     this.reserved = reservedForAnswer;
