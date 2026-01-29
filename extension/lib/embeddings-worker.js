@@ -61,6 +61,9 @@ async function initEmbeddings() {
     env.allowRemoteModels = true;
     env.useBrowserCache = true;
 
+    // Disable multi-threading to avoid blob: workers (Chrome extension CSP restriction)
+    env.backends.onnx.wasm.numThreads = 1;
+
     pipeline = pipelineFunc;
 
     console.log('[Worker] Loading all-MiniLM-L6-v2 model (384-dim)...');

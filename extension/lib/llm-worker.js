@@ -77,6 +77,9 @@ async function initLLM(modelName) {
     env.allowRemoteModels = true;
     env.useBrowserCache = true;
 
+    // Disable multi-threading to avoid blob: workers (Chrome extension CSP restriction)
+    env.backends.onnx.wasm.numThreads = 1;
+
     pipeline = pipelineFunc;
 
     console.log(`[LLM Worker] Loading ${modelName}...`);
