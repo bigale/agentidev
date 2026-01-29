@@ -80,6 +80,9 @@ async function initLLM(modelName) {
     // Disable multi-threading to avoid blob: workers (Chrome extension CSP restriction)
     env.backends.onnx.wasm.numThreads = 1;
 
+    // Suppress ONNX Runtime warnings (model optimization messages)
+    env.backends.onnx.logLevel = 'error';
+
     pipeline = pipelineFunc;
 
     console.log(`[LLM Worker] Loading ${modelName}...`);

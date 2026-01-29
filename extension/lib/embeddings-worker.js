@@ -64,6 +64,9 @@ async function initEmbeddings() {
     // Disable multi-threading to avoid blob: workers (Chrome extension CSP restriction)
     env.backends.onnx.wasm.numThreads = 1;
 
+    // Suppress ONNX Runtime warnings (model optimization messages)
+    env.backends.onnx.logLevel = 'error';
+
     pipeline = pipelineFunc;
 
     console.log('[Worker] Loading all-MiniLM-L6-v2 model (384-dim)...');
