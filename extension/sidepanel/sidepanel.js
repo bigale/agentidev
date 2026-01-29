@@ -7,9 +7,17 @@
 
 const queryInput = document.getElementById('query-input');
 const resultsDiv = document.getElementById('results');
+const answerContainer = document.getElementById('answer-container');
+const answerText = document.getElementById('answer-text');
+const answerSources = document.getElementById('answer-sources');
+const sourceList = document.getElementById('source-list');
+const answerMetadata = document.getElementById('answer-metadata');
 const filtersDiv = document.getElementById('filters');
 const settingsButton = document.getElementById('settings-button');
+const modeSearchBtn = document.getElementById('mode-search');
+const modeQABtn = document.getElementById('mode-qa');
 
+let currentMode = 'search'; // 'search' or 'qa'
 let currentFilter = 'all';
 let debounceTimer = null;
 
@@ -63,6 +71,35 @@ settingsButton.addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
 
+// Mode selector
+modeSearchBtn.addEventListener('click', () => {
+  setMode('search');
+});
+
+modeQABtn.addEventListener('click', () => {
+  setMode('qa');
+});
+
+function setMode(mode) {
+  currentMode = mode;
+
+  if (mode === 'search') {
+    // Activate search mode
+    modeSearchBtn.classList.add('active');
+    modeQABtn.classList.remove('active');
+    queryInput.placeholder = 'Search your browsing history...';
+    answerContainer.style.display = 'none';
+    resultsDiv.style.display = 'block';
+  } else if (mode === 'qa') {
+    // Activate Q&A mode
+    modeQABtn.classList.add('active');
+    modeSearchBtn.classList.remove('active');
+    queryInput.placeholder = 'Ask a question about your history...';
+    resultsDiv.style.display = 'none';
+    answerContainer.style.display = 'block';
+  }
+}
+
 async function performSearch() {
   const query = queryInput.value.trim();
 
@@ -70,24 +107,46 @@ async function performSearch() {
     return;
   }
 
-  // Show loading
-  resultsDiv.innerHTML = '<div class="loading">Searching...</div>';
+  if (currentMode === 'search') {
+    // Search mode - semantic search
+    resultsDiv.innerHTML = '<div class="loading">Searching...</div>';
 
-  // Send query to background worker with filter
-  chrome.runtime.sendMessage({
-    type: 'QUERY',
-    query: query,
-    filter: currentFilter
-  }, (response) => {
-    if (response && response.results) {
-      displayResults(response.results);
-    } else {
-      resultsDiv.innerHTML = '<div class="loading">No results found. Try a different query.</div>';
-    }
+    chrome.runtime.sendMessage({
+      type: 'QUERY',
+      query: query,
+      filter: currentFilter
+    }, (response) => {
+      if (response && response.results) {
+        displayResults(response.results);
+      } else {
+        resultsDiv.innerHTML = '<div class="loading">No results found. Try a different query.</div>';
+      }
 
-    // Refresh stats after search
-    loadStats();
-  });
+      // Refresh stats after search
+      loadStats();
+    });
+
+  } else if (currentMode === 'qa') {
+    // Q&A mode - LLM-powered Q&A
+    answerText.innerHTML = '<div class="loading"><span class="thinking-spinner"></span>Thinking...</div>';
+    sourceList.innerHTML = '';
+    answerMetadata.innerHTML = '';
+
+    chrome.runtime.sendMessage({
+      type: 'QUERY_LLM',
+      query: query,
+      filter: currentFilter
+    }, (response) => {
+      if (response && response.result) {
+        displayAnswer(response.result);
+      } else {
+        answerText.innerHTML = `<div class="loading">❌ Error: ${response?.error || 'Unknown error'}</div>`;
+      }
+
+      // Refresh stats after query
+      loadStats();
+    });
+  }
 }
 
 function displayResults(results) {
@@ -162,6 +221,69 @@ function displayResults(results) {
 
     resultsDiv.appendChild(item);
   });
+}
+
+function displayAnswer(result) {
+  // Display the LLM-generated answer
+  answerText.textContent = result.answer || 'No answer generated.';
+
+  // Display sources
+  sourceList.innerHTML = '';
+
+  if (result.sources && result.sources.length > 0) {
+    answerSources.style.display = 'block';
+
+    result.sources.forEach((source, i) => {
+      const sourceItem = document.createElement('div');
+      sourceItem.className = 'source-item';
+
+      const title = document.createElement('div');
+      title.className = 'source-title';
+      title.textContent = `[${i + 1}] ${source.title || 'Untitled'}`;
+
+      const url = document.createElement('div');
+      url.className = 'source-url';
+      url.textContent = source.url;
+
+      sourceItem.appendChild(title);
+      sourceItem.appendChild(url);
+
+      // Click handler - open URL
+      sourceItem.addEventListener('click', () => {
+        chrome.tabs.create({ url: source.url });
+      });
+
+      sourceList.appendChild(sourceItem);
+    });
+  } else {
+    answerSources.style.display = 'none';
+  }
+
+  // Display metadata (token usage, generation time, etc.)
+  if (result.metadata) {
+    const meta = result.metadata;
+    const parts = [];
+
+    if (meta.chunksUsed) {
+      parts.push(`📊 ${meta.chunksUsed} sources`);
+    }
+
+    if (meta.tokensUsed && meta.tokensAvailable) {
+      const percentUsed = Math.round((meta.tokensUsed / meta.tokensAvailable) * 100);
+      parts.push(`🪙 ${meta.tokensUsed}/${meta.tokensAvailable} tokens (${percentUsed}%)`);
+    }
+
+    if (meta.generationTimeMs) {
+      const seconds = (meta.generationTimeMs / 1000).toFixed(1);
+      parts.push(`⏱️ ${seconds}s`);
+    }
+
+    if (!meta.llmReady) {
+      parts.push('⚠️ LLM initializing');
+    }
+
+    answerMetadata.innerHTML = parts.join(' &nbsp;•&nbsp; ');
+  }
 }
 
 async function loadStats() {

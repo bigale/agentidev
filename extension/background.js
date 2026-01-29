@@ -13,12 +13,15 @@
 
 import { vectorDB } from './lib/vectordb.js';
 import { initEmbeddings, generateEmbedding, isInitialized } from './lib/embeddings.js';
+import { initLLM, generateAnswer, estimateTokens, isInitialized as isLLMInitialized } from './lib/llm.js';
+import { TokenBudgetManager } from './lib/token-budget.js';
 
 console.log('Contextual Recall: Background service worker started');
 
-// Initialize database and embeddings
+// Initialize database, embeddings, and LLM
 let dbReady = false;
 let embeddingsReady = false;
+let llmReady = false;
 
 (async () => {
   try {
@@ -34,6 +37,17 @@ let embeddingsReady = false;
       console.log('[Background] Embeddings ready - neural search enabled');
     } else {
       console.warn('[Background] Embeddings failed - using TF-IDF fallback');
+    }
+
+    // Initialize LLM in background (slow - downloads ~1.5GB on first run)
+    // Note: This runs AFTER embeddings to avoid overwhelming the browser
+    console.log('[Background] Starting LLM initialization...');
+    console.log('[Background] This may take 1-2 minutes on first run...');
+    llmReady = await initLLM();
+    if (llmReady) {
+      console.log('[Background] LLM ready - Q&A enabled');
+    } else {
+      console.warn('[Background] LLM failed - only search available');
     }
   } catch (error) {
     console.error('[Background] Initialization failed:', error);
@@ -89,6 +103,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(error => {
         console.error('[Background] GET_STATS error:', error);
         sendResponse({ pagesIndexed: 0, storageUsed: 0, queriesToday: 0 });
+      });
+    return true; // Async response
+  }
+
+  if (message.type === 'QUERY_LLM') {
+    handleLLMQuery(message.query, message.filter)
+      .then(result => sendResponse({ result }))
+      .catch(error => {
+        console.error('[Background] QUERY_LLM error:', error);
+        sendResponse({ result: null, error: error.message });
       });
     return true; // Async response
   }
@@ -329,4 +353,144 @@ function simpleHash(str) {
     hash = hash & hash; // Convert to 32-bit integer
   }
   return Math.abs(hash);
+}
+
+/**
+ * Handle LLM-powered Q&A query with token budget management
+ */
+async function handleLLMQuery(query, filter = 'all') {
+  if (!dbReady) {
+    console.warn('[LLM Query] Database not ready');
+    return {
+      answer: 'Database not ready. Please wait a moment and try again.',
+      sources: []
+    };
+  }
+
+  if (!llmReady) {
+    console.warn('[LLM Query] LLM not ready - falling back to search');
+    const searchResults = await handleQuery(query, filter);
+    return {
+      answer: 'LLM is still initializing. Here are the search results instead.',
+      sources: searchResults,
+      metadata: { llmReady: false }
+    };
+  }
+
+  try {
+    console.log('[LLM Query] Processing:', query);
+
+    // Initialize token budget for Phi-3-mini (4K context)
+    const tokenBudget = new TokenBudgetManager(4096, 500);
+
+    // 1. Vector search to find relevant chunks
+    const searchResults = await handleQuery(query, filter);
+
+    if (searchResults.length === 0) {
+      return {
+        answer: 'No relevant content found in your browsing history.',
+        sources: [],
+        metadata: { tokensUsed: 0 }
+      };
+    }
+
+    // 2. Estimate query tokens
+    const queryTokens = await estimateTokens(query);
+    tokenBudget.recordUsage(queryTokens);
+
+    // 3. Determine how many chunks we can afford
+    const maxChunks = tokenBudget.getMaxChunks(500); // Assume 500 tokens per chunk
+    const selectedResults = searchResults.slice(0, Math.min(maxChunks, 5));
+
+    console.log(`[LLM Query] Using ${selectedResults.length} chunks (budget allows ${maxChunks})`);
+
+    // 4. Build context from selected results
+    const contextParts = selectedResults.map((r, i) =>
+      `[Source ${i + 1}] ${r.title}\n${r.text.substring(0, 2000)}`
+    );
+    const context = contextParts.join('\n\n---\n\n');
+
+    // 5. Verify context fits in budget
+    const contextTokens = await estimateTokens(context);
+    console.log(`[LLM Query] Context: ${contextTokens} tokens`);
+
+    if (!tokenBudget.canAfford(contextTokens)) {
+      console.warn('[LLM Query] Context too large, reducing chunks...');
+      // Retry with fewer chunks
+      const reducedResults = searchResults.slice(0, Math.max(1, selectedResults.length - 2));
+      const reducedContext = reducedResults.map((r, i) =>
+        `[Source ${i + 1}] ${r.title}\n${r.text.substring(0, 1500)}`
+      ).join('\n\n---\n\n');
+
+      const reducedContextTokens = await estimateTokens(reducedContext);
+      tokenBudget.recordUsage(reducedContextTokens);
+
+      console.log(`[LLM Query] Reduced to ${reducedResults.length} chunks (${reducedContextTokens} tokens)`);
+
+      return await generateLLMAnswer(query, reducedContext, reducedResults, tokenBudget);
+    }
+
+    tokenBudget.recordUsage(contextTokens);
+
+    // 6. Generate answer with LLM
+    return await generateLLMAnswer(query, context, selectedResults, tokenBudget);
+
+  } catch (error) {
+    console.error('[LLM Query] Failed:', error);
+    return {
+      answer: `Error generating answer: ${error.message}`,
+      sources: [],
+      metadata: { error: error.message }
+    };
+  }
+}
+
+/**
+ * Generate LLM answer with proper prompting
+ */
+async function generateLLMAnswer(query, context, sources, tokenBudget) {
+  // Build prompt
+  const systemPrompt = `You are a helpful assistant that answers questions based on the user's browser history.
+
+Context from the user's browsing history:
+${context}
+
+Question: ${query}
+
+Answer the question using ONLY the information in the context above. If the context doesn't contain enough information, say so. Keep your answer concise (2-3 sentences). Cite sources using [Source N] notation.
+
+Answer:`;
+
+  // Get recommended max tokens based on remaining budget
+  const maxAnswerTokens = tokenBudget.getRecommendedMaxTokens();
+  console.log(`[LLM Query] Generating answer (max ${maxAnswerTokens} tokens)...`);
+
+  // Generate answer
+  const startTime = Date.now();
+  const answer = await generateAnswer(systemPrompt, {
+    max_tokens: maxAnswerTokens,
+    temperature: 0.3
+  });
+  const elapsed = Date.now() - startTime;
+
+  console.log(`[LLM Query] Answer generated in ${elapsed}ms`);
+
+  // Estimate answer tokens
+  const answerTokens = await estimateTokens(answer);
+  tokenBudget.recordUsage(answerTokens);
+
+  const budgetSummary = tokenBudget.getSummary();
+  console.log(`[LLM Query] Final budget: ${budgetSummary.used}/${budgetSummary.total} tokens (${budgetSummary.percentUsed}%)`);
+
+  return {
+    answer: answer,
+    sources: sources,
+    metadata: {
+      tokensUsed: budgetSummary.used,
+      tokensAvailable: budgetSummary.total,
+      chunksUsed: sources.length,
+      generationTimeMs: elapsed,
+      llmReady: true
+    }
+  };
 }

@@ -2,25 +2,44 @@
  * Offscreen Document Script
  *
  * Runs in an offscreen document (hidden page) that CAN create Web Workers.
- * Acts as a bridge between the Service Worker and the embeddings Web Worker.
+ * Acts as a bridge between the Service Worker and the Web Workers.
+ * Manages both embeddings and LLM workers.
  */
 
 console.log('[Offscreen] Offscreen document loaded');
 
-let worker = null;
-let initialized = false;
+// Embeddings worker
+let embeddingsWorker = null;
+let embeddingsInitialized = false;
+
+// LLM worker
+let llmWorker = null;
+let llmInitialized = false;
+
+// Message handling
 let messageId = 0;
-const pendingMessages = new Map();
+const pendingEmbeddingsMessages = new Map();
+const pendingLLMMessages = new Map();
 
 // Listen for messages from Service Worker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // Only handle embeddings-related messages
-  if (!message.type || !message.type.startsWith('EMBEDDINGS_')) {
+  // Handle both embeddings and LLM messages
+  const isEmbeddings = message.type?.startsWith('EMBEDDINGS_');
+  const isLLM = message.type?.startsWith('LLM_');
+
+  if (!isEmbeddings && !isLLM) {
     return false; // Not for us
   }
 
   console.log('[Offscreen] Received message:', message);
   console.log('[Offscreen] Message type:', message?.type);
+
+  // Handle LLM messages
+  if (isLLM) {
+    return handleLLMMessage(message, sendResponse);
+  }
+
+  // Handle embeddings messages (existing code)
 
   if (message.type === 'EMBEDDINGS_INIT') {
     console.log('[Offscreen] Processing EMBEDDINGS_INIT...');
@@ -48,7 +67,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'EMBEDDINGS_STATUS') {
-    sendResponse({ initialized });
+    sendResponse({ initialized: embeddingsInitialized });
     return false;
   }
 
@@ -78,31 +97,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  * Initialize the embeddings Web Worker
  */
 async function initEmbeddings() {
-  if (initialized) {
+  if (embeddingsInitialized) {
     return true;
   }
 
   try {
-    console.log('[Offscreen] Creating Web Worker...');
+    console.log('[Offscreen] Creating Embeddings Web Worker...');
 
     // Create Web Worker (this works in offscreen documents!)
-    worker = new Worker(
+    embeddingsWorker = new Worker(
       chrome.runtime.getURL('lib/embeddings-worker.js'),
       { type: 'module' }
     );
 
     // Set up message handler
-    worker.addEventListener('message', handleWorkerMessage);
-    worker.addEventListener('error', (error) => {
-      console.error('[Offscreen] Worker error:', error);
+    embeddingsWorker.addEventListener('message', handleEmbeddingsWorkerMessage);
+    embeddingsWorker.addEventListener('error', (error) => {
+      console.error('[Offscreen] Embeddings Worker error:', error);
     });
 
     // Initialize the model
     console.log('[Offscreen] Initializing embeddings model...');
-    const success = await sendMessageToWorker('INIT', null);
+    const success = await sendMessageToEmbeddingsWorker('INIT', null);
 
     if (success) {
-      initialized = true;
+      embeddingsInitialized = true;
       console.log('[Offscreen] Embeddings initialized successfully');
     } else {
       console.error('[Offscreen] Embeddings initialization failed');
@@ -111,7 +130,7 @@ async function initEmbeddings() {
     return success;
 
   } catch (error) {
-    console.error('[Offscreen] Failed to initialize:', error);
+    console.error('[Offscreen] Failed to initialize embeddings:', error);
     return false;
   }
 }
@@ -120,54 +139,54 @@ async function initEmbeddings() {
  * Generate embedding for text
  */
 async function generateEmbedding(text) {
-  if (!initialized) {
+  if (!embeddingsInitialized) {
     throw new Error('Embeddings not initialized');
   }
 
-  return await sendMessageToWorker('GENERATE', { text });
+  return await sendMessageToEmbeddingsWorker('GENERATE', { text });
 }
 
 /**
- * Send message to Web Worker and wait for response
+ * Send message to Embeddings Web Worker and wait for response
  */
-function sendMessageToWorker(type, data) {
+function sendMessageToEmbeddingsWorker(type, data) {
   return new Promise((resolve, reject) => {
-    if (!worker) {
-      reject(new Error('Worker not created'));
+    if (!embeddingsWorker) {
+      reject(new Error('Embeddings Worker not created'));
       return;
     }
 
     const id = messageId++;
 
     // Store resolve/reject for this message
-    pendingMessages.set(id, { resolve, reject });
+    pendingEmbeddingsMessages.set(id, { resolve, reject });
 
     // Send message to worker
-    worker.postMessage({ type, data, id });
+    embeddingsWorker.postMessage({ type, data, id });
 
     // Timeout after 60 seconds
     setTimeout(() => {
-      if (pendingMessages.has(id)) {
-        pendingMessages.delete(id);
-        reject(new Error('Worker timeout'));
+      if (pendingEmbeddingsMessages.has(id)) {
+        pendingEmbeddingsMessages.delete(id);
+        reject(new Error('Embeddings Worker timeout'));
       }
     }, 60000);
   });
 }
 
 /**
- * Handle messages from Web Worker
+ * Handle messages from Embeddings Web Worker
  */
-function handleWorkerMessage(event) {
+function handleEmbeddingsWorkerMessage(event) {
   const { type, id, success, embedding, error } = event.data;
 
-  const pending = pendingMessages.get(id);
+  const pending = pendingEmbeddingsMessages.get(id);
   if (!pending) {
-    console.warn('[Offscreen] Received message for unknown ID:', id);
+    console.warn('[Offscreen] Received embeddings message for unknown ID:', id);
     return;
   }
 
-  pendingMessages.delete(id);
+  pendingEmbeddingsMessages.delete(id);
 
   switch (type) {
     case 'INIT_RESPONSE':
@@ -187,4 +206,180 @@ function handleWorkerMessage(event) {
   }
 }
 
-console.log('[Offscreen] Ready to create Web Workers');
+// ============================================================================
+// LLM Functions
+// ============================================================================
+
+/**
+ * Handle LLM messages
+ */
+function handleLLMMessage(message, sendResponse) {
+  if (message.type === 'LLM_INIT') {
+    console.log('[Offscreen] Processing LLM_INIT...');
+    initLLM(message.model)
+      .then(result => {
+        console.log('[Offscreen] LLM init completed:', result);
+        sendResponse(result);
+      })
+      .catch(error => {
+        console.error('[Offscreen] LLM init error:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    return true; // Async response
+  }
+
+  if (message.type === 'LLM_GENERATE') {
+    generateText(message.prompt, message.options)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ text: null, error: error.message }));
+    return true; // Async response
+  }
+
+  if (message.type === 'LLM_ESTIMATE_TOKENS') {
+    estimateTokens(message.text)
+      .then(tokens => sendResponse({ tokens }))
+      .catch(error => sendResponse({ tokens: null, error: error.message }));
+    return true; // Async response
+  }
+
+  if (message.type === 'LLM_STATUS') {
+    sendResponse({ initialized: llmInitialized });
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * Initialize the LLM Web Worker
+ */
+async function initLLM(modelName) {
+  // Don't re-initialize if already initialized with same model
+  if (llmInitialized && llmWorker) {
+    console.log('[Offscreen] LLM already initialized');
+    return { success: true, model: modelName };
+  }
+
+  try {
+    console.log('[Offscreen] Creating LLM Web Worker...');
+
+    // Create LLM Web Worker
+    llmWorker = new Worker(
+      chrome.runtime.getURL('lib/llm-worker.js'),
+      { type: 'module' }
+    );
+
+    // Set up message handler
+    llmWorker.addEventListener('message', handleLLMWorkerMessage);
+    llmWorker.addEventListener('error', (error) => {
+      console.error('[Offscreen] LLM Worker error:', error);
+    });
+
+    // Initialize the model
+    console.log('[Offscreen] Initializing LLM model:', modelName);
+    const success = await sendMessageToLLMWorker('INIT', { model: modelName });
+
+    if (success) {
+      llmInitialized = true;
+      console.log('[Offscreen] LLM initialized successfully');
+      return { success: true, model: modelName };
+    } else {
+      console.error('[Offscreen] LLM initialization failed');
+      return { success: false, error: 'Model initialization failed' };
+    }
+
+  } catch (error) {
+    console.error('[Offscreen] Failed to initialize LLM:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Generate text using LLM
+ */
+async function generateText(prompt, options) {
+  if (!llmInitialized) {
+    throw new Error('LLM not initialized');
+  }
+
+  return await sendMessageToLLMWorker('GENERATE', { prompt, options });
+}
+
+/**
+ * Estimate tokens for text
+ */
+async function estimateTokens(text) {
+  // Can work without LLM initialized (uses simple heuristic)
+  if (!llmWorker) {
+    // Fallback: simple estimation
+    return Math.ceil((text || '').length / 4);
+  }
+
+  return await sendMessageToLLMWorker('ESTIMATE_TOKENS', { text });
+}
+
+/**
+ * Send message to LLM Web Worker and wait for response
+ */
+function sendMessageToLLMWorker(type, data) {
+  return new Promise((resolve, reject) => {
+    if (!llmWorker) {
+      reject(new Error('LLM Worker not created'));
+      return;
+    }
+
+    const id = messageId++;
+
+    // Store resolve/reject for this message
+    pendingLLMMessages.set(id, { resolve, reject });
+
+    // Send message to worker
+    llmWorker.postMessage({ type, data, id });
+
+    // Timeout after 120 seconds (LLM can be slow)
+    setTimeout(() => {
+      if (pendingLLMMessages.has(id)) {
+        pendingLLMMessages.delete(id);
+        reject(new Error('LLM Worker timeout'));
+      }
+    }, 120000);
+  });
+}
+
+/**
+ * Handle messages from LLM Web Worker
+ */
+function handleLLMWorkerMessage(event) {
+  const { type, id, success, text, tokens, tokensUsed, error, model } = event.data;
+
+  const pending = pendingLLMMessages.get(id);
+  if (!pending) {
+    console.warn('[Offscreen] Received LLM message for unknown ID:', id);
+    return;
+  }
+
+  pendingLLMMessages.delete(id);
+
+  switch (type) {
+    case 'INIT_RESPONSE':
+      pending.resolve(success);
+      break;
+
+    case 'GENERATE_RESPONSE':
+      pending.resolve({ text, tokensUsed });
+      break;
+
+    case 'ESTIMATE_RESPONSE':
+      pending.resolve(tokens);
+      break;
+
+    case 'ERROR':
+      pending.reject(new Error(error));
+      break;
+
+    default:
+      pending.reject(new Error(`Unknown response type: ${type}`));
+  }
+}
+
+console.log('[Offscreen] Ready to create Web Workers (Embeddings + LLM)');

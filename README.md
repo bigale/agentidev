@@ -221,12 +221,17 @@ npm run build
 ### Phase 1: Personal Knowledge Recall (Current)
 - [x] Architecture design
 - [x] Repository setup
-- [ ] Chrome extension MVP
-- [ ] LanceDB WASM integration
-- [ ] Basic semantic search
-- [ ] 10 common iXML grammars
+- [x] Chrome extension MVP ✅ **COMPLETE** (manifest, service worker, offscreen document, sidebar UI)
+- [x] Basic semantic search ✅ **COMPLETE** (all-MiniLM-L6-v2, 384-dim vectors, IndexedDB)
+- [x] Content capture & chunking ✅ **COMPLETE** (DOM-based, automatic indexing)
+- [x] Offscreen + Web Worker architecture ✅ **COMPLETE** (transformers.js working)
+- [ ] **LLM Q&A integration** ← NEXT (Phi-3-mini or Gemma-2B) - [See Task Plan](docs/phase1-llm-task-plan.md)
+- [ ] LanceDB WASM integration (after LLM)
+- [ ] 10 common iXML grammars (after LanceDB)
 
-**Target**: 1-month POC with 1,000 pages
+**Current Status**: Semantic search working! Next: Add LLM for natural language Q&A.
+
+**Implementation Time**: 2-3 days for LLM integration
 
 ### Phase 2: Team Collaboration (Q2 2026)
 - [ ] Opt-in metadata sharing

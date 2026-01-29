@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>LLM Benchmark - Phi-3-mini vs Gemma-2B</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 1200px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 { color: #333; }
+    .model-card {
+      background: white;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .model-card h2 { margin-top: 0; color: #4285f4; }
+    button {
+      background: #4285f4;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-right: 10px;
+    }
+    button:hover { background: #3367d6; }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .status {
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    .status.loading { background: #fff3cd; color: #856404; }
+    .status.success { background: #d4edda; color: #155724; }
+    .status.error { background: #f8d7da; color: #721c24; }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      margin: 15px 0;
+    }
+    .metric {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 4px;
+      text-align: center;
+    }
+    .metric-label {
+      font-size: 12px;
+      color: #666;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .metric-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #333;
+    }
+    .output {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      margin: 15px 0;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .recommendation {
+      background: #e7f3ff;
+      border-left: 4px solid #4285f4;
+      padding: 15px;
+      margin: 20px 0;
+    }
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+    }
+    .comparison-table th,
+    .comparison-table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    .comparison-table th {
+      background: #f8f9fa;
+      font-weight: 600;
+    }
+    .winner {
+      background: #d4edda !important;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>🤖 LLM Benchmark: Phi-3-mini vs Gemma-2B</h1>
+
+  <p><strong>Goal:</strong> Test both models to determine which is better for our Chrome extension Q&A feature.</p>
+
+  <p><strong>Test Query:</strong> "What is the ISA segment in EDI X12?"</p>
+
+  <p><strong>Success Criteria:</strong></p>
+  <ul>
+    <li>First load: &lt;30 seconds (includes model download)</li>
+    <li>Inference speed: &gt;3 tokens/second (acceptable quality)</li>
+    <li>Memory: &lt;2GB additional (total ~3.5GB with embeddings)</li>
+    <li>Answer quality: Coherent, relevant response</li>
+  </ul>
+
+  <!-- Phi-3-mini Card -->
+  <div class="model-card">
+    <h2>Phi-3-mini (3.8B parameters)</h2>
+    <p><strong>Size:</strong> ~1.5GB quantized | <strong>From:</strong> Microsoft | <strong>Optimized for:</strong> On-device inference</p>
+
+    <button id="test-phi3" onclick="testPhi3()">🚀 Test Phi-3-mini</button>
+    <button id="benchmark-phi3" onclick="benchmarkPhi3()" disabled>📊 Run Full Benchmark</button>
+
+    <div id="phi3-status"></div>
+
+    <div id="phi3-metrics" style="display:none;">
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-label">Load Time</div>
+          <div class="metric-value" id="phi3-load-time">-</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Tokens/Second</div>
+          <div class="metric-value" id="phi3-tps">-</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Total Time</div>
+          <div class="metric-value" id="phi3-total-time">-</div>
+        </div>
+      </div>
+
+      <h4>Generated Answer:</h4>
+      <div class="output" id="phi3-output"></div>
+    </div>
+  </div>
+
+  <!-- Gemma-2B Card -->
+  <div class="model-card">
+    <h2>Gemma-2B (2B parameters)</h2>
+    <p><strong>Size:</strong> ~1.2GB quantized | <strong>From:</strong> Google | <strong>Optimized for:</strong> Speed and efficiency</p>
+
+    <button id="test-gemma" onclick="testGemma()">🚀 Test Gemma-2B</button>
+    <button id="benchmark-gemma" onclick="benchmarkGemma()" disabled>📊 Run Full Benchmark</button>
+
+    <div id="gemma-status"></div>
+
+    <div id="gemma-metrics" style="display:none;">
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-label">Load Time</div>
+          <div class="metric-value" id="gemma-load-time">-</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Tokens/Second</div>
+          <div class="metric-value" id="gemma-tps">-</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Total Time</div>
+          <div class="metric-value" id="gemma-total-time">-</div>
+        </div>
+      </div>
+
+      <h4>Generated Answer:</h4>
+      <div class="output" id="gemma-output"></div>
+    </div>
+  </div>
+
+  <!-- Comparison -->
+  <div class="model-card" id="comparison" style="display:none;">
+    <h2>📊 Comparison & Recommendation</h2>
+
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>Phi-3-mini (3.8B)</th>
+          <th>Gemma-2B (2B)</th>
+          <th>Winner</th>
+        </tr>
+      </thead>
+      <tbody id="comparison-body">
+      </tbody>
+    </table>
+
+    <div class="recommendation" id="recommendation"></div>
+  </div>
+
+  <script type="module">
+    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+
+    // Configure transformers.js
+    env.allowLocalModels = false;
+    env.allowRemoteModels = true;
+    env.useBrowserCache = true;
+
+    let phi3Pipeline = null;
+    let gemmaPipeline = null;
+
+    const testPrompt = `Question: What is the ISA segment in EDI X12?
+
+Answer (be concise, 2-3 sentences):`;
+
+    const benchmarkPrompts = [
+      `Question: What is the ISA segment in EDI X12?\n\nAnswer:`,
+      `Question: Explain how the N1 loop works in EDI.\n\nAnswer:`,
+      `Question: What is the difference between an 850 and 810 transaction set?\n\nAnswer:`
+    ];
+
+    // Helper to show status
+    function showStatus(elementId, message, type = 'loading') {
+      const el = document.getElementById(elementId);
+      el.innerHTML = `<div class="status ${type}">${message}</div>`;
+    }
+
+    // Helper to format time
+    function formatTime(ms) {
+      if (ms < 1000) return `${Math.round(ms)}ms`;
+      return `${(ms / 1000).toFixed(2)}s`;
+    }
+
+    // Test Phi-3-mini
+    window.testPhi3 = async function() {
+      const startTime = Date.now();
+
+      try {
+        document.getElementById('test-phi3').disabled = true;
+        showStatus('phi3-status', '⏳ Loading Phi-3-mini model (first time: ~1-2 minutes, downloads ~1.5GB)...', 'loading');
+
+        // Load model
+        phi3Pipeline = await pipeline(
+          'text-generation',
+          'Xenova/Phi-3-mini-4k-instruct',
+          {
+            dtype: 'q4',
+            device: 'wasm'
+          }
+        );
+
+        const loadTime = Date.now() - startTime;
+
+        showStatus('phi3-status', `✅ Model loaded in ${formatTime(loadTime)}. Generating answer...`, 'success');
+
+        // Generate answer
+        const inferenceStart = Date.now();
+        const result = await phi3Pipeline(testPrompt, {
+          max_new_tokens: 100,
+          temperature: 0.3,
+          do_sample: false
+        });
+        const inferenceTime = Date.now() - inferenceStart;
+
+        const totalTime = Date.now() - startTime;
+        const generatedText = result[0].generated_text.replace(testPrompt, '').trim();
+        const tokenCount = generatedText.split(/\s+/).length; // Rough token estimate
+        const tps = tokenCount / (inferenceTime / 1000);
+
+        // Update UI
+        document.getElementById('phi3-metrics').style.display = 'block';
+        document.getElementById('phi3-load-time').textContent = formatTime(loadTime);
+        document.getElementById('phi3-tps').textContent = tps.toFixed(1);
+        document.getElementById('phi3-total-time').textContent = formatTime(totalTime);
+        document.getElementById('phi3-output').textContent = generatedText;
+
+        showStatus('phi3-status', `✅ Complete! Load: ${formatTime(loadTime)}, Inference: ${formatTime(inferenceTime)}, ${tps.toFixed(1)} tok/s`, 'success');
+
+        document.getElementById('benchmark-phi3').disabled = false;
+
+        // Store for comparison
+        window.phi3Results = { loadTime, inferenceTime, totalTime, tps, answer: generatedText };
+        checkComparison();
+
+      } catch (error) {
+        showStatus('phi3-status', `❌ Error: ${error.message}`, 'error');
+        document.getElementById('test-phi3').disabled = false;
+        console.error('Phi-3 error:', error);
+      }
+    };
+
+    // Test Gemma-2B
+    window.testGemma = async function() {
+      const startTime = Date.now();
+
+      try {
+        document.getElementById('test-gemma').disabled = true;
+        showStatus('gemma-status', '⏳ Loading Gemma-2B model (first time: ~1-2 minutes, downloads ~1.2GB)...', 'loading');
+
+        // Load model
+        gemmaPipeline = await pipeline(
+          'text-generation',
+          'Xenova/gemma-2b-it',
+          {
+            dtype: 'q4',
+            device: 'wasm'
+          }
+        );
+
+        const loadTime = Date.now() - startTime;
+
+        showStatus('gemma-status', `✅ Model loaded in ${formatTime(loadTime)}. Generating answer...`, 'success');
+
+        // Generate answer
+        const inferenceStart = Date.now();
+        const result = await gemmaPipeline(testPrompt, {
+          max_new_tokens: 100,
+          temperature: 0.3,
+          do_sample: false
+        });
+        const inferenceTime = Date.now() - inferenceStart;
+
+        const totalTime = Date.now() - startTime;
+        const generatedText = result[0].generated_text.replace(testPrompt, '').trim();
+        const tokenCount = generatedText.split(/\s+/).length; // Rough token estimate
+        const tps = tokenCount / (inferenceTime / 1000);
+
+        // Update UI
+        document.getElementById('gemma-metrics').style.display = 'block';
+        document.getElementById('gemma-load-time').textContent = formatTime(loadTime);
+        document.getElementById('gemma-tps').textContent = tps.toFixed(1);
+        document.getElementById('gemma-total-time').textContent = formatTime(totalTime);
+        document.getElementById('gemma-output').textContent = generatedText;
+
+        showStatus('gemma-status', `✅ Complete! Load: ${formatTime(loadTime)}, Inference: ${formatTime(inferenceTime)}, ${tps.toFixed(1)} tok/s`, 'success');
+
+        document.getElementById('benchmark-gemma').disabled = false;
+
+        // Store for comparison
+        window.gemmaResults = { loadTime, inferenceTime, totalTime, tps, answer: generatedText };
+        checkComparison();
+
+      } catch (error) {
+        showStatus('gemma-status', `❌ Error: ${error.message}`, 'error');
+        document.getElementById('test-gemma').disabled = false;
+        console.error('Gemma error:', error);
+      }
+    };
+
+    // Check if we can show comparison
+    function checkComparison() {
+      if (window.phi3Results && window.gemmaResults) {
+        showComparison();
+      }
+    }
+
+    // Show comparison
+    function showComparison() {
+      const phi3 = window.phi3Results;
+      const gemma = window.gemmaResults;
+
+      document.getElementById('comparison').style.display = 'block';
+
+      const tbody = document.getElementById('comparison-body');
+      tbody.innerHTML = `
+        <tr>
+          <td><strong>Load Time</strong></td>
+          <td class="${phi3.loadTime < gemma.loadTime ? 'winner' : ''}">${formatTime(phi3.loadTime)}</td>
+          <td class="${gemma.loadTime < phi3.loadTime ? 'winner' : ''}">${formatTime(gemma.loadTime)}</td>
+          <td>${phi3.loadTime < gemma.loadTime ? 'Phi-3' : 'Gemma'}</td>
+        </tr>
+        <tr>
+          <td><strong>Inference Speed</strong></td>
+          <td class="${phi3.tps > gemma.tps ? 'winner' : ''}">${phi3.tps.toFixed(1)} tok/s</td>
+          <td class="${gemma.tps > phi3.tps ? 'winner' : ''}">${gemma.tps.toFixed(1)} tok/s</td>
+          <td>${phi3.tps > gemma.tps ? 'Phi-3' : 'Gemma'}</td>
+        </tr>
+        <tr>
+          <td><strong>Total Time</strong></td>
+          <td class="${phi3.totalTime < gemma.totalTime ? 'winner' : ''}">${formatTime(phi3.totalTime)}</td>
+          <td class="${gemma.totalTime < phi3.totalTime ? 'winner' : ''}">${formatTime(gemma.totalTime)}</td>
+          <td>${phi3.totalTime < gemma.totalTime ? 'Phi-3' : 'Gemma'}</td>
+        </tr>
+      `;
+
+      // Generate recommendation
+      let recommendation = '';
+
+      if (phi3.tps < 3 && gemma.tps < 3) {
+        recommendation = `
+          <h3>⚠️ Warning: Both models are too slow</h3>
+          <p>Both models are generating &lt;3 tokens/second, which will result in poor user experience (30+ seconds for answers).</p>
+          <p><strong>Recommendation:</strong> Consider using a hybrid approach with cloud API fallback (Claude/GPT) for better quality when online.</p>
+        `;
+      } else if (phi3.tps >= 5) {
+        recommendation = `
+          <h3>✅ Recommendation: Use Phi-3-mini</h3>
+          <p>Phi-3-mini achieves &gt;5 tokens/second, which provides acceptable response times (10-15 seconds for reasonable answers).</p>
+          <p><strong>Benefits:</strong> Better quality (3.8B params vs 2B), acceptable speed, designed for on-device inference.</p>
+          <p><strong>Trade-off:</strong> Slightly larger model size (1.5GB vs 1.2GB) and longer initial load time.</p>
+        `;
+      } else if (gemma.tps >= 5) {
+        recommendation = `
+          <h3>✅ Recommendation: Use Gemma-2B</h3>
+          <p>Gemma-2B achieves &gt;5 tokens/second with smaller model size, providing faster responses and quicker initial load.</p>
+          <p><strong>Benefits:</strong> Faster inference, smaller download (1.2GB vs 1.5GB), faster initial load.</p>
+          <p><strong>Trade-off:</strong> Potentially lower quality answers (2B params vs 3.8B).</p>
+        `;
+      } else if (phi3.tps > gemma.tps) {
+        recommendation = `
+          <h3>⚠️ Marginal: Phi-3-mini slightly better</h3>
+          <p>Phi-3-mini is ${((phi3.tps / gemma.tps - 1) * 100).toFixed(0)}% faster than Gemma-2B, but both are below ideal speed (&lt;5 tok/s).</p>
+          <p><strong>Recommendation:</strong> Use Phi-3-mini but set expectations (15-20 second responses). Consider hybrid cloud fallback.</p>
+        `;
+      } else {
+        recommendation = `
+          <h3>⚠️ Marginal: Gemma-2B slightly better</h3>
+          <p>Gemma-2B is ${((gemma.tps / phi3.tps - 1) * 100).toFixed(0)}% faster than Phi-3-mini, but both are below ideal speed (&lt;5 tok/s).</p>
+          <p><strong>Recommendation:</strong> Use Gemma-2B for better speed. Consider hybrid cloud fallback for quality.</p>
+        `;
+      }
+
+      document.getElementById('recommendation').innerHTML = recommendation;
+
+      // Scroll to comparison
+      document.getElementById('comparison').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // Full benchmark (multiple prompts)
+    window.benchmarkPhi3 = async function() {
+      showStatus('phi3-status', '⏳ Running full benchmark (3 prompts)...', 'loading');
+
+      const results = [];
+      for (let i = 0; i < benchmarkPrompts.length; i++) {
+        const start = Date.now();
+        const result = await phi3Pipeline(benchmarkPrompts[i], {
+          max_new_tokens: 100,
+          temperature: 0.3
+        });
+        const time = Date.now() - start;
+        results.push(time);
+      }
+
+      const avgTime = results.reduce((a, b) => a + b, 0) / results.length;
+      showStatus('phi3-status', `✅ Benchmark complete! Average time: ${formatTime(avgTime)}`, 'success');
+    };
+
+    window.benchmarkGemma = async function() {
+      showStatus('gemma-status', '⏳ Running full benchmark (3 prompts)...', 'loading');
+
+      const results = [];
+      for (let i = 0; i < benchmarkPrompts.length; i++) {
+        const start = Date.now();
+        const result = await gemmaPipeline(benchmarkPrompts[i], {
+          max_new_tokens: 100,
+          temperature: 0.3
+        });
+        const time = Date.now() - start;
+        results.push(time);
+      }
+
+      const avgTime = results.reduce((a, b) => a + b, 0) / results.length;
+      showStatus('gemma-status', `✅ Benchmark complete! Average time: ${formatTime(avgTime)}`, 'success');
+    };
+
+    console.log('LLM Benchmark ready. Click the buttons above to test each model.');
+  </script>
+</body>
+</html>

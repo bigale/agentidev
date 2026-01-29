@@ -196,12 +196,136 @@
     .settings-button:hover {
       opacity: 1;
     }
+
+    /* Q&A Mode Styles */
+    .mode-selector {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+      background: #f1f3f4;
+      border-radius: 8px;
+      padding: 4px;
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 8px 12px;
+      border: none;
+      background: transparent;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      color: #5f6368;
+    }
+
+    .mode-btn:hover {
+      background: #e8eaed;
+    }
+
+    .mode-btn.active {
+      background: white;
+      color: #1a73e8;
+      font-weight: 500;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    #answer-container {
+      display: none;
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    #answer-text {
+      font-size: 14px;
+      line-height: 1.6;
+      color: #3c4043;
+      margin-bottom: 16px;
+      white-space: pre-wrap;
+    }
+
+    #answer-sources {
+      border-top: 1px solid #e0e0e0;
+      padding-top: 12px;
+    }
+
+    #answer-sources h4 {
+      font-size: 13px;
+      margin-bottom: 8px;
+      color: #5f6368;
+    }
+
+    .source-item {
+      padding: 8px 12px;
+      background: #f8f9fa;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .source-item:hover {
+      background: #e8eaed;
+      border-color: #1a73e8;
+    }
+
+    .source-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: #1a73e8;
+      margin-bottom: 4px;
+    }
+
+    .source-url {
+      font-size: 11px;
+      color: #5f6368;
+    }
+
+    .answer-metadata {
+      margin-top: 12px;
+      padding: 8px 12px;
+      background: #f8f9fa;
+      border-radius: 6px;
+      font-size: 11px;
+      color: #5f6368;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .thinking-spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid #1a73e8;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 8px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
   <header>
     <h1>🧠 Contextual Recall</h1>
     <button class="settings-button" id="settings-button" title="Settings">⚙️</button>
+
+    <!-- Mode Selector -->
+    <div class="mode-selector">
+      <button id="mode-search" class="mode-btn active">🔍 Search</button>
+      <button id="mode-qa" class="mode-btn">💬 Ask Question</button>
+    </div>
+
     <div class="search-box">
       <input
         type="text"
@@ -222,6 +346,19 @@
   </div>
 
   <main>
+    <!-- Answer Container (Q&A Mode) -->
+    <div id="answer-container">
+      <div id="answer-text"></div>
+
+      <div id="answer-sources">
+        <h4>Sources:</h4>
+        <div id="source-list"></div>
+      </div>
+
+      <div id="answer-metadata" class="answer-metadata"></div>
+    </div>
+
+    <!-- Search Results (Search Mode) -->
     <div id="results">
       <div class="empty-state">
         <div class="empty-state-icon">🔍</div>
