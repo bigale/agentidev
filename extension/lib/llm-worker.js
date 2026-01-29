@@ -2,7 +2,7 @@
  * Web Worker for LLM (Text Generation)
  *
  * Runs transformers.js text generation in a separate Web Worker thread.
- * Supports Phi-3-mini and Gemma-2B models for local Q&A.
+ * Supports Qwen2-0.5B-Instruct (default), GPT-2, and other compatible models.
  */
 
 let pipeline = null;
@@ -16,7 +16,7 @@ self.addEventListener('message', async (event) => {
   try {
     switch (type) {
       case 'INIT':
-        const modelName = data?.model || 'Xenova/Phi-3-mini-4k-instruct';
+        const modelName = data?.model || 'Xenova/Qwen2-0.5B-Instruct';
         const success = await initLLM(modelName);
         self.postMessage({ type: 'INIT_RESPONSE', success, model: currentModel, id });
         break;
@@ -56,7 +56,7 @@ self.addEventListener('message', async (event) => {
 
 /**
  * Initialize the LLM model
- * @param {string} modelName - Model identifier (Phi-3-mini or Gemma-2B)
+ * @param {string} modelName - Model identifier (e.g., Qwen2-0.5B-Instruct, gpt2, distilgpt2)
  */
 async function initLLM(modelName) {
   if (generator && currentModel === modelName) {
@@ -83,7 +83,7 @@ async function initLLM(modelName) {
     pipeline = pipelineFunc;
 
     console.log(`[LLM Worker] Loading ${modelName}...`);
-    console.log('[LLM Worker] This may take 1-2 minutes on first run (~1.5GB download)');
+    console.log('[LLM Worker] This may take 30-60 seconds on first run (~500MB download)');
 
     // Load the text generation model
     generator = await pipeline(

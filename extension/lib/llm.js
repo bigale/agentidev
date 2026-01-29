@@ -1,7 +1,7 @@
 /**
  * LLM Module using transformers.js
  *
- * Generates text responses using Phi-3-mini or Gemma-2B models.
+ * Generates text responses using Qwen2-0.5B-Instruct (default) or other supported models.
  * Runs locally in the browser (no API calls).
  *
  * Uses Offscreen Document API to create Web Workers (Service Workers can't create Workers directly)
@@ -18,9 +18,13 @@ let currentModel = null;
 
 /**
  * Initialize the LLM model
- * @param {string} modelName - Optional model name (defaults to Phi-3-mini)
+ * @param {string} modelName - Optional model name (defaults to Qwen2-0.5B-Instruct)
+ * Supported models:
+ * - Xenova/Qwen2-0.5B-Instruct (default, ~500MB, instruction-tuned)
+ * - Xenova/gpt2 (~500MB, general purpose)
+ * - Xenova/distilgpt2 (~300MB, faster but less capable)
  */
-export async function initLLM(modelName = 'Xenova/Phi-3-mini-4k-instruct') {
+export async function initLLM(modelName = 'Xenova/Qwen2-0.5B-Instruct') {
   // If already initializing, return the same promise
   if (initPromise) {
     return initPromise;
@@ -34,8 +38,8 @@ export async function initLLM(modelName = 'Xenova/Phi-3-mini-4k-instruct') {
   initPromise = (async () => {
     try {
       console.log('[LLM] Initializing model:', modelName);
-      console.log('[LLM] First load will download ~1.5GB model files...');
-      console.log('[LLM] This may take 1-2 minutes. Please wait...');
+      console.log('[LLM] First load will download ~500MB model files...');
+      console.log('[LLM] This may take 30-60 seconds. Please wait...');
 
       const response = await chrome.runtime.sendMessage({
         type: 'LLM_INIT',

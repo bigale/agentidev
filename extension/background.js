@@ -40,10 +40,10 @@ let llmReady = false;
       console.warn('[Background] Embeddings failed - using TF-IDF fallback');
     }
 
-    // Initialize LLM in background (slow - downloads ~1.5GB on first run)
+    // Initialize LLM in background (slow - downloads ~500MB on first run)
     // Note: This runs AFTER embeddings to avoid overwhelming the browser
     console.log('[Background] Starting LLM initialization...');
-    console.log('[Background] This may take 1-2 minutes on first run...');
+    console.log('[Background] This may take 30-60 seconds on first run...');
     llmReady = await initLLM();
     if (llmReady) {
       console.log('[Background] LLM ready - Q&A enabled');
@@ -391,7 +391,7 @@ async function handleLLMQuery(query, filter = 'all') {
   try {
     console.log('[LLM Query] Processing:', query);
 
-    // Initialize token budget for Phi-3-mini (4K context)
+    // Initialize token budget for Qwen2-0.5B-Instruct (4K context)
     const tokenBudget = new TokenBudgetManager(4096, 500);
 
     // 1. Vector search to find relevant chunks

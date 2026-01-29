@@ -1,14 +1,14 @@
 /**
  * Token Budget Manager for LLM Context Window Management
  *
- * Manages token allocation within Phi-3-mini's 4K context window.
+ * Manages token allocation within 4K context window (Qwen2-0.5B-Instruct and similar models).
  * Supports hierarchical budget allocation for recursive queries (Phase 1.5).
  */
 
 export class TokenBudgetManager {
   /**
    * Create a new token budget manager
-   * @param {number} totalBudget - Total tokens available (default 4096 for Phi-3-mini)
+   * @param {number} totalBudget - Total tokens available (default 4096 for most small LLMs)
    * @param {number} reservedForAnswer - Tokens reserved for LLM answer generation
    */
   constructor(totalBudget = 4096, reservedForAnswer = 500) {
