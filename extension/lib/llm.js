@@ -10,11 +10,35 @@
 let initialized = false;
 let initPromise = null;
 let currentModel = null;
+let offscreenCreated = false;
 
 /**
- * Offscreen document is shared with embeddings module
- * No need to create a new one - it's already created by embeddings.js
+ * Create offscreen document if needed
+ * Shared with embeddings module, but LLM can create it independently
  */
+async function setupOffscreenDocument() {
+  // Check if offscreen document already exists
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL('offscreen.html')]
+  });
+
+  if (existingContexts.length > 0) {
+    offscreenCreated = true;
+    console.log('[LLM] Offscreen document already exists');
+    return;
+  }
+
+  // Create offscreen document
+  await chrome.offscreen.createDocument({
+    url: chrome.runtime.getURL('offscreen.html'),
+    reasons: ['WORKERS'],
+    justification: 'Run transformers.js in Web Worker for LLM text generation'
+  });
+
+  offscreenCreated = true;
+  console.log('[LLM] Offscreen document created');
+}
 
 /**
  * Initialize the LLM model
@@ -37,6 +61,11 @@ export async function initLLM(modelName = 'Xenova/distilgpt2') {
 
   initPromise = (async () => {
     try {
+      console.log('[LLM] Setting up offscreen document...');
+
+      // Create offscreen document (can create Web Workers)
+      await setupOffscreenDocument();
+
       console.log('[LLM] Initializing model:', modelName);
       console.log('[LLM] First load will download ~300MB model files...');
       console.log('[LLM] This may take 20-40 seconds. Please wait...');
