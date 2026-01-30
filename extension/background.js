@@ -465,17 +465,13 @@ async function handleLLMQuery(query, filter = 'all') {
  * Generate LLM answer with proper prompting
  */
 async function generateLLMAnswer(query, context, sources, tokenBudget) {
-  // Build prompt
-  const systemPrompt = `You are a helpful assistant that answers questions based on the user's browser history.
+  // Build prompt optimized for distilGPT-2 (completion-based, not instruction-tuned)
+  // Format as natural text continuation instead of instruction template
+  const systemPrompt = `Here is information from browsing history:
 
-Context from the user's browsing history:
 ${context}
 
-Question: ${query}
-
-Answer the question using ONLY the information in the context above. If the context doesn't contain enough information, say so. Keep your answer concise (2-3 sentences). Cite sources using [Source N] notation.
-
-Answer:`;
+Based on this information, the answer to "${query}" is:`;
 
   // Get recommended max tokens based on remaining budget
   const maxAnswerTokens = tokenBudget.getRecommendedMaxTokens();
@@ -485,21 +481,33 @@ Answer:`;
   const startTime = Date.now();
   const answer = await generateAnswer(systemPrompt, {
     max_tokens: maxAnswerTokens,
-    temperature: 0.3
+    temperature: 0.7,  // Higher temp for more natural responses
+    do_sample: true    // Enable sampling for better quality
   });
   const elapsed = Date.now() - startTime;
 
   console.log(`[LLM Query] Answer generated in ${elapsed}ms`);
+  console.log(`[LLM Query] Raw answer:`, answer.substring(0, 200));
+
+  // Clean up answer (remove prompt repetition artifacts)
+  let cleanAnswer = answer.trim();
+
+  // Remove common repetition patterns from distilGPT-2
+  cleanAnswer = cleanAnswer.split('\n')[0];  // Take only first line/paragraph
+  cleanAnswer = cleanAnswer.replace(/Question:.*$/i, '');  // Remove if it starts repeating
+  cleanAnswer = cleanAnswer.replace(/Answer the question.*$/i, '');
+  cleanAnswer = cleanAnswer.trim();
 
   // Estimate answer tokens
-  const answerTokens = await estimateTokens(answer);
+  const answerTokens = await estimateTokens(cleanAnswer);
   tokenBudget.recordUsage(answerTokens);
 
   const budgetSummary = tokenBudget.getSummary();
   console.log(`[LLM Query] Final budget: ${budgetSummary.used}/${budgetSummary.total} tokens (${budgetSummary.percentUsed}%)`);
+  console.log(`[LLM Query] Clean answer:`, cleanAnswer);
 
   return {
-    answer: answer,
+    answer: cleanAnswer,
     sources: sources,
     metadata: {
       tokensUsed: budgetSummary.used,
