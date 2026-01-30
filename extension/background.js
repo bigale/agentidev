@@ -31,8 +31,8 @@ let llmReady = false;
     dbReady = true;
     console.log('[Background] Vector database initialized');
 
-    // Initialize embeddings in SEPARATE offscreen document
-    console.log('[Background] Starting embeddings initialization (separate offscreen)...');
+    // Initialize embeddings FIRST (fully complete before LLM)
+    console.log('[Background] Starting embeddings initialization...');
     embeddingsReady = await initEmbeddings();
     if (embeddingsReady) {
       console.log('[Background] Embeddings ready - neural search enabled');
@@ -40,8 +40,13 @@ let llmReady = false;
       console.warn('[Background] Embeddings failed - using TF-IDF fallback');
     }
 
-    // Initialize LLM in SEPARATE offscreen document (isolated from embeddings)
-    console.log('[Background] Starting LLM initialization (separate offscreen)...');
+    // CRITICAL: Wait a moment after embeddings before loading LLM
+    // This prevents model conflict when both load simultaneously
+    console.log('[Background] Waiting 2 seconds before LLM initialization...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Initialize LLM SECOND (sequential loading, shared offscreen document)
+    console.log('[Background] Starting LLM initialization (sequential after embeddings)...');
     console.log('[Background] This may take 20-40 seconds on first run...');
     llmReady = await initLLM();
     if (llmReady) {
