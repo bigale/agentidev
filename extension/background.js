@@ -31,8 +31,8 @@ let llmReady = false;
     dbReady = true;
     console.log('[Background] Vector database initialized');
 
-    // Initialize embeddings in background (slow - downloads ~50MB on first run)
-    console.log('[Background] Starting embeddings initialization...');
+    // Initialize embeddings in SEPARATE offscreen document
+    console.log('[Background] Starting embeddings initialization (separate offscreen)...');
     embeddingsReady = await initEmbeddings();
     if (embeddingsReady) {
       console.log('[Background] Embeddings ready - neural search enabled');
@@ -40,22 +40,15 @@ let llmReady = false;
       console.warn('[Background] Embeddings failed - using TF-IDF fallback');
     }
 
-    // DISABLED: LLM initialization causing crashes with transformers.js
-    // TODO: Debug transformers.js ONNX Runtime issues before re-enabling
-    // For now, extension works without Q&A and Extract modes
-    console.log('[Background] LLM initialization DISABLED (causing crashes)');
-    console.log('[Background] Search mode available, Q&A and Extract disabled');
-    llmReady = false;
-
-    // Uncomment to enable LLM (requires fixing transformers.js issues first):
-    // console.log('[Background] Starting LLM initialization...');
-    // console.log('[Background] This may take 20-40 seconds on first run...');
-    // llmReady = await initLLM();
-    // if (llmReady) {
-    //   console.log('[Background] LLM ready - Q&A enabled');
-    // } else {
-    //   console.warn('[Background] LLM failed - only search available');
-    // }
+    // Initialize LLM in SEPARATE offscreen document (isolated from embeddings)
+    console.log('[Background] Starting LLM initialization (separate offscreen)...');
+    console.log('[Background] This may take 20-40 seconds on first run...');
+    llmReady = await initLLM();
+    if (llmReady) {
+      console.log('[Background] LLM ready - Q&A and Extract enabled');
+    } else {
+      console.warn('[Background] LLM failed - Q&A and Extract disabled');
+    }
   } catch (error) {
     console.error('[Background] Initialization failed:', error);
   }

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Contextual Recall - LLM Offscreen Document</title>
+</head>
+<body>
+  <!--
+    Offscreen Document for LLM Web Worker
+
+    Chrome extensions can't create Workers in Service Workers,
+    but they CAN create an offscreen document that creates Workers.
+
+    This document loads transformers.js via Web Worker and handles
+    text generation requests from the service worker.
+  -->
+  <script src="offscreen-llm.js" type="module"></script>
+</body>
+</html>

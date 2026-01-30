@@ -14,13 +14,13 @@ let offscreenCreated = false;
 
 /**
  * Create offscreen document if needed
- * Shared with embeddings module, but LLM can create it independently
+ * Uses dedicated offscreen-llm.html (isolated from embeddings)
  */
 async function setupOffscreenDocument() {
   // Check if offscreen document already exists
   const existingContexts = await chrome.runtime.getContexts({
     contextTypes: ['OFFSCREEN_DOCUMENT'],
-    documentUrls: [chrome.runtime.getURL('offscreen.html')]
+    documentUrls: [chrome.runtime.getURL('offscreen-llm.html')]
   });
 
   if (existingContexts.length > 0) {
@@ -31,13 +31,13 @@ async function setupOffscreenDocument() {
 
   // Create offscreen document
   await chrome.offscreen.createDocument({
-    url: chrome.runtime.getURL('offscreen.html'),
+    url: chrome.runtime.getURL('offscreen-llm.html'),
     reasons: ['WORKERS'],
     justification: 'Run transformers.js in Web Worker for LLM text generation'
   });
 
   offscreenCreated = true;
-  console.log('[LLM] Offscreen document created');
+  console.log('[LLM] Offscreen document created (offscreen-llm.html)');
 }
 
 /**
