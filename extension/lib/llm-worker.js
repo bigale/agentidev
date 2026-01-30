@@ -86,7 +86,8 @@ async function initLLM(modelName) {
     pipeline = pipelineFunc;
 
     console.log(`[LLM Worker] Loading ${modelName}...`);
-    console.log('[LLM Worker] This may take 1-2 minutes on first run (~1GB download)');
+    console.log('[LLM Worker] This may take 2-5 minutes on first run (~1GB download)');
+    console.log('[LLM Worker] Download progress not shown - please wait for completion message');
 
     // Load the text generation model (use defaults for maximum compatibility)
     generator = await pipeline(

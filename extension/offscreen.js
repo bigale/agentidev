@@ -275,17 +275,30 @@ async function initLLM(modelName) {
       console.error('[Offscreen] LLM Worker error:', error);
     });
 
-    // Initialize the model
+    // Initialize the model (this can take 1-5 minutes for TinyLlama)
     console.log('[Offscreen] Initializing LLM model:', modelName);
-    const success = await sendMessageToLLMWorker('INIT', { model: modelName });
+    console.log('[Offscreen] This may take up to 5 minutes on first run...');
 
-    if (success) {
-      llmInitialized = true;
-      console.log('[Offscreen] LLM initialized successfully');
-      return { success: true, model: modelName };
-    } else {
-      console.error('[Offscreen] LLM initialization failed');
-      return { success: false, error: 'Model initialization failed' };
+    // Log progress every 10 seconds to show it's still working
+    const progressInterval = setInterval(() => {
+      console.log('[Offscreen] LLM still loading... (please wait)');
+    }, 10000);
+
+    try {
+      const success = await sendMessageToLLMWorker('INIT', { model: modelName });
+      clearInterval(progressInterval);
+
+      if (success) {
+        llmInitialized = true;
+        console.log('[Offscreen] LLM initialized successfully');
+        return { success: true, model: modelName };
+      } else {
+        console.error('[Offscreen] LLM initialization failed');
+        return { success: false, error: 'Model initialization failed' };
+      }
+    } catch (error) {
+      clearInterval(progressInterval);
+      throw error;
     }
 
   } catch (error) {
@@ -336,13 +349,14 @@ function sendMessageToLLMWorker(type, data) {
     // Send message to worker
     llmWorker.postMessage({ type, data, id });
 
-    // Timeout after 120 seconds (LLM can be slow)
+    // Timeout after 5 minutes for INIT (downloading 1GB model), 2 minutes for generation
+    const timeoutMs = type === 'INIT' ? 300000 : 120000;
     setTimeout(() => {
       if (pendingLLMMessages.has(id)) {
         pendingLLMMessages.delete(id);
-        reject(new Error('LLM Worker timeout'));
+        reject(new Error(`LLM Worker timeout after ${timeoutMs/1000}s`));
       }
-    }, 120000);
+    }, timeoutMs);
   });
 }
 

@@ -68,7 +68,7 @@ export async function initLLM(modelName = 'Xenova/TinyLlama-1.1B-Chat-v1.0') {
 
       console.log('[LLM] Initializing model:', modelName);
       console.log('[LLM] First load will download ~1GB model files...');
-      console.log('[LLM] This may take 1-2 minutes. Please wait...');
+      console.log('[LLM] This may take 2-5 minutes on first run. Please be patient...');
 
       const response = await chrome.runtime.sendMessage({
         type: 'LLM_INIT',

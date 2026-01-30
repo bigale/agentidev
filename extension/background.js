@@ -47,7 +47,8 @@ let llmReady = false;
 
     // Initialize LLM SECOND (sequential loading, shared offscreen document)
     console.log('[Background] Starting LLM initialization (sequential after embeddings)...');
-    console.log('[Background] This may take 1-2 minutes on first run (~1GB download)...');
+    console.log('[Background] This may take 2-5 minutes on first run (~1GB download)...');
+    console.log('[Background] Progress updates will appear in console - please be patient...');
     llmReady = await initLLM();
     if (llmReady) {
       console.log('[Background] LLM ready - Q&A and Extract enabled');
