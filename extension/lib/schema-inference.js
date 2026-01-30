@@ -194,7 +194,18 @@ Response (JSON only):`;
       temperature: 0.1
     });
 
-    const result = JSON.parse(response.trim());
+    console.log('[Schema] LLM response:', response.substring(0, 200));
+
+    // Try to extract JSON from response (LLM might add extra text)
+    let jsonText = response.trim();
+
+    // Look for JSON object {...}
+    const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      jsonText = jsonMatch[0];
+    }
+
+    const result = JSON.parse(jsonText);
 
     if (!result.schema || !result.items) {
       throw new Error('Invalid response: missing schema or items');
@@ -217,7 +228,14 @@ Response (JSON only):`;
 
   } catch (error) {
     console.error('[Schema] Failed to infer and extract:', error);
-    throw error;
+
+    // distilGPT-2 is not instruction-tuned and may not produce valid JSON
+    // Return empty result with helpful error
+    return {
+      schema: { fields: [] },
+      items: [],
+      error: 'LLM failed to generate valid JSON. distilGPT-2 is not optimized for structured extraction. Try Q&A mode instead, or use a larger instruction-tuned model.'
+    };
   }
 }
 
