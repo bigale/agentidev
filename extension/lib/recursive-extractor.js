@@ -267,6 +267,30 @@ Response (URL or NONE):`;
    */
   async fetchPageContent(tabId) {
     try {
+      // First, try to send message to existing content script
+      try {
+        const response = await chrome.tabs.sendMessage(tabId, {
+          type: 'GET_PAGE_CONTENT'
+        });
+
+        if (response && response.html) {
+          return response;
+        }
+      } catch (e) {
+        // Content script not injected, will inject below
+        console.log('[Extractor] Content script not found, injecting...');
+      }
+
+      // Content script not present - inject it programmatically
+      await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        files: ['content.js']
+      });
+
+      // Wait a moment for script to initialize
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Try again
       const response = await chrome.tabs.sendMessage(tabId, {
         type: 'GET_PAGE_CONTENT'
       });

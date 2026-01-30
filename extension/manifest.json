@@ -9,7 +9,8 @@
     "webNavigation",
     "unlimitedStorage",
     "sidePanel",
-    "offscreen"
+    "offscreen",
+    "scripting"
   ],
   "host_permissions": [
     "<all_urls>"
