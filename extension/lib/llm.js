@@ -1,7 +1,7 @@
 /**
  * LLM Module using transformers.js
  *
- * Generates text responses using distilGPT-2 (default) or other supported models.
+ * Generates text responses using TinyLlama-1.1B-Chat-v1.0 (default) or other supported models.
  * Runs locally in the browser (no API calls).
  *
  * Uses Offscreen Document API to create Web Workers (Service Workers can't create Workers directly)
@@ -42,13 +42,13 @@ async function setupOffscreenDocument() {
 
 /**
  * Initialize the LLM model
- * @param {string} modelName - Optional model name (defaults to distilgpt2)
+ * @param {string} modelName - Optional model name (defaults to TinyLlama)
  * Supported models:
- * - Xenova/distilgpt2 (default, ~300MB, most reliable in browsers)
- * - Xenova/gpt2 (~500MB, more capable but heavier)
- * - Xenova/gpt2-medium (~1.5GB, best quality but slowest)
+ * - Xenova/TinyLlama-1.1B-Chat-v1.0 (default, ~1GB, instruction-tuned for chat/Q&A)
+ * - Xenova/Qwen2-0.5B-Instruct (~500MB, 4K context, instruction-tuned)
+ * - Xenova/distilgpt2 (~300MB, basic completion model)
  */
-export async function initLLM(modelName = 'Xenova/distilgpt2') {
+export async function initLLM(modelName = 'Xenova/TinyLlama-1.1B-Chat-v1.0') {
   // If already initializing, return the same promise
   if (initPromise) {
     return initPromise;
@@ -67,8 +67,8 @@ export async function initLLM(modelName = 'Xenova/distilgpt2') {
       await setupOffscreenDocument();
 
       console.log('[LLM] Initializing model:', modelName);
-      console.log('[LLM] First load will download ~300MB model files...');
-      console.log('[LLM] This may take 20-40 seconds. Please wait...');
+      console.log('[LLM] First load will download ~1GB model files...');
+      console.log('[LLM] This may take 1-2 minutes. Please wait...');
 
       const response = await chrome.runtime.sendMessage({
         type: 'LLM_INIT',

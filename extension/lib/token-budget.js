@@ -8,10 +8,10 @@
 export class TokenBudgetManager {
   /**
    * Create a new token budget manager
-   * @param {number} totalBudget - Total tokens available (default 1024 for GPT-2)
+   * @param {number} totalBudget - Total tokens available (default 2048 for TinyLlama)
    * @param {number} reservedForAnswer - Tokens reserved for LLM answer generation
    */
-  constructor(totalBudget = 1024, reservedForAnswer = 256) {
+  constructor(totalBudget = 2048, reservedForAnswer = 512) {
     this.total = totalBudget;
     this.used = 0;
     this.reserved = reservedForAnswer;

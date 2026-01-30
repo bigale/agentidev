@@ -47,7 +47,7 @@ let llmReady = false;
 
     // Initialize LLM SECOND (sequential loading, shared offscreen document)
     console.log('[Background] Starting LLM initialization (sequential after embeddings)...');
-    console.log('[Background] This may take 20-40 seconds on first run...');
+    console.log('[Background] This may take 1-2 minutes on first run (~1GB download)...');
     llmReady = await initLLM();
     if (llmReady) {
       console.log('[Background] LLM ready - Q&A and Extract enabled');
@@ -395,9 +395,8 @@ async function handleLLMQuery(query, filter = 'all') {
   try {
     console.log('[LLM Query] Processing:', query);
 
-    // Initialize token budget for GPT-2 (1024 context window)
-    // Note: GPT-2 has a smaller context than originally planned, but works reliably
-    const tokenBudget = new TokenBudgetManager(1024, 256);
+    // Initialize token budget for TinyLlama (2048 context window)
+    const tokenBudget = new TokenBudgetManager(2048, 512);
 
     // 1. Vector search to find relevant chunks
     const searchResults = await handleQuery(query, filter);
@@ -465,13 +464,17 @@ async function handleLLMQuery(query, filter = 'all') {
  * Generate LLM answer with proper prompting
  */
 async function generateLLMAnswer(query, context, sources, tokenBudget) {
-  // Build prompt optimized for distilGPT-2 (completion-based, not instruction-tuned)
-  // Format as natural text continuation instead of instruction template
-  const systemPrompt = `Here is information from browsing history:
+  // Build prompt for instruction-tuned model (TinyLlama)
+  const systemPrompt = `You are a helpful assistant that answers questions based on the user's browser history.
 
+Context from the user's browsing history:
 ${context}
 
-Based on this information, the answer to "${query}" is:`;
+Question: ${query}
+
+Answer the question using ONLY the information in the context above. If the context doesn't contain enough information, say so. Keep your answer concise (2-3 sentences). Cite sources using [Source N] notation.
+
+Answer:`;
 
   // Get recommended max tokens based on remaining budget
   const maxAnswerTokens = tokenBudget.getRecommendedMaxTokens();
@@ -481,8 +484,8 @@ Based on this information, the answer to "${query}" is:`;
   const startTime = Date.now();
   const answer = await generateAnswer(systemPrompt, {
     max_tokens: maxAnswerTokens,
-    temperature: 0.7,  // Higher temp for more natural responses
-    do_sample: true    // Enable sampling for better quality
+    temperature: 0.3,  // Low temp for factual responses
+    do_sample: false   // Greedy decoding for consistency
   });
   const elapsed = Date.now() - startTime;
 
@@ -545,8 +548,8 @@ async function handleExtraction(tabId, prompt, options = {}) {
       }
     };
 
-    // Create extractor with token budget (768 tokens - GPT-2 limit is 1024, leaving 256 for answer)
-    const extractor = new RecursiveExtractor(llmInterface, 768);
+    // Create extractor with token budget (1536 tokens - TinyLlama limit is 2048, leaving 512 for answer)
+    const extractor = new RecursiveExtractor(llmInterface, 1536);
 
     // Run extraction
     const result = await extractor.extract(tabId, prompt, options);
