@@ -136,13 +136,39 @@ async function generateText(prompt, options = {}) {
   const elapsed = Date.now() - startTime;
   console.log(`[LLM Worker] Generated in ${elapsed}ms`);
 
-  // Extract generated text (remove input prompt)
-  const generatedText = result[0].generated_text;
+  // Log result structure for debugging
+  console.log(`[LLM Worker] Result structure:`, {
+    isArray: Array.isArray(result),
+    length: result?.length,
+    hasGeneratedText: result?.[0]?.generated_text !== undefined,
+    firstKey: result?.[0] ? Object.keys(result[0])[0] : null
+  });
+
+  // Extract generated text (handle different response formats)
+  let generatedText;
+
+  if (Array.isArray(result) && result[0]?.generated_text) {
+    generatedText = result[0].generated_text;
+  } else if (result?.generated_text) {
+    generatedText = result.generated_text;
+  } else if (typeof result === 'string') {
+    generatedText = result;
+  } else {
+    console.error('[LLM Worker] Unexpected result format:', result);
+    throw new Error('Unexpected LLM response format');
+  }
+
+  console.log(`[LLM Worker] Generated text length: ${generatedText?.length || 0}`);
+  console.log(`[LLM Worker] Prompt length: ${prompt.length}`);
+  console.log(`[LLM Worker] Generated text preview:`, generatedText?.substring(0, 200));
 
   // Try to extract only the new text (after the prompt)
   let output = generatedText;
-  if (generatedText.startsWith(prompt)) {
+  if (generatedText && generatedText.length > prompt.length && generatedText.startsWith(prompt)) {
     output = generatedText.slice(prompt.length).trim();
+    console.log(`[LLM Worker] Removed prompt, output length: ${output.length}`);
+  } else {
+    console.log(`[LLM Worker] Using full generated text as output`);
   }
 
   return output;
