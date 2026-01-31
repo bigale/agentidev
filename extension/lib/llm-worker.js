@@ -123,15 +123,26 @@ async function generateText(prompt, options = {}) {
   } = options;
 
   console.log(`[LLM Worker] Generating (max ${max_new_tokens} tokens)...`);
+  console.log(`[LLM Worker] Prompt length: ${prompt.length} chars`);
+  console.log(`[LLM Worker] Prompt preview:`, prompt.substring(0, 200));
 
   // Generate text
   const startTime = Date.now();
-  const result = await generator(prompt, {
-    max_new_tokens,
-    temperature,
-    do_sample,
-    top_p
-  });
+  let result;
+
+  try {
+    result = await generator(prompt, {
+      max_new_tokens,
+      temperature,
+      do_sample,
+      top_p
+    });
+  } catch (error) {
+    console.error(`[LLM Worker] Generation failed:`, error);
+    console.error(`[LLM Worker] Error message:`, error.message);
+    console.error(`[LLM Worker] Error stack:`, error.stack);
+    throw error;
+  }
 
   const elapsed = Date.now() - startTime;
   console.log(`[LLM Worker] Generated in ${elapsed}ms`);
