@@ -91,15 +91,34 @@ export async function checkAvailability() {
     console.log('[Chrome Prompt API] LanguageModel.create type:', typeof LM.create);
 
     // Check availability status
-    console.log('[Chrome Prompt API] Calling LM.availability()...');
-    const availability = await LM.availability();
-    console.log('[Chrome Prompt API] ✓ availability() returned:', availability);
-    console.log('[Chrome Prompt API] availability type:', typeof availability);
+    let availability;
+
+    console.log('[Chrome Prompt API] >>> About to call LM.availability() <<<');
+
+    try {
+      availability = await LM.availability();
+      console.log('[Chrome Prompt API] >>> LM.availability() call succeeded <<<');
+      console.log('[Chrome Prompt API] ✓ availability() returned:', availability);
+      console.log('[Chrome Prompt API] availability type:', typeof availability);
+      console.log('[Chrome Prompt API] availability stringified:', JSON.stringify(availability));
+    } catch (availError) {
+      console.error('[Chrome Prompt API] >>> LM.availability() threw an error <<<');
+      console.error('[Chrome Prompt API] Error:', availError);
+      console.error('[Chrome Prompt API] Error message:', availError.message);
+      console.error('[Chrome Prompt API] Error stack:', availError.stack);
+      throw availError; // Re-throw to outer catch
+    }
+
+    console.log('[Chrome Prompt API] >>> After availability() call <<<');
 
     // Possible values: 'readily', 'downloadable' (Chrome 144+), 'after-download' (older), 'no'
     isAvailable = (availability === 'readily' || availability === 'downloadable' || availability === 'after-download');
     availabilityChecked = true;
 
+    console.log('[Chrome Prompt API] Checking availability value against known values...');
+    console.log('[Chrome Prompt API] availability === "readily":', availability === 'readily');
+    console.log('[Chrome Prompt API] availability === "downloadable":', availability === 'downloadable');
+    console.log('[Chrome Prompt API] availability === "after-download":', availability === 'after-download');
     console.log('[Chrome Prompt API] Computed isAvailable:', isAvailable);
 
     if (availability === 'downloadable' || availability === 'after-download') {
