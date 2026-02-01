@@ -41,11 +41,16 @@ let llmReady = false;
       console.warn('[Background] Embeddings failed - using TF-IDF fallback');
     }
 
+    console.log('[Background] Embeddings complete, starting Chrome Prompt API init...');
+
     // Initialize Chrome Prompt API (Gemini Nano)
     console.log('[Background] Checking Chrome Prompt API availability...');
+    console.log('[Background] checkAvailability function:', typeof checkAvailability);
 
     try {
+      console.log('[Background] Calling checkAvailability()...');
       const apiAvailable = await checkAvailability();
+      console.log('[Background] checkAvailability returned:', apiAvailable);
 
       if (apiAvailable) {
         console.log('[Background] Chrome Prompt API available - initializing Gemini Nano...');
@@ -406,14 +411,31 @@ async function handleLLMQuery(query, filter = 'all') {
     };
   }
 
+  // Check if LLM is ready, if not try to initialize
   if (!llmReady) {
-    console.warn('[LLM Query] LLM not ready - falling back to search');
-    const searchResults = await handleQuery(query, filter);
-    return {
-      answer: 'LLM is still initializing. Here are the search results instead.',
-      sources: searchResults,
-      metadata: { llmReady: false }
-    };
+    console.log('[LLM Query] Gemini Nano not ready, attempting to initialize...');
+
+    try {
+      const apiAvailable = await checkAvailability();
+      if (apiAvailable) {
+        llmReady = await initSession();
+      }
+    } catch (error) {
+      console.error('[LLM Query] Initialization error:', error);
+    }
+
+    // If still not ready after initialization attempt, fallback to search
+    if (!llmReady) {
+      console.warn('[LLM Query] LLM not available - falling back to search');
+      const searchResults = await handleQuery(query, filter);
+      return {
+        answer: 'Gemini Nano not available. Here are the search results instead.',
+        sources: searchResults,
+        metadata: { llmReady: false }
+      };
+    }
+
+    console.log('[LLM Query] Gemini Nano initialized successfully');
   }
 
   try {
@@ -552,14 +574,30 @@ Answer:`;
  * Handle web scraping extraction with LLM
  */
 async function handleExtraction(tabId, prompt, options = {}) {
+  // Check if LLM is ready, if not try to initialize
   if (!llmReady) {
-    console.warn('[Extract] LLM not ready');
-    return {
-      success: false,
-      error: 'LLM is still initializing. Please wait and try again.',
-      items: [],
-      pagesProcessed: 0
-    };
+    console.log('[Extract] Gemini Nano not ready, attempting to initialize...');
+
+    try {
+      const apiAvailable = await checkAvailability();
+      if (apiAvailable) {
+        llmReady = await initSession();
+      }
+    } catch (error) {
+      console.error('[Extract] Initialization error:', error);
+    }
+
+    if (!llmReady) {
+      console.warn('[Extract] Gemini Nano not available');
+      return {
+        success: false,
+        error: 'Gemini Nano not available. Requires Chrome 138+ with flag enabled.',
+        items: [],
+        pagesProcessed: 0
+      };
+    }
+
+    console.log('[Extract] Gemini Nano initialized successfully');
   }
 
   try {
@@ -609,11 +647,37 @@ async function handleAgentFormFill(sourceUrl, targetUrl) {
   console.log('[Agent] Source:', sourceUrl);
   console.log('[Agent] Target:', targetUrl);
 
+  // Check if LLM is ready, if not try to initialize
   if (!llmReady) {
-    return {
-      success: false,
-      error: 'Gemini Nano not ready. Please wait for initialization.'
-    };
+    console.log('[Agent] Gemini Nano not ready, attempting to initialize...');
+
+    try {
+      const apiAvailable = await checkAvailability();
+      if (apiAvailable) {
+        console.log('[Agent] Chrome Prompt API available, creating session...');
+        llmReady = await initSession();
+
+        if (!llmReady) {
+          return {
+            success: false,
+            error: 'Failed to initialize Gemini Nano. Please check console for details.'
+          };
+        }
+
+        console.log('[Agent] Gemini Nano initialized successfully');
+      } else {
+        return {
+          success: false,
+          error: 'Chrome Prompt API not available. Requires Chrome 138+ with flag enabled.'
+        };
+      }
+    } catch (error) {
+      console.error('[Agent] Initialization error:', error);
+      return {
+        success: false,
+        error: `Initialization failed: ${error.message}`
+      };
+    }
   }
 
   try {
