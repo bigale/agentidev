@@ -172,27 +172,27 @@ export async function inferAndExtract(html, userPrompt, llmGenerate) {
   // Truncate HTML
   const truncatedHTML = html.substring(0, 4000);
 
-  const prompt = `<|system|>
-You are a data extraction assistant. Extract structured data from HTML and return valid JSON only.
-<|end|>
-<|user|>
-Extract data from this HTML based on the user's request.
+  const prompt = `You are a data extraction assistant. Extract structured data from HTML and return valid JSON.
 
-User wants to extract: "${userPrompt}"
+Task: ${userPrompt}
 
-HTML:
+HTML to analyze:
 ${truncatedHTML}
 
-First, determine what fields to extract. Then extract ALL matching items.
-Return ONLY a valid JSON object with:
-- "schema": array of field definitions [{"name": "...", "type": "..."}]
-- "items": array of extracted objects
+Instructions:
+1. Determine what fields to extract based on the task
+2. Extract ALL matching items from the HTML
+3. Return ONLY a valid JSON object (no other text)
+
+Required JSON format:
+{
+  "schema": [{"name": "field1", "type": "string"}, {"name": "field2", "type": "number"}],
+  "items": [{...extracted data...}, {...}, ...]
+}
 
 Supported types: string, number, boolean, array
 
-Return ONLY the JSON object, no other text.
-<|end|>
-<|assistant|>`;
+JSON output:`;
 
   try {
     const response = await llmGenerate(prompt, {
@@ -202,13 +202,19 @@ Return ONLY the JSON object, no other text.
 
     console.log('[Schema] LLM response:', response.substring(0, 200));
 
-    // Try to extract JSON from response (LLM might add extra text or chat markers)
+    // Try to extract JSON from response (Gemini Nano should return clean JSON)
     let jsonText = response.trim();
 
-    // Remove chat template markers
-    jsonText = jsonText.replace(/<\|assistant\|>/g, '');
-    jsonText = jsonText.replace(/<\|end\|>/g, '');
-    jsonText = jsonText.replace(/<\|user\|>[\s\S]*/g, '');
+    // Remove common prefixes if present
+    if (jsonText.startsWith('JSON output:')) {
+      jsonText = jsonText.substring(12).trim();
+    }
+    if (jsonText.startsWith('```json')) {
+      jsonText = jsonText.substring(7).trim();
+    }
+    if (jsonText.endsWith('```')) {
+      jsonText = jsonText.substring(0, jsonText.length - 3).trim();
+    }
 
     // Look for JSON object {...}
     const jsonMatch = jsonText.match(/\{[\s\S]*\}/);

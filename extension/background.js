@@ -13,7 +13,7 @@
 
 import { vectorDB } from './lib/vectordb.js';
 import { initEmbeddings, generateEmbedding, isInitialized } from './lib/embeddings.js';
-import { initLLM, generateAnswer, estimateTokens, isInitialized as isLLMInitialized } from './lib/llm.js';
+import { checkAvailability, initSession, generateText, generateJSON, estimateTokens, getStatus } from './lib/chrome-prompt-api.js';
 import { TokenBudgetManager } from './lib/token-budget.js';
 import { RecursiveExtractor } from './lib/recursive-extractor.js';
 
@@ -40,20 +40,26 @@ let llmReady = false;
       console.warn('[Background] Embeddings failed - using TF-IDF fallback');
     }
 
-    // CRITICAL: Wait a moment after embeddings before loading LLM
-    // This prevents model conflict when both load simultaneously
-    console.log('[Background] Waiting 2 seconds before LLM initialization...');
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Initialize Chrome Prompt API (Gemini Nano)
+    console.log('[Background] Checking Chrome Prompt API availability...');
+    const apiAvailable = await checkAvailability();
 
-    // Initialize LLM SECOND (sequential loading, shared offscreen document)
-    console.log('[Background] Starting LLM initialization (sequential after embeddings)...');
-    console.log('[Background] This may take 3-7 minutes on first run (~2.5GB download)...');
-    console.log('[Background] Progress updates will appear in console - please be patient...');
-    llmReady = await initLLM();
-    if (llmReady) {
-      console.log('[Background] LLM ready - Q&A and Extract enabled');
+    if (apiAvailable) {
+      console.log('[Background] Chrome Prompt API available - initializing Gemini Nano...');
+      console.log('[Background] First use may take 1-3 minutes to download model (~5GB)...');
+      llmReady = await initSession();
+
+      if (llmReady) {
+        console.log('[Background] Gemini Nano ready - Q&A and Extract enabled');
+        const status = getStatus();
+        console.log('[Background] Model:', status.model, '| Context:', status.contextWindow, 'tokens');
+      } else {
+        console.warn('[Background] Gemini Nano initialization failed - Q&A and Extract disabled');
+      }
     } else {
-      console.warn('[Background] LLM failed - Q&A and Extract disabled');
+      console.warn('[Background] Chrome Prompt API not available (Chrome 138+ required)');
+      console.warn('[Background] Q&A and Extract modes disabled');
+      console.warn('[Background] Search mode still works with embeddings');
     }
   } catch (error) {
     console.error('[Background] Initialization failed:', error);
@@ -396,8 +402,8 @@ async function handleLLMQuery(query, filter = 'all') {
   try {
     console.log('[LLM Query] Processing:', query);
 
-    // Initialize token budget for Phi-3-mini (4096 context window)
-    const tokenBudget = new TokenBudgetManager(4096, 512);
+    // Initialize token budget for Gemini Nano (6000 context window)
+    const tokenBudget = new TokenBudgetManager(6000, 768);
 
     // 1. Vector search to find relevant chunks
     const searchResults = await handleQuery(query, filter);
@@ -465,56 +471,47 @@ async function handleLLMQuery(query, filter = 'all') {
  * Generate LLM answer with proper prompting
  */
 async function generateLLMAnswer(query, context, sources, tokenBudget) {
-  // Build prompt for instruction-tuned model (Phi-3-mini)
-  const systemPrompt = `<|system|>
-You are a helpful AI assistant that answers questions based on the user's browser history. Use ONLY the information provided in the context. Keep answers concise (2-3 sentences). Cite sources using [Source N] notation.
-<|end|>
-<|user|>
-Context from browser history:
+  // Build prompt for Gemini Nano (instruction-tuned model)
+  // Gemini Nano works well with clear, simple instructions
+  const systemPrompt = `You are a helpful AI assistant that answers questions based on the user's browsing history.
+
+Context from browsing history:
 ${context}
 
 Question: ${query}
-<|end|>
-<|assistant|>`;
+
+Instructions:
+- Answer using ONLY the information in the context above
+- Keep your answer concise (2-3 sentences)
+- Cite sources using [Source N] notation
+- If the context doesn't contain enough information, say so
+
+Answer:`;
 
   // Get recommended max tokens based on remaining budget
   const maxAnswerTokens = tokenBudget.getRecommendedMaxTokens();
-  console.log(`[LLM Query] Generating answer (max ${maxAnswerTokens} tokens)...`);
+  console.log(`[LLM Query] Generating answer (budget allows ${maxAnswerTokens} tokens)...`);
 
-  // Generate answer
+  // Generate answer using Chrome Prompt API
   const startTime = Date.now();
-  const answer = await generateAnswer(systemPrompt, {
-    max_tokens: maxAnswerTokens,
-    temperature: 0.3,  // Low temp for factual responses
-    do_sample: false   // Greedy decoding for consistency
+  const answer = await generateText(systemPrompt, {
+    temperature: 0.3  // Low temp for factual responses
   });
   const elapsed = Date.now() - startTime;
 
   console.log(`[LLM Query] Answer generated in ${elapsed}ms`);
   console.log(`[LLM Query] Raw answer:`, answer.substring(0, 200));
 
-  // Clean up answer (handle instruction model artifacts)
+  // Clean up answer (Gemini Nano is well-behaved, minimal cleanup needed)
   let cleanAnswer = answer.trim();
 
-  // Remove chat template markers if present
-  cleanAnswer = cleanAnswer.replace(/<\|assistant\|>/g, '');
-  cleanAnswer = cleanAnswer.replace(/<\|end\|>/g, '');
-  cleanAnswer = cleanAnswer.replace(/<\|user\|>[\s\S]*/g, ''); // Stop if model generates user turn
-
-  // Stop at natural boundaries if model continues
-  const stopPatterns = ['\n\n<|', '<|user|>', '<|system|>'];
-  for (const pattern of stopPatterns) {
-    const idx = cleanAnswer.indexOf(pattern);
-    if (idx !== -1) {
-      cleanAnswer = cleanAnswer.substring(0, idx);
-      break;
-    }
+  // Remove common artifacts if present
+  if (cleanAnswer.startsWith('Answer:')) {
+    cleanAnswer = cleanAnswer.substring(7).trim();
   }
 
-  cleanAnswer = cleanAnswer.trim();
-
   // Estimate answer tokens
-  const answerTokens = await estimateTokens(cleanAnswer);
+  const answerTokens = estimateTokens(cleanAnswer);
   tokenBudget.recordUsage(answerTokens);
 
   const budgetSummary = tokenBudget.getSummary();
@@ -553,15 +550,15 @@ async function handleExtraction(tabId, prompt, options = {}) {
     console.log('[Extract] Prompt:', prompt);
     console.log('[Extract] Options:', options);
 
-    // Create LLM interface for extractor
+    // Create LLM interface for extractor (using Chrome Prompt API)
     const llmInterface = {
       generate: async (promptText, genOptions = {}) => {
-        return await generateAnswer(promptText, genOptions);
+        return await generateText(promptText, genOptions);
       }
     };
 
-    // Create extractor with token budget (3072 tokens - Phi-3-mini limit is 4096, leaving 1024 for generation)
-    const extractor = new RecursiveExtractor(llmInterface, 3072);
+    // Create extractor with token budget (4500 tokens - Gemini Nano limit is 6000, leaving 1500 for generation)
+    const extractor = new RecursiveExtractor(llmInterface, 4500);
 
     // Run extraction
     const result = await extractor.extract(tabId, prompt, options);

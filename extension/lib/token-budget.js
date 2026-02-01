@@ -8,10 +8,10 @@
 export class TokenBudgetManager {
   /**
    * Create a new token budget manager
-   * @param {number} totalBudget - Total tokens available (default 4096 for Phi-3-mini)
+   * @param {number} totalBudget - Total tokens available (default 6000 for Gemini Nano)
    * @param {number} reservedForAnswer - Tokens reserved for LLM answer generation
    */
-  constructor(totalBudget = 4096, reservedForAnswer = 512) {
+  constructor(totalBudget = 6000, reservedForAnswer = 768) {
     this.total = totalBudget;
     this.used = 0;
     this.reserved = reservedForAnswer;
