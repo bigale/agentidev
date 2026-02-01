@@ -111,17 +111,25 @@ export async function checkAvailability() {
 
     console.log('[Chrome Prompt API] >>> After availability() call <<<');
 
-    // Possible values: 'readily', 'downloadable' (Chrome 144+), 'after-download' (older), 'no'
-    isAvailable = (availability === 'readily' || availability === 'downloadable' || availability === 'after-download');
+    // Possible values: 'available' (Chrome 144+), 'readily', 'downloadable', 'after-download' (older), 'no'
+    isAvailable = (
+      availability === 'available' ||
+      availability === 'readily' ||
+      availability === 'downloadable' ||
+      availability === 'after-download'
+    );
     availabilityChecked = true;
 
     console.log('[Chrome Prompt API] Checking availability value against known values...');
+    console.log('[Chrome Prompt API] availability === "available":', availability === 'available');
     console.log('[Chrome Prompt API] availability === "readily":', availability === 'readily');
     console.log('[Chrome Prompt API] availability === "downloadable":', availability === 'downloadable');
     console.log('[Chrome Prompt API] availability === "after-download":', availability === 'after-download');
     console.log('[Chrome Prompt API] Computed isAvailable:', isAvailable);
 
-    if (availability === 'downloadable' || availability === 'after-download') {
+    if (availability === 'available' || availability === 'readily') {
+      console.log('[Chrome Prompt API] ✓ Model is available and ready to use!');
+    } else if (availability === 'downloadable' || availability === 'after-download') {
       console.log('[Chrome Prompt API] Model will download on first use (~5GB)');
     } else if (availability === 'no') {
       console.error('[Chrome Prompt API] ❌ Model not available on this system');
@@ -129,8 +137,6 @@ export async function checkAvailability() {
       console.log('[Chrome Prompt API] - Insufficient disk space (need 22GB free)');
       console.log('[Chrome Prompt API] - Insufficient RAM/VRAM (need 4GB+)');
       console.log('[Chrome Prompt API] - Unsupported platform');
-    } else if (availability === 'readily') {
-      console.log('[Chrome Prompt API] ✓ Model is ready to use immediately!');
     }
 
     return isAvailable;

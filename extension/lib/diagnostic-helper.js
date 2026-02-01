@@ -74,8 +74,8 @@ export async function runDiagnostics() {
 
     console.log('   Status:', availability);
 
-    if (availability === 'readily') {
-      console.log('   ✓ Model is downloaded and ready!');
+    if (availability === 'available' || availability === 'readily') {
+      console.log('   ✓ Model is available and ready to use!');
       console.log('='.repeat(60));
       return { available: true, status: 'ready' };
     } else if (availability === 'downloadable' || availability === 'after-download') {
