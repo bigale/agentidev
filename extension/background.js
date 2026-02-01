@@ -17,6 +17,7 @@ import { checkAvailability, initSession, generateText, generateJSON, estimateTok
 import { TokenBudgetManager } from './lib/token-budget.js';
 import { RecursiveExtractor } from './lib/recursive-extractor.js';
 import { extractGooglePersonalInfo, extractFormFields, fillFormFields, findTabByUrl } from './lib/agent-workflows.js';
+import { runDiagnostics } from './lib/diagnostic-helper.js';
 
 console.log('Contextual Recall: Background service worker started');
 
@@ -42,6 +43,11 @@ let llmReady = false;
     }
 
     console.log('[Background] Embeddings complete, starting Chrome Prompt API init...');
+
+    // Run diagnostics first
+    console.log('[Background] Running Chrome Prompt API diagnostics...');
+    const diagnostics = await runDiagnostics();
+    console.log('[Background] Diagnostics complete:', diagnostics);
 
     // Initialize Chrome Prompt API (Gemini Nano)
     console.log('[Background] Checking Chrome Prompt API availability...');

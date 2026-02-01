@@ -23,11 +23,21 @@ let availabilityChecked = false;
  * @returns {Promise<boolean>} True if available
  */
 export async function checkAvailability() {
-  if (availabilityChecked) {
-    return isAvailable;
-  }
+  console.log('[Chrome Prompt API] checkAvailability called');
+  console.log('[Chrome Prompt API] availabilityChecked:', availabilityChecked);
+  console.log('[Chrome Prompt API] isAvailable (cached):', isAvailable);
+
+  // Reset cache to re-check (for debugging)
+  availabilityChecked = false;
 
   try {
+    // Check all possible global scopes
+    console.log('[Chrome Prompt API] Checking global scopes...');
+    console.log('[Chrome Prompt API] typeof LanguageModel:', typeof LanguageModel);
+    console.log('[Chrome Prompt API] typeof self.LanguageModel:', typeof self.LanguageModel);
+    console.log('[Chrome Prompt API] typeof globalThis.LanguageModel:', typeof globalThis.LanguageModel);
+    console.log('[Chrome Prompt API] typeof window?.LanguageModel:', typeof window?.LanguageModel);
+
     // Check if LanguageModel API exists (in service worker global scope)
     const LM = typeof LanguageModel !== 'undefined' ? LanguageModel :
                typeof self.LanguageModel !== 'undefined' ? self.LanguageModel :
@@ -35,31 +45,50 @@ export async function checkAvailability() {
                null;
 
     if (!LM) {
-      console.log('[Chrome Prompt API] Not available - LanguageModel undefined');
-      console.log('[Chrome Prompt API] Requires Chrome 138+ with chrome://flags/#prompt-api-for-gemini-nano enabled');
+      console.error('[Chrome Prompt API] ❌ LanguageModel is not defined in any scope');
+      console.log('[Chrome Prompt API] This means the flag is not properly enabled or the API is not available');
+      console.log('[Chrome Prompt API] Required: Chrome 138+ with chrome://flags/#prompt-api-for-gemini-nano enabled');
+      console.log('[Chrome Prompt API] Current Chrome version:', navigator.userAgent);
       isAvailable = false;
       availabilityChecked = true;
       return false;
     }
 
+    console.log('[Chrome Prompt API] ✓ LanguageModel found!');
+    console.log('[Chrome Prompt API] LanguageModel type:', typeof LM);
+    console.log('[Chrome Prompt API] LanguageModel.availability type:', typeof LM.availability);
+    console.log('[Chrome Prompt API] LanguageModel.create type:', typeof LM.create);
+
     // Check availability status
+    console.log('[Chrome Prompt API] Calling LM.availability()...');
     const availability = await LM.availability();
-    console.log('[Chrome Prompt API] Availability status:', availability);
+    console.log('[Chrome Prompt API] ✓ availability() returned:', availability);
+    console.log('[Chrome Prompt API] availability type:', typeof availability);
 
     // Possible values: 'readily', 'downloadable' (Chrome 144+), 'after-download' (older), 'no'
     isAvailable = (availability === 'readily' || availability === 'downloadable' || availability === 'after-download');
     availabilityChecked = true;
 
+    console.log('[Chrome Prompt API] Computed isAvailable:', isAvailable);
+
     if (availability === 'downloadable' || availability === 'after-download') {
       console.log('[Chrome Prompt API] Model will download on first use (~5GB)');
     } else if (availability === 'no') {
-      console.log('[Chrome Prompt API] Model not available on this system');
+      console.error('[Chrome Prompt API] ❌ Model not available on this system');
+      console.log('[Chrome Prompt API] This could mean:');
+      console.log('[Chrome Prompt API] - Insufficient disk space (need 22GB free)');
+      console.log('[Chrome Prompt API] - Insufficient RAM/VRAM (need 4GB+)');
+      console.log('[Chrome Prompt API] - Unsupported platform');
+    } else if (availability === 'readily') {
+      console.log('[Chrome Prompt API] ✓ Model is ready to use immediately!');
     }
 
     return isAvailable;
 
   } catch (error) {
-    console.error('[Chrome Prompt API] Failed to check availability:', error);
+    console.error('[Chrome Prompt API] ❌ Exception during availability check:', error);
+    console.error('[Chrome Prompt API] Error message:', error.message);
+    console.error('[Chrome Prompt API] Error stack:', error.stack);
     isAvailable = false;
     availabilityChecked = true;
     return false;
