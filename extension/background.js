@@ -42,24 +42,30 @@ let llmReady = false;
 
     // Initialize Chrome Prompt API (Gemini Nano)
     console.log('[Background] Checking Chrome Prompt API availability...');
-    const apiAvailable = await checkAvailability();
 
-    if (apiAvailable) {
-      console.log('[Background] Chrome Prompt API available - initializing Gemini Nano...');
-      console.log('[Background] First use may take 1-3 minutes to download model (~5GB)...');
-      llmReady = await initSession();
+    try {
+      const apiAvailable = await checkAvailability();
 
-      if (llmReady) {
-        console.log('[Background] Gemini Nano ready - Q&A and Extract enabled');
-        const status = getStatus();
-        console.log('[Background] Model:', status.model, '| Context:', status.contextWindow, 'tokens');
+      if (apiAvailable) {
+        console.log('[Background] Chrome Prompt API available - initializing Gemini Nano...');
+        console.log('[Background] First use may take 1-3 minutes to download model (~5GB)...');
+        llmReady = await initSession();
+
+        if (llmReady) {
+          console.log('[Background] Gemini Nano ready - Q&A and Extract enabled');
+          const status = getStatus();
+          console.log('[Background] Model:', status.model, '| Context:', status.contextWindow, 'tokens');
+        } else {
+          console.warn('[Background] Gemini Nano initialization failed - Q&A and Extract disabled');
+        }
       } else {
-        console.warn('[Background] Gemini Nano initialization failed - Q&A and Extract disabled');
+        console.warn('[Background] Chrome Prompt API not available (Chrome 138+ required)');
+        console.warn('[Background] Q&A and Extract modes disabled');
+        console.warn('[Background] Search mode still works with embeddings');
       }
-    } else {
-      console.warn('[Background] Chrome Prompt API not available (Chrome 138+ required)');
-      console.warn('[Background] Q&A and Extract modes disabled');
-      console.warn('[Background] Search mode still works with embeddings');
+    } catch (error) {
+      console.error('[Background] Chrome Prompt API initialization error:', error);
+      llmReady = false;
     }
   } catch (error) {
     console.error('[Background] Initialization failed:', error);

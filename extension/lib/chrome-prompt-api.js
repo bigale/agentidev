@@ -12,6 +12,8 @@
  * - ~5GB model (auto-downloaded by Chrome)
  */
 
+console.log('[Chrome Prompt API] Module loaded');
+
 let session = null;
 let isAvailable = false;
 let availabilityChecked = false;
@@ -26,24 +28,32 @@ export async function checkAvailability() {
   }
 
   try {
-    // Check if LanguageModel API exists
-    if (typeof LanguageModel === 'undefined') {
-      console.log('[Chrome Prompt API] Not available - LanguageModel undefined (Chrome 138+ required)');
+    // Check if LanguageModel API exists (in service worker global scope)
+    const LM = typeof LanguageModel !== 'undefined' ? LanguageModel :
+               typeof self.LanguageModel !== 'undefined' ? self.LanguageModel :
+               typeof globalThis.LanguageModel !== 'undefined' ? globalThis.LanguageModel :
+               null;
+
+    if (!LM) {
+      console.log('[Chrome Prompt API] Not available - LanguageModel undefined');
+      console.log('[Chrome Prompt API] Requires Chrome 138+ with chrome://flags/#prompt-api-for-gemini-nano enabled');
       isAvailable = false;
       availabilityChecked = true;
       return false;
     }
 
     // Check availability status
-    const availability = await LanguageModel.availability();
+    const availability = await LM.availability();
     console.log('[Chrome Prompt API] Availability status:', availability);
 
-    // Possible values: 'readily', 'after-download', 'no'
-    isAvailable = (availability === 'readily' || availability === 'after-download');
+    // Possible values: 'readily', 'downloadable' (Chrome 144+), 'after-download' (older), 'no'
+    isAvailable = (availability === 'readily' || availability === 'downloadable' || availability === 'after-download');
     availabilityChecked = true;
 
-    if (availability === 'after-download') {
+    if (availability === 'downloadable' || availability === 'after-download') {
       console.log('[Chrome Prompt API] Model will download on first use (~5GB)');
+    } else if (availability === 'no') {
+      console.log('[Chrome Prompt API] Model not available on this system');
     }
 
     return isAvailable;
@@ -78,6 +88,17 @@ export async function initSession(options = {}) {
     console.log('[Chrome Prompt API] Creating session...');
     console.log('[Chrome Prompt API] First use may take 1-3 minutes to download model (~5GB)');
 
+    // Get the LanguageModel reference
+    const LM = typeof LanguageModel !== 'undefined' ? LanguageModel :
+               typeof self.LanguageModel !== 'undefined' ? self.LanguageModel :
+               typeof globalThis.LanguageModel !== 'undefined' ? globalThis.LanguageModel :
+               null;
+
+    if (!LM) {
+      console.error('[Chrome Prompt API] LanguageModel not found during session creation');
+      return false;
+    }
+
     // Create session with optional configuration
     const sessionOptions = {
       temperature: options.temperature || 0.3,
@@ -85,9 +106,9 @@ export async function initSession(options = {}) {
       ...options
     };
 
-    session = await LanguageModel.create(sessionOptions);
+    session = await LM.create(sessionOptions);
     console.log('[Chrome Prompt API] Session created successfully');
-    console.log('[Chrome Prompt API] Model: Gemini Nano, Context: 6000 tokens');
+    console.log('[Chrome Prompt API] Model: Gemini Nano | Context: 6000 tokens');
 
     return true;
 
