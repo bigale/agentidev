@@ -16,6 +16,7 @@ import { initEmbeddings, generateEmbedding, isInitialized } from './lib/embeddin
 import { checkAvailability, initSession, generateText, generateJSON, estimateTokens, getStatus } from './lib/chrome-prompt-api.js';
 import { TokenBudgetManager } from './lib/token-budget.js';
 import { RecursiveExtractor } from './lib/recursive-extractor.js';
+import { extractGooglePersonalInfo, extractFormFields, fillFormFields, findTabByUrl } from './lib/agent-workflows.js';
 
 console.log('Contextual Recall: Background service worker started');
 
@@ -141,6 +142,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(error => {
         console.error('[Background] EXTRACT error:', error);
         sendResponse({ success: false, error: error.message, items: [], pagesProcessed: 0 });
+      });
+    return true; // Async response
+  }
+
+  if (message.type === 'AGENT_FILL_FORM') {
+    handleAgentFormFill(message.sourceUrl, message.targetUrl)
+      .then(result => sendResponse(result))
+      .catch(error => {
+        console.error('[Background] AGENT_FILL_FORM error:', error);
+        sendResponse({ success: false, error: error.message });
       });
     return true; // Async response
   }
@@ -585,5 +596,190 @@ async function handleExtraction(tabId, prompt, options = {}) {
       items: [],
       pagesProcessed: 0
     };
+  }
+}
+
+/**
+ * Agent workflow: Fill form using data from another tab
+ * @param {string} sourceUrl - URL pattern of source data (e.g., Google account)
+ * @param {string} targetUrl - URL pattern of target form
+ */
+async function handleAgentFormFill(sourceUrl, targetUrl) {
+  console.log('[Agent] Starting form fill workflow');
+  console.log('[Agent] Source:', sourceUrl);
+  console.log('[Agent] Target:', targetUrl);
+
+  if (!llmReady) {
+    return {
+      success: false,
+      error: 'Gemini Nano not ready. Please wait for initialization.'
+    };
+  }
+
+  try {
+    // Step 1: Find source and target tabs
+    console.log('[Agent] Step 1: Finding tabs...');
+    const sourceTab = await findTabByUrl(sourceUrl);
+    const targetTab = await findTabByUrl(targetUrl);
+
+    if (!sourceTab) {
+      return {
+        success: false,
+        error: `Source tab not found. Please open ${sourceUrl}`
+      };
+    }
+
+    if (!targetTab) {
+      return {
+        success: false,
+        error: `Target tab not found. Please open ${targetUrl}`
+      };
+    }
+
+    console.log('[Agent] Found source tab:', sourceTab.id);
+    console.log('[Agent] Found target tab:', targetTab.id);
+
+    // Step 2: Extract data from source
+    console.log('[Agent] Step 2: Extracting data from source...');
+    const sourceData = await extractGooglePersonalInfo(sourceTab.id);
+
+    if (!sourceData || Object.keys(sourceData).length === 0) {
+      return {
+        success: false,
+        error: 'Could not extract data from source tab'
+      };
+    }
+
+    console.log('[Agent] Extracted data:', sourceData);
+
+    // Step 3: Analyze target form
+    console.log('[Agent] Step 3: Analyzing target form...');
+    const formFields = await extractFormFields(targetTab.id);
+
+    if (!formFields || Object.keys(formFields).length === 0) {
+      return {
+        success: false,
+        error: 'No form fields found in target tab'
+      };
+    }
+
+    console.log('[Agent] Found form fields:', Object.keys(formFields).length);
+
+    // Step 4: Use Gemini Nano to map fields
+    console.log('[Agent] Step 4: Mapping fields with Gemini Nano...');
+    const mapping = await mapFieldsWithLLM(sourceData, formFields);
+
+    if (!mapping) {
+      return {
+        success: false,
+        error: 'Failed to map fields'
+      };
+    }
+
+    console.log('[Agent] Field mapping created:', Object.keys(mapping).length, 'mappings');
+
+    // Step 5: Fill the form
+    console.log('[Agent] Step 5: Filling form...');
+    const fillResult = await fillFormFields(targetTab.id, mapping);
+
+    if (!fillResult) {
+      return {
+        success: false,
+        error: 'Failed to fill form'
+      };
+    }
+
+    // Step 6: Switch to target tab to show results
+    await chrome.tabs.update(targetTab.id, { active: true });
+
+    console.log('[Agent] Workflow complete!');
+
+    return {
+      success: true,
+      sourceData,
+      fieldsMapped: Object.keys(mapping).length,
+      fieldsFilled: fillResult.fieldsFilled || 0,
+      message: `Successfully filled ${Object.keys(mapping).length} fields`
+    };
+
+  } catch (error) {
+    console.error('[Agent] Workflow failed:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Use Gemini Nano to intelligently map source data to form fields
+ * @param {Object} sourceData - Data from source (e.g., Google account)
+ * @param {Object} formFields - Target form field structure
+ * @returns {Promise<Object>} Mapping of field IDs to values
+ */
+async function mapFieldsWithLLM(sourceData, formFields) {
+  console.log('[Agent] Using Gemini Nano to map fields...');
+
+  try {
+    // Build prompt for Gemini Nano
+    const prompt = `You are a form-filling assistant. Map the available data to the form fields.
+
+Available data:
+${JSON.stringify(sourceData, null, 2)}
+
+Form fields to fill:
+${Object.entries(formFields).map(([id, field]) =>
+  `- ${id}: ${field.label || field.name || field.placeholder} (type: ${field.type})`
+).join('\n')}
+
+Instructions:
+1. Match each form field to the appropriate data value
+2. Handle field variations (e.g., "Full Name" vs "First Name"/"Last Name")
+3. Format data appropriately (e.g., phone numbers)
+4. Only map fields where you have data
+5. Return ONLY a JSON object mapping field IDs to values
+
+Required JSON format:
+{
+  "field_id_1": "value1",
+  "field_id_2": "value2"
+}
+
+JSON output:`;
+
+    const result = await generateText(prompt, {
+      temperature: 0.1  // Low temperature for consistent mapping
+    });
+
+    console.log('[Agent] LLM response:', result.substring(0, 200));
+
+    // Extract JSON from response
+    let jsonText = result.trim();
+
+    // Remove markdown code blocks if present
+    if (jsonText.startsWith('```json')) {
+      jsonText = jsonText.substring(7).trim();
+    }
+    if (jsonText.startsWith('```')) {
+      jsonText = jsonText.substring(3).trim();
+    }
+    if (jsonText.endsWith('```')) {
+      jsonText = jsonText.substring(0, jsonText.length - 3).trim();
+    }
+
+    // Extract JSON object
+    const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      jsonText = jsonMatch[0];
+    }
+
+    const mapping = JSON.parse(jsonText);
+    console.log('[Agent] Parsed mapping:', mapping);
+
+    return mapping;
+
+  } catch (error) {
+    console.error('[Agent] Failed to map fields:', error);
+    return null;
   }
 }

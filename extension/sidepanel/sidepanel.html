@@ -325,6 +325,7 @@
       <button id="mode-search" class="mode-btn active">🔍 Search</button>
       <button id="mode-qa" class="mode-btn">💬 Q&A</button>
       <button id="mode-extract" class="mode-btn">🕷️ Extract</button>
+      <button id="mode-agent" class="mode-btn">🤖 Agent</button>
     </div>
 
     <div class="search-box">
@@ -418,6 +419,43 @@
 
           <div id="extract-preview" style="max-height: 400px; overflow-y: auto; background: #f8f9fa; padding: 12px; border-radius: 4px; font-family: monospace; font-size: 11px; white-space: pre-wrap;"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- Agent Container (Agent Mode) -->
+    <div id="agent-container" style="display:none;">
+      <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 16px;">
+        <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #202124;">
+          🤖 Form Fill Agent
+        </h3>
+        <p style="font-size: 13px; color: #5f6368; margin-bottom: 16px;">
+          Automatically fill forms using data from other tabs. The agent will intelligently map fields.
+        </p>
+
+        <div style="margin-bottom: 16px;">
+          <label style="font-size: 12px; display: block; margin-bottom: 4px; color: #5f6368;">
+            Data Source (URL pattern):
+          </label>
+          <input type="text" id="agent-source-url" value="myaccount.google.com/personal-info" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" placeholder="e.g., myaccount.google.com">
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <label style="font-size: 12px; display: block; margin-bottom: 4px; color: #5f6368;">
+            Target Form (URL pattern):
+          </label>
+          <input type="text" id="agent-target-url" value="roboform.com/filling-test" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" placeholder="e.g., example.com/form">
+        </div>
+
+        <button id="agent-fill-button" style="width: 100%; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 4px; font-size: 14px; font-weight: 500; cursor: pointer;">
+          🤖 Fill Form with Agent
+        </button>
+      </div>
+
+      <div id="agent-results" style="display:none; background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px;">
+        <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #202124;">
+          Results
+        </h3>
+        <div id="agent-status" style="font-size: 13px; color: #202124;"></div>
       </div>
     </div>
 

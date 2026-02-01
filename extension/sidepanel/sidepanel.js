@@ -29,8 +29,15 @@ const settingsButton = document.getElementById('settings-button');
 const modeSearchBtn = document.getElementById('mode-search');
 const modeQABtn = document.getElementById('mode-qa');
 const modeExtractBtn = document.getElementById('mode-extract');
+const modeAgentBtn = document.getElementById('mode-agent');
+const agentContainer = document.getElementById('agent-container');
+const agentSourceUrl = document.getElementById('agent-source-url');
+const agentTargetUrl = document.getElementById('agent-target-url');
+const agentFillButton = document.getElementById('agent-fill-button');
+const agentResults = document.getElementById('agent-results');
+const agentStatus = document.getElementById('agent-status');
 
-let currentMode = 'search'; // 'search', 'qa', or 'extract'
+let currentMode = 'search'; // 'search', 'qa', 'extract', or 'agent'
 let currentFilter = 'all';
 let debounceTimer = null;
 let lastExtractionResults = null;
@@ -98,6 +105,10 @@ modeExtractBtn.addEventListener('click', () => {
   setMode('extract');
 });
 
+modeAgentBtn.addEventListener('click', () => {
+  setMode('agent');
+});
+
 function setMode(mode) {
   currentMode = mode;
 
@@ -106,33 +117,51 @@ function setMode(mode) {
     modeSearchBtn.classList.add('active');
     modeQABtn.classList.remove('active');
     modeExtractBtn.classList.remove('active');
+    modeAgentBtn.classList.remove('active');
     queryInput.style.display = 'block';
     filtersDiv.style.display = 'flex';
     queryInput.placeholder = 'Search your browsing history...';
     answerContainer.style.display = 'none';
     extractContainer.style.display = 'none';
+    agentContainer.style.display = 'none';
     resultsDiv.style.display = 'block';
   } else if (mode === 'qa') {
     // Activate Q&A mode
     modeQABtn.classList.add('active');
     modeSearchBtn.classList.remove('active');
     modeExtractBtn.classList.remove('active');
+    modeAgentBtn.classList.remove('active');
     queryInput.style.display = 'block';
     filtersDiv.style.display = 'flex';
     queryInput.placeholder = 'Ask a question about your history...';
     resultsDiv.style.display = 'none';
     extractContainer.style.display = 'none';
+    agentContainer.style.display = 'none';
     answerContainer.style.display = 'block';
   } else if (mode === 'extract') {
     // Activate Extract mode
     modeExtractBtn.classList.add('active');
     modeSearchBtn.classList.remove('active');
     modeQABtn.classList.remove('active');
+    modeAgentBtn.classList.remove('active');
     queryInput.style.display = 'none';
     filtersDiv.style.display = 'none';
     resultsDiv.style.display = 'none';
     answerContainer.style.display = 'none';
     extractContainer.style.display = 'block';
+    agentContainer.style.display = 'none';
+  } else if (mode === 'agent') {
+    // Activate Agent mode
+    modeAgentBtn.classList.add('active');
+    modeSearchBtn.classList.remove('active');
+    modeQABtn.classList.remove('active');
+    modeExtractBtn.classList.remove('active');
+    queryInput.style.display = 'none';
+    filtersDiv.style.display = 'none';
+    resultsDiv.style.display = 'none';
+    answerContainer.style.display = 'none';
+    extractContainer.style.display = 'none';
+    agentContainer.style.display = 'block';
   }
 }
 
@@ -192,6 +221,54 @@ extractButton.addEventListener('click', async () => {
       displayExtractionResults(response);
     } else {
       alert(`Extraction failed: ${response?.error || 'Unknown error'}`);
+    }
+  });
+});
+
+// Agent fill button
+agentFillButton.addEventListener('click', async () => {
+  const sourceUrl = agentSourceUrl.value.trim();
+  const targetUrl = agentTargetUrl.value.trim();
+
+  if (!sourceUrl || !targetUrl) {
+    alert('Please enter both source and target URLs');
+    return;
+  }
+
+  // Show loading state
+  agentFillButton.disabled = true;
+  agentFillButton.textContent = '🤖 Working...';
+  agentResults.style.display = 'none';
+
+  // Send agent fill request
+  chrome.runtime.sendMessage({
+    type: 'AGENT_FILL_FORM',
+    sourceUrl: sourceUrl,
+    targetUrl: targetUrl
+  }, (response) => {
+    agentFillButton.disabled = false;
+    agentFillButton.textContent = '🤖 Fill Form with Agent';
+
+    agentResults.style.display = 'block';
+
+    if (response && response.success) {
+      agentStatus.innerHTML = `
+        <div style="color: #1e8e3e; margin-bottom: 8px;">✅ Success!</div>
+        <div style="font-size: 12px; color: #5f6368;">
+          <div>📊 Fields mapped: ${response.fieldsMapped || 0}</div>
+          <div>✏️ Fields filled: ${response.fieldsFilled || 0}</div>
+          <div style="margin-top: 8px; padding: 8px; background: #f1f3f4; border-radius: 4px;">
+            ${response.message || 'Form filled successfully'}
+          </div>
+        </div>
+      `;
+    } else {
+      agentStatus.innerHTML = `
+        <div style="color: #d93025; margin-bottom: 8px;">❌ Failed</div>
+        <div style="font-size: 12px; color: #5f6368;">
+          ${response?.error || 'Unknown error occurred'}
+        </div>
+      `;
     }
   });
 });
