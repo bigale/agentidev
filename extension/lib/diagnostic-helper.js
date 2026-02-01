@@ -21,11 +21,36 @@ export async function runDiagnostics() {
 
   // 2. Check LanguageModel API
   console.log('\n2. LanguageModel API Availability');
-  const hasLanguageModel = typeof LanguageModel !== 'undefined' ||
-                          typeof self.LanguageModel !== 'undefined' ||
-                          typeof globalThis.LanguageModel !== 'undefined';
+
+  let hasLanguageModel = false;
+  let languageModelScope = 'none';
+
+  // Service workers don't have 'window', so we check only valid scopes
+  try {
+    if (typeof LanguageModel !== 'undefined') {
+      hasLanguageModel = true;
+      languageModelScope = 'global';
+    }
+  } catch (e) {}
+
+  try {
+    if (typeof self.LanguageModel !== 'undefined') {
+      hasLanguageModel = true;
+      languageModelScope = 'self';
+    }
+  } catch (e) {}
+
+  try {
+    if (typeof globalThis.LanguageModel !== 'undefined') {
+      hasLanguageModel = true;
+      languageModelScope = 'globalThis';
+    }
+  } catch (e) {}
 
   console.log('   LanguageModel defined:', hasLanguageModel ? 'YES ✓' : 'NO ✗');
+  if (hasLanguageModel) {
+    console.log('   LanguageModel scope:', languageModelScope);
+  }
 
   if (!hasLanguageModel) {
     console.log('   ❌ PROBLEM: LanguageModel is not defined');

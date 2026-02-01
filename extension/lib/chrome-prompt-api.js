@@ -31,12 +31,43 @@ export async function checkAvailability() {
   availabilityChecked = false;
 
   try {
-    // Check all possible global scopes
+    // Check all possible global scopes (service workers don't have 'window')
     console.log('[Chrome Prompt API] Checking global scopes...');
-    console.log('[Chrome Prompt API] typeof LanguageModel:', typeof LanguageModel);
-    console.log('[Chrome Prompt API] typeof self.LanguageModel:', typeof self.LanguageModel);
-    console.log('[Chrome Prompt API] typeof globalThis.LanguageModel:', typeof globalThis.LanguageModel);
-    console.log('[Chrome Prompt API] typeof window?.LanguageModel:', typeof window?.LanguageModel);
+
+    let hasLanguageModel = false;
+    let languageModelScope = 'none';
+
+    try {
+      if (typeof LanguageModel !== 'undefined') {
+        hasLanguageModel = true;
+        languageModelScope = 'global';
+        console.log('[Chrome Prompt API] ✓ LanguageModel found in global scope');
+      }
+    } catch (e) {
+      console.log('[Chrome Prompt API] LanguageModel not in global scope');
+    }
+
+    try {
+      if (typeof self.LanguageModel !== 'undefined') {
+        hasLanguageModel = true;
+        languageModelScope = 'self';
+        console.log('[Chrome Prompt API] ✓ LanguageModel found in self scope');
+      }
+    } catch (e) {
+      console.log('[Chrome Prompt API] LanguageModel not in self scope');
+    }
+
+    try {
+      if (typeof globalThis.LanguageModel !== 'undefined') {
+        hasLanguageModel = true;
+        languageModelScope = 'globalThis';
+        console.log('[Chrome Prompt API] ✓ LanguageModel found in globalThis scope');
+      }
+    } catch (e) {
+      console.log('[Chrome Prompt API] LanguageModel not in globalThis scope');
+    }
+
+    console.log('[Chrome Prompt API] LanguageModel available:', hasLanguageModel, 'in', languageModelScope);
 
     // Check if LanguageModel API exists (in service worker global scope)
     const LM = typeof LanguageModel !== 'undefined' ? LanguageModel :
