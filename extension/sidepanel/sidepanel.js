@@ -50,14 +50,14 @@ queryInput.addEventListener('keypress', (e) => {
   }
 });
 
-// Optional: Search as you type (debounced)
+// Optional: Search as you type (debounced - 7 second delay)
 queryInput.addEventListener('input', () => {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     if (queryInput.value.trim().length > 3) {
       performSearch();
     }
-  }, 500);
+  }, 7000);
 });
 
 // Filter chip handling

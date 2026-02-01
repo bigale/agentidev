@@ -144,6 +144,20 @@ export class RecursiveExtractor {
     console.log(`[Extractor] Page 1: Found ${firstPageResult.items.length} items`);
     console.log(`[Extractor] Schema: ${JSON.stringify(schema)}`);
 
+    // Check if extraction failed
+    if (firstPageResult.error) {
+      console.error(`[Extractor] Extraction failed: ${firstPageResult.error}`);
+      return {
+        success: false,
+        error: firstPageResult.error,
+        items: [],
+        schema: { fields: [] },
+        pagesProcessed: 1,
+        tokensUsed: this.tokenBudget.used,
+        tokenBudget: this.tokenBudget.getSummary()
+      };
+    }
+
     // Find next page link
     let nextUrl = await this.findNextPageLink(initialPageContent.html, currentUrl);
 

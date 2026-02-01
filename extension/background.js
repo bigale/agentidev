@@ -47,7 +47,7 @@ let llmReady = false;
 
     // Initialize LLM SECOND (sequential loading, shared offscreen document)
     console.log('[Background] Starting LLM initialization (sequential after embeddings)...');
-    console.log('[Background] This may take 2-5 minutes on first run (~1GB download)...');
+    console.log('[Background] This may take 3-7 minutes on first run (~2.5GB download)...');
     console.log('[Background] Progress updates will appear in console - please be patient...');
     llmReady = await initLLM();
     if (llmReady) {
@@ -396,8 +396,8 @@ async function handleLLMQuery(query, filter = 'all') {
   try {
     console.log('[LLM Query] Processing:', query);
 
-    // Initialize token budget for TinyLlama (2048 context window)
-    const tokenBudget = new TokenBudgetManager(2048, 512);
+    // Initialize token budget for Phi-3-mini (4096 context window)
+    const tokenBudget = new TokenBudgetManager(4096, 512);
 
     // 1. Vector search to find relevant chunks
     const searchResults = await handleQuery(query, filter);
@@ -465,17 +465,17 @@ async function handleLLMQuery(query, filter = 'all') {
  * Generate LLM answer with proper prompting
  */
 async function generateLLMAnswer(query, context, sources, tokenBudget) {
-  // Build prompt for instruction-tuned model (TinyLlama)
-  const systemPrompt = `You are a helpful assistant that answers questions based on the user's browser history.
-
-Context from the user's browsing history:
+  // Build prompt for instruction-tuned model (Phi-3-mini)
+  const systemPrompt = `<|system|>
+You are a helpful AI assistant that answers questions based on the user's browser history. Use ONLY the information provided in the context. Keep answers concise (2-3 sentences). Cite sources using [Source N] notation.
+<|end|>
+<|user|>
+Context from browser history:
 ${context}
 
 Question: ${query}
-
-Answer the question using ONLY the information in the context above. If the context doesn't contain enough information, say so. Keep your answer concise (2-3 sentences). Cite sources using [Source N] notation.
-
-Answer:`;
+<|end|>
+<|assistant|>`;
 
   // Get recommended max tokens based on remaining budget
   const maxAnswerTokens = tokenBudget.getRecommendedMaxTokens();
@@ -493,13 +493,24 @@ Answer:`;
   console.log(`[LLM Query] Answer generated in ${elapsed}ms`);
   console.log(`[LLM Query] Raw answer:`, answer.substring(0, 200));
 
-  // Clean up answer (remove prompt repetition artifacts)
+  // Clean up answer (handle instruction model artifacts)
   let cleanAnswer = answer.trim();
 
-  // Remove common repetition patterns from distilGPT-2
-  cleanAnswer = cleanAnswer.split('\n')[0];  // Take only first line/paragraph
-  cleanAnswer = cleanAnswer.replace(/Question:.*$/i, '');  // Remove if it starts repeating
-  cleanAnswer = cleanAnswer.replace(/Answer the question.*$/i, '');
+  // Remove chat template markers if present
+  cleanAnswer = cleanAnswer.replace(/<\|assistant\|>/g, '');
+  cleanAnswer = cleanAnswer.replace(/<\|end\|>/g, '');
+  cleanAnswer = cleanAnswer.replace(/<\|user\|>[\s\S]*/g, ''); // Stop if model generates user turn
+
+  // Stop at natural boundaries if model continues
+  const stopPatterns = ['\n\n<|', '<|user|>', '<|system|>'];
+  for (const pattern of stopPatterns) {
+    const idx = cleanAnswer.indexOf(pattern);
+    if (idx !== -1) {
+      cleanAnswer = cleanAnswer.substring(0, idx);
+      break;
+    }
+  }
+
   cleanAnswer = cleanAnswer.trim();
 
   // Estimate answer tokens
@@ -549,8 +560,8 @@ async function handleExtraction(tabId, prompt, options = {}) {
       }
     };
 
-    // Create extractor with token budget (1536 tokens - TinyLlama limit is 2048, leaving 512 for answer)
-    const extractor = new RecursiveExtractor(llmInterface, 1536);
+    // Create extractor with token budget (3072 tokens - Phi-3-mini limit is 4096, leaving 1024 for generation)
+    const extractor = new RecursiveExtractor(llmInterface, 3072);
 
     // Run extraction
     const result = await extractor.extract(tabId, prompt, options);

@@ -2,7 +2,7 @@
  * Web Worker for LLM (Text Generation)
  *
  * Runs transformers.js text generation in a separate Web Worker thread.
- * Supports TinyLlama-1.1B-Chat-v1.0 (default), instruction-tuned for chat and Q&A.
+ * Supports Phi-3-mini-4k-instruct (default), instruction-tuned for chat/Q&A/extraction.
  */
 
 let pipeline = null;
@@ -16,7 +16,7 @@ self.addEventListener('message', async (event) => {
   try {
     switch (type) {
       case 'INIT':
-        const modelName = data?.model || 'Xenova/TinyLlama-1.1B-Chat-v1.0';
+        const modelName = data?.model || 'Xenova/Phi-3-mini-4k-instruct';
         const success = await initLLM(modelName);
         self.postMessage({ type: 'INIT_RESPONSE', success, model: currentModel, id });
         break;
@@ -86,7 +86,7 @@ async function initLLM(modelName) {
     pipeline = pipelineFunc;
 
     console.log(`[LLM Worker] Loading ${modelName}...`);
-    console.log('[LLM Worker] This may take 2-5 minutes on first run (~1GB download)');
+    console.log('[LLM Worker] This may take 3-7 minutes on first run (~2.5GB download)');
     console.log('[LLM Worker] Download progress not shown - please wait for completion message');
 
     // Load the text generation model (use defaults for maximum compatibility)
@@ -116,7 +116,7 @@ async function generateText(prompt, options = {}) {
   }
 
   const {
-    max_new_tokens = 256,
+    max_new_tokens = 256,  // Instruction models handle longer outputs better
     temperature = 0.3,
     do_sample = false,
     top_p = 0.9

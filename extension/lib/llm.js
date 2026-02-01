@@ -42,13 +42,13 @@ async function setupOffscreenDocument() {
 
 /**
  * Initialize the LLM model
- * @param {string} modelName - Optional model name (defaults to TinyLlama)
+ * @param {string} modelName - Optional model name (defaults to Phi-3-mini)
  * Supported models:
- * - Xenova/TinyLlama-1.1B-Chat-v1.0 (default, ~1GB, instruction-tuned for chat/Q&A)
- * - Xenova/Qwen2-0.5B-Instruct (~500MB, 4K context, instruction-tuned)
- * - Xenova/distilgpt2 (~300MB, basic completion model)
+ * - Xenova/Phi-3-mini-4k-instruct (default, ~2.5GB, 4K context, instruction-tuned)
+ * - Xenova/gpt2 (~500MB, 1024 context, completion model - Q&A only)
+ * - Xenova/distilgpt2 (~300MB, 1024 context, smaller completion model)
  */
-export async function initLLM(modelName = 'Xenova/TinyLlama-1.1B-Chat-v1.0') {
+export async function initLLM(modelName = 'Xenova/Phi-3-mini-4k-instruct') {
   // If already initializing, return the same promise
   if (initPromise) {
     return initPromise;
@@ -67,8 +67,8 @@ export async function initLLM(modelName = 'Xenova/TinyLlama-1.1B-Chat-v1.0') {
       await setupOffscreenDocument();
 
       console.log('[LLM] Initializing model:', modelName);
-      console.log('[LLM] First load will download ~1GB model files...');
-      console.log('[LLM] This may take 2-5 minutes on first run. Please be patient...');
+      console.log('[LLM] First load will download ~2.5GB model files...');
+      console.log('[LLM] This may take 3-7 minutes on first run. Please be patient...');
 
       const response = await chrome.runtime.sendMessage({
         type: 'LLM_INIT',

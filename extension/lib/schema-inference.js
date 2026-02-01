@@ -172,7 +172,11 @@ export async function inferAndExtract(html, userPrompt, llmGenerate) {
   // Truncate HTML
   const truncatedHTML = html.substring(0, 4000);
 
-  const prompt = `Extract data from this HTML based on the user's request.
+  const prompt = `<|system|>
+You are a data extraction assistant. Extract structured data from HTML and return valid JSON only.
+<|end|>
+<|user|>
+Extract data from this HTML based on the user's request.
 
 User wants to extract: "${userPrompt}"
 
@@ -180,13 +184,15 @@ HTML:
 ${truncatedHTML}
 
 First, determine what fields to extract. Then extract ALL matching items.
-Return a JSON object with:
+Return ONLY a valid JSON object with:
 - "schema": array of field definitions [{"name": "...", "type": "..."}]
 - "items": array of extracted objects
 
-Types: string, number, boolean, array
+Supported types: string, number, boolean, array
 
-Response (JSON only):`;
+Return ONLY the JSON object, no other text.
+<|end|>
+<|assistant|>`;
 
   try {
     const response = await llmGenerate(prompt, {
@@ -196,8 +202,13 @@ Response (JSON only):`;
 
     console.log('[Schema] LLM response:', response.substring(0, 200));
 
-    // Try to extract JSON from response (LLM might add extra text)
+    // Try to extract JSON from response (LLM might add extra text or chat markers)
     let jsonText = response.trim();
+
+    // Remove chat template markers
+    jsonText = jsonText.replace(/<\|assistant\|>/g, '');
+    jsonText = jsonText.replace(/<\|end\|>/g, '');
+    jsonText = jsonText.replace(/<\|user\|>[\s\S]*/g, '');
 
     // Look for JSON object {...}
     const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
@@ -229,12 +240,11 @@ Response (JSON only):`;
   } catch (error) {
     console.error('[Schema] Failed to infer and extract:', error);
 
-    // distilGPT-2 is not instruction-tuned and may not produce valid JSON
     // Return empty result with helpful error
     return {
       schema: { fields: [] },
       items: [],
-      error: 'LLM failed to generate valid JSON. distilGPT-2 is not optimized for structured extraction. Try Q&A mode instead, or use a larger instruction-tuned model.'
+      error: `LLM failed to generate valid JSON: ${error.message}. The model may not support structured extraction.`
     };
   }
 }
