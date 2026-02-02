@@ -65,6 +65,75 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'PARSE_FORM_WITH_GRAMMAR') {
+    // Parse form with IXML grammar in content script context (Phase 2.1)
+    // This must run here because dynamic imports work in content scripts but not service workers
+    (async () => {
+      try {
+        const { html, grammar, intent } = message;
+
+        // Dynamic imports (OK in content script)
+        const grammarGen = await import('./lib/form-grammar-generator.js');
+        const xmlParser = await import('./lib/form-xml-parser.js');
+        const xpathFinder = await import('./lib/xpath-field-finder.js');
+
+        // Generate grammar if not provided
+        let finalGrammar = grammar;
+        if (!finalGrammar) {
+          const grammarResult = await grammarGen.generateFormGrammar(
+            html || document.documentElement.outerHTML,
+            window.location.href,
+            { useCache: true }
+          );
+          finalGrammar = grammarResult.grammar;
+        }
+
+        // Parse with grammar (or fallback)
+        const parseResult = await xmlParser.parseFormWithFallback(
+          html || document.documentElement.outerHTML,
+          finalGrammar
+        );
+
+        if (!parseResult.success) {
+          sendResponse({ success: false, error: 'Parsing failed' });
+          return;
+        }
+
+        // If we have XML doc, try XPath finding
+        if (parseResult.xmlDoc && intent) {
+          const xpathResult = xpathFinder.findFieldByXPath(parseResult.xmlDoc, intent);
+          if (xpathResult.success) {
+            sendResponse({
+              success: true,
+              method: 'xpath',
+              selector: xpathResult.selector,
+              confidence: xpathResult.confidence,
+              parseMethod: parseResult.method
+            });
+            return;
+          }
+        }
+
+        // Return parsed fields for further processing
+        const fields = parseResult.xmlDoc
+          ? xmlParser.extractFieldsFromXML(parseResult.xmlDoc)
+          : parseResult.fields;
+
+        sendResponse({
+          success: true,
+          method: 'fields',
+          fields,
+          parseMethod: parseResult.method
+        });
+
+      } catch (error) {
+        console.error('[Content] Parse error:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+    })();
+    return true; // Async response
+  }
+
   if (message.type === 'HIGHLIGHT_ELEMENT') {
     // Highlight an element (for visual feedback)
     highlightElement(message.selector);

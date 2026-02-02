@@ -9,11 +9,7 @@
  * Phase 2.1 - Grammar-enhanced automation
  */
 
-import { generateFormGrammar } from './form-grammar-generator.js';
-import { parseFormWithGrammar, parseFormWithFallback, extractFieldsFromXML } from './form-xml-parser.js';
-import { findFieldByXPath, getAllFields } from './xpath-field-finder.js';
 import { findElementByIntent } from './semantic-finder.js';
-import { generateText } from './chrome-prompt-api.js';
 
 console.log('[Hybrid Finder] Module loaded');
 
@@ -164,73 +160,41 @@ async function tryXPathFinding(tabId, intent, options = {}) {
   const startTime = performance.now();
 
   try {
-    // Get page HTML
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const url = tab?.url || '';
+    // Delegate parsing to content script (dynamic imports work there)
+    console.log('[Hybrid Finder] Parsing form with grammar in content script...');
 
-    // Extract HTML from page
-    const htmlResult = await chrome.tabs.sendMessage(tabId, {
-      type: 'GET_PAGE_HTML'
+    const parseResult = await chrome.tabs.sendMessage(tabId, {
+      type: 'PARSE_FORM_WITH_GRAMMAR',
+      intent: intent,
+      html: null, // Let content script use document.documentElement.outerHTML
+      grammar: null // Let content script generate grammar with caching
     });
 
-    if (!htmlResult || !htmlResult.html) {
+    if (!parseResult || !parseResult.success) {
       return {
         success: false,
         time: performance.now() - startTime,
-        error: 'Failed to extract HTML'
+        error: parseResult?.error || 'Parsing failed'
       };
     }
 
-    const html = htmlResult.html;
+    console.log('[Hybrid Finder] Parse complete:', parseResult.method, '/', parseResult.parseMethod);
 
-    // Generate or retrieve grammar
-    console.log('[Hybrid Finder] Generating grammar for form...');
-
-    const grammarResult = await generateFormGrammar(html, url, {
-      useCache: options.grammarCache !== false
-    });
-
-    if (!grammarResult.grammar) {
-      return {
-        success: false,
-        time: performance.now() - startTime,
-        error: 'Failed to generate grammar'
-      };
-    }
-
-    console.log('[Hybrid Finder] Grammar ready:', grammarResult.cached ? '(cached)' : '(generated)');
-
-    // Parse HTML with grammar
-    console.log('[Hybrid Finder] Parsing HTML with grammar...');
-
-    const parseResult = await parseFormWithFallback(html, grammarResult.grammar);
-
-    if (!parseResult.success || parseResult.method !== 'ixml') {
-      return {
-        success: false,
-        time: performance.now() - startTime,
-        error: 'IXML parsing failed'
-      };
-    }
-
-    console.log('[Hybrid Finder] XML parsed successfully');
-
-    // Query with XPath
-    const xpathResult = findFieldByXPath(parseResult.xmlDoc, intent);
-
-    if (xpathResult.success) {
+    // If XPath found it directly
+    if (parseResult.method === 'xpath' && parseResult.selector) {
       return {
         success: true,
-        selector: xpathResult.selector,
-        confidence: xpathResult.confidence,
+        selector: parseResult.selector,
+        confidence: parseResult.confidence,
         time: performance.now() - startTime
       };
     }
 
+    // Otherwise, parsing succeeded but no XPath match
     return {
       success: false,
       time: performance.now() - startTime,
-      error: 'No XPath match'
+      error: 'No XPath match for intent'
     };
 
   } catch (error) {
@@ -363,37 +327,28 @@ export async function analyzeFormStrategy(tabId) {
   const startTime = performance.now();
 
   try {
-    // Try to parse form with grammar
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const url = tab?.url || '';
-
-    const htmlResult = await chrome.tabs.sendMessage(tabId, {
-      type: 'GET_PAGE_HTML'
-    });
-
-    if (!htmlResult || !htmlResult.html) {
-      return {
-        success: false,
-        error: 'Failed to extract HTML'
-      };
-    }
-
-    const html = htmlResult.html;
-
-    // Try grammar generation
+    // Try parsing with grammar in content script
     let grammarAvailable = false;
     let xpathRecommended = false;
 
     try {
-      const grammarResult = await generateFormGrammar(html, url, { useCache: true });
-      const parseResult = await parseFormWithFallback(html, grammarResult.grammar);
+      const parseResult = await chrome.tabs.sendMessage(tabId, {
+        type: 'PARSE_FORM_WITH_GRAMMAR',
+        intent: 'email', // Test with common field
+        html: null,
+        grammar: null
+      });
 
-      if (parseResult.success && parseResult.method === 'ixml') {
+      if (parseResult && parseResult.success) {
         grammarAvailable = true;
 
-        // Check field count
-        const fields = extractFieldsFromXML(parseResult.xmlDoc);
-        if (fields.length >= 3) {
+        // Check if IXML parsing succeeded (not fallback)
+        if (parseResult.parseMethod === 'ixml') {
+          xpathRecommended = true;
+        }
+
+        // Check field count if available
+        if (parseResult.fields && parseResult.fields.length >= 3) {
           xpathRecommended = true;
         }
       }
