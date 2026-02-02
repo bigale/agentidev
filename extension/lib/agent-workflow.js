@@ -11,6 +11,7 @@
  */
 
 import { findElementByIntent } from './semantic-finder.js';
+import { indexDOM } from './dom-indexer.js';
 
 console.log('[Agent Workflow] Module loaded');
 
@@ -69,10 +70,17 @@ export async function executeFormFillWorkflow(sourceTabId, targetTabId, mapping,
     // Step 2: Index target form DOM
     console.log('[Agent Workflow] Step 2: Indexing target form');
 
-    const indexResult = await chrome.runtime.sendMessage({
-      type: 'INDEX_DOM',
-      tabId: targetTabId
+    // Extract DOM structure from target tab
+    const domExtractResult = await chrome.tabs.sendMessage(targetTabId, {
+      type: 'EXTRACT_DOM_STRUCTURE'
     });
+
+    if (!domExtractResult || !domExtractResult.chunks) {
+      throw new Error('Failed to extract DOM structure from target tab');
+    }
+
+    // Index the DOM chunks (runs in service worker context)
+    const indexResult = await indexDOM(targetTabId, domExtractResult.chunks);
 
     if (!indexResult.success) {
       throw new Error('Failed to index target form');
@@ -300,11 +308,14 @@ export async function fillFormWithData(data, targetTabId) {
   };
 
   try {
-    // Index the form
-    await chrome.runtime.sendMessage({
-      type: 'INDEX_DOM',
-      tabId: targetTabId
+    // Index the form - extract DOM from tab and index it
+    const domExtractResult = await chrome.tabs.sendMessage(targetTabId, {
+      type: 'EXTRACT_DOM_STRUCTURE'
     });
+
+    if (domExtractResult && domExtractResult.chunks) {
+      await indexDOM(targetTabId, domExtractResult.chunks);
+    }
 
     // Fill each field
     for (const [intent, value] of Object.entries(data)) {
