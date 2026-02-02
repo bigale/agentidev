@@ -28,7 +28,35 @@ export async function extractGooglePersonalInfo(tabId) {
       return null;
     }
   } catch (error) {
-    console.error('[Agent] Failed to extract Google data:', error);
+    console.error('[Agent] Content script not responding:', error.message);
+
+    // Try to inject content script programmatically
+    console.log('[Agent] Attempting to inject content script...');
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        files: ['content.js']
+      });
+
+      console.log('[Agent] Content script injected, waiting 500ms...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Retry extraction
+      console.log('[Agent] Retrying extraction...');
+      const retryResponse = await chrome.tabs.sendMessage(tabId, {
+        type: 'EXTRACT_PAGE_DATA',
+        extractor: 'google_personal_info'
+      });
+
+      if (retryResponse && retryResponse.data) {
+        console.log('[Agent] Extracted Google data after injection:', retryResponse.data);
+        return retryResponse.data;
+      }
+    } catch (injectError) {
+      console.error('[Agent] Failed to inject content script:', injectError);
+      console.error('[Agent] This may be due to page CSP restrictions');
+    }
+
     return null;
   }
 }
@@ -54,7 +82,33 @@ export async function extractFormFields(tabId) {
       return {};
     }
   } catch (error) {
-    console.error('[Agent] Failed to extract form fields:', error);
+    console.error('[Agent] Content script not responding:', error.message);
+
+    // Try to inject content script programmatically
+    console.log('[Agent] Attempting to inject content script...');
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        files: ['content.js']
+      });
+
+      console.log('[Agent] Content script injected, waiting 500ms...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Retry extraction
+      console.log('[Agent] Retrying form field extraction...');
+      const retryResponse = await chrome.tabs.sendMessage(tabId, {
+        type: 'EXTRACT_FORM_FIELDS'
+      });
+
+      if (retryResponse && retryResponse.fields) {
+        console.log('[Agent] Extracted form fields after injection:', Object.keys(retryResponse.fields).length, 'fields');
+        return retryResponse.fields;
+      }
+    } catch (injectError) {
+      console.error('[Agent] Failed to inject content script:', injectError);
+    }
+
     return {};
   }
 }
@@ -77,14 +131,41 @@ export async function fillFormFields(tabId, fieldMapping) {
 
     if (response && response.success) {
       console.log('[Agent] Form filled successfully, fields filled:', response.fieldsFilled);
-      return true;
+      return response;
     } else {
       console.warn('[Agent] Form fill had issues');
-      return false;
+      return { success: false, fieldsFilled: 0 };
     }
   } catch (error) {
-    console.error('[Agent] Failed to fill form:', error);
-    return false;
+    console.error('[Agent] Content script not responding:', error.message);
+
+    // Try to inject content script programmatically
+    console.log('[Agent] Attempting to inject content script...');
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        files: ['content.js']
+      });
+
+      console.log('[Agent] Content script injected, waiting 500ms...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Retry fill
+      console.log('[Agent] Retrying form fill...');
+      const retryResponse = await chrome.tabs.sendMessage(tabId, {
+        type: 'FILL_FORM_FIELDS',
+        mapping: fieldMapping
+      });
+
+      if (retryResponse && retryResponse.success) {
+        console.log('[Agent] Form filled successfully after injection, fields filled:', retryResponse.fieldsFilled);
+        return retryResponse;
+      }
+    } catch (injectError) {
+      console.error('[Agent] Failed to inject content script:', injectError);
+    }
+
+    return { success: false, fieldsFilled: 0 };
   }
 }
 
