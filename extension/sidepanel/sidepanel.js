@@ -336,36 +336,46 @@ domSearchButton.addEventListener('click', async () => {
 
   domSearchButton.disabled = true;
   domSearchButton.textContent = '⏳ Searching...';
-  domResults.innerHTML = '<div style="color: #5f6368;">Searching DOM...</div>';
+  domResults.innerHTML = '<div style="color: #5f6368;">🔍 Vector search... → 🤖 LLM selection...</div>';
 
-  // Search DOM for intent
+  // Use semantic finder (Phase 2: vector + LLM)
   chrome.runtime.sendMessage({
-    type: 'SEARCH_DOM',
+    type: 'FIND_ELEMENT',
     tabId: tab.id,
     intent: intent,
-    options: { topK: 5, highlight: true }
+    options: { highlight: true }
   }, (response) => {
     domSearchButton.disabled = false;
     domSearchButton.textContent = '🎯 Find & Highlight';
 
-    if (response && response.results && response.results.length > 0) {
-      const topMatch = response.results[0];
+    if (response && response.success) {
+      const element = response.element;
+      const method = response.method || 'unknown';
+
+      // Method display
+      const methodBadge = {
+        'vector-only': '⚡ Vector (fast)',
+        'llm-selection': '🤖 LLM Selection',
+        'vector-fallback': '⚡ Vector (LLM failed)'
+      }[method] || method;
 
       domResults.innerHTML = `
-        <div style="color: #1e8e3e; margin-bottom: 8px;">✅ Found ${response.results.length} matches!</div>
+        <div style="color: #1e8e3e; margin-bottom: 8px;">✅ Found element!</div>
         <div style="background: #f1f3f4; padding: 8px; border-radius: 4px; margin-bottom: 8px;">
-          <div style="font-weight: 600; margin-bottom: 4px;">Top match:</div>
+          <div style="font-weight: 600; margin-bottom: 4px;">Match:</div>
           <div style="font-size: 11px; color: #5f6368;">
-            • ${topMatch.tagName}: "${topMatch.text || topMatch.label}"
-            • Confidence: ${(topMatch.score * 100).toFixed(1)}%
-            • Selector: <code style="background: #fff; padding: 2px 4px;">${topMatch.selector}</code>
+            • ${element.tagName}${element.attributes?.type ? ` (${element.attributes.type})` : ''}: "${element.text || element.label || element.attributes?.placeholder || 'no label'}"
+            • Confidence: ${(response.confidence * 100).toFixed(1)}%
+            • Method: ${methodBadge}
+            • Selector: <code style="background: #fff; padding: 2px 4px; display: block; margin-top: 4px; overflow-x: auto;">${response.selector}</code>
           </div>
         </div>
-        ${response.results.length > 1 ? `
-          <div style="font-size: 11px; color: #5f6368;">
-            Other matches: ${response.results.slice(1).map(r =>
-              `${r.tagName} (${(r.score * 100).toFixed(0)}%)`
-            ).join(', ')}
+        ${response.llmReasoning ? `
+          <div style="font-size: 11px; color: #5f6368; margin-bottom: 8px;">
+            <div style="font-weight: 600; margin-bottom: 2px;">🤖 LLM reasoning:</div>
+            <div style="background: #fff; padding: 6px; border-radius: 4px; border-left: 3px solid #1a73e8;">
+              ${response.llmReasoning}
+            </div>
           </div>
         ` : ''}
         <div style="margin-top: 8px; padding: 8px; background: #e8f0fe; border-radius: 4px; font-size: 11px; color: #1967d2;">
@@ -374,7 +384,7 @@ domSearchButton.addEventListener('click', async () => {
       `;
     } else {
       domResults.innerHTML = `
-        <div style="color: #d93025;">❌ No matches found</div>
+        <div style="color: #d93025;">❌ ${response?.error || 'No matches found'}</div>
         <div style="font-size: 11px; color: #5f6368;">
           Try indexing the page first, or use a different description.
         </div>

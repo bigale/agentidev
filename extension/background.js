@@ -19,6 +19,7 @@ import { RecursiveExtractor } from './lib/recursive-extractor.js';
 import { extractGooglePersonalInfo, extractFormFields, fillFormFields, findTabByUrl } from './lib/agent-workflows.js';
 import { runDiagnostics } from './lib/diagnostic-helper.js';
 import { indexDOM, searchDOM, clearDOMIndex } from './lib/dom-indexer.js';
+import { findElementByIntent } from './lib/semantic-finder.js';
 
 console.log('Contextual Recall: Background service worker started');
 
@@ -184,6 +185,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(error => {
         console.error('[Background] SEARCH_DOM error:', error);
         sendResponse({ results: [], error: error.message });
+      });
+    return true; // Async response
+  }
+
+  if (message.type === 'FIND_ELEMENT') {
+    handleFindElement(message.tabId, message.intent, message.options)
+      .then(result => sendResponse(result))
+      .catch(error => {
+        console.error('[Background] FIND_ELEMENT error:', error);
+        sendResponse({ success: false, error: error.message });
       });
     return true; // Async response
   }
@@ -958,5 +969,59 @@ async function handleDOMSearch(tabId, intent, options = {}) {
   } catch (error) {
     console.error('[DOM Search] Search failed:', error);
     throw error;
+  }
+}
+
+/**
+ * Handle finding element by intent using semantic finder
+ * This is Phase 2: Vector search + LLM selection for best match
+ */
+async function handleFindElement(tabId, intent, options = {}) {
+  console.log(`[Find Element] Finding "${intent}" in tab ${tabId}`);
+
+  try {
+    // Ensure LLM is ready
+    if (!llmReady) {
+      console.log('[Find Element] Gemini Nano not ready, attempting to initialize...');
+      try {
+        const apiAvailable = await checkAvailability();
+        if (apiAvailable) {
+          llmReady = await initSession();
+        }
+      } catch (error) {
+        console.warn('[Find Element] LLM initialization failed, will use vector-only:', error.message);
+        // Continue anyway - semantic finder will fall back to vector-only
+      }
+    }
+
+    // Use semantic finder (Phase 2: vector + LLM)
+    const result = await findElementByIntent(tabId, intent, {
+      ...options,
+      useLLM: llmReady // Only use LLM if it's ready
+    });
+
+    if (!result.success) {
+      return result;
+    }
+
+    console.log(`[Find Element] Found element via ${result.method}`);
+
+    // Highlight element if requested
+    if (options.highlight !== false) { // Default to true
+      await chrome.tabs.sendMessage(tabId, {
+        type: 'HIGHLIGHT_ELEMENT',
+        selector: result.selector
+      });
+    }
+
+    return result;
+
+  } catch (error) {
+    console.error('[Find Element] Search failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      intent
+    };
   }
 }
