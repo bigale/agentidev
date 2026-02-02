@@ -36,6 +36,10 @@ const agentTargetUrl = document.getElementById('agent-target-url');
 const agentFillButton = document.getElementById('agent-fill-button');
 const agentResults = document.getElementById('agent-results');
 const agentStatus = document.getElementById('agent-status');
+const domIndexButton = document.getElementById('dom-index-button');
+const domSearchInput = document.getElementById('dom-search-input');
+const domSearchButton = document.getElementById('dom-search-button');
+const domResults = document.getElementById('dom-results');
 
 let currentMode = 'search'; // 'search', 'qa', 'extract', or 'agent'
 let currentFilter = 'all';
@@ -267,6 +271,112 @@ agentFillButton.addEventListener('click', async () => {
         <div style="color: #d93025; margin-bottom: 8px;">❌ Failed</div>
         <div style="font-size: 12px; color: #5f6368;">
           ${response?.error || 'Unknown error occurred'}
+        </div>
+      `;
+    }
+  });
+});
+
+// DOM Indexing button handler
+domIndexButton.addEventListener('click', async () => {
+  // Get current tab
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  if (!tab) {
+    domResults.innerHTML = '<div style="color: #d93025;">❌ No active tab found</div>';
+    return;
+  }
+
+  domIndexButton.disabled = true;
+  domIndexButton.textContent = '⏳ Indexing...';
+  domResults.innerHTML = '<div style="color: #5f6368;">Extracting DOM structure...</div>';
+
+  // Index current tab's DOM
+  chrome.runtime.sendMessage({
+    type: 'INDEX_DOM',
+    tabId: tab.id
+  }, (response) => {
+    domIndexButton.disabled = false;
+    domIndexButton.textContent = '📑 Index Current Page';
+
+    if (response && response.success) {
+      domResults.innerHTML = `
+        <div style="color: #1e8e3e; margin-bottom: 4px;">✅ Indexed successfully!</div>
+        <div style="font-size: 11px; color: #5f6368;">
+          • ${response.count} elements indexed
+          • Completed in ${response.elapsed}ms
+          • Collection: ${response.collection}
+        </div>
+      `;
+    } else {
+      domResults.innerHTML = `
+        <div style="color: #d93025;">❌ Indexing failed</div>
+        <div style="font-size: 11px; color: #5f6368;">${response?.error || 'Unknown error'}</div>
+      `;
+    }
+  });
+});
+
+// DOM Search button handler
+domSearchButton.addEventListener('click', async () => {
+  const intent = domSearchInput.value.trim();
+
+  if (!intent) {
+    domResults.innerHTML = '<div style="color: #d93025;">Please enter a description</div>';
+    return;
+  }
+
+  // Get current tab
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  if (!tab) {
+    domResults.innerHTML = '<div style="color: #d93025;">❌ No active tab found</div>';
+    return;
+  }
+
+  domSearchButton.disabled = true;
+  domSearchButton.textContent = '⏳ Searching...';
+  domResults.innerHTML = '<div style="color: #5f6368;">Searching DOM...</div>';
+
+  // Search DOM for intent
+  chrome.runtime.sendMessage({
+    type: 'SEARCH_DOM',
+    tabId: tab.id,
+    intent: intent,
+    options: { topK: 5, highlight: true }
+  }, (response) => {
+    domSearchButton.disabled = false;
+    domSearchButton.textContent = '🎯 Find & Highlight';
+
+    if (response && response.results && response.results.length > 0) {
+      const topMatch = response.results[0];
+
+      domResults.innerHTML = `
+        <div style="color: #1e8e3e; margin-bottom: 8px;">✅ Found ${response.results.length} matches!</div>
+        <div style="background: #f1f3f4; padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+          <div style="font-weight: 600; margin-bottom: 4px;">Top match:</div>
+          <div style="font-size: 11px; color: #5f6368;">
+            • ${topMatch.tagName}: "${topMatch.text || topMatch.label}"
+            • Confidence: ${(topMatch.score * 100).toFixed(1)}%
+            • Selector: <code style="background: #fff; padding: 2px 4px;">${topMatch.selector}</code>
+          </div>
+        </div>
+        ${response.results.length > 1 ? `
+          <div style="font-size: 11px; color: #5f6368;">
+            Other matches: ${response.results.slice(1).map(r =>
+              `${r.tagName} (${(r.score * 100).toFixed(0)}%)`
+            ).join(', ')}
+          </div>
+        ` : ''}
+        <div style="margin-top: 8px; padding: 8px; background: #e8f0fe; border-radius: 4px; font-size: 11px; color: #1967d2;">
+          💡 Element highlighted on page in yellow
+        </div>
+      `;
+    } else {
+      domResults.innerHTML = `
+        <div style="color: #d93025;">❌ No matches found</div>
+        <div style="font-size: 11px; color: #5f6368;">
+          Try indexing the page first, or use a different description.
         </div>
       `;
     }

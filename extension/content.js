@@ -40,6 +40,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse(result);
     return true;
   }
+
+  if (message.type === 'EXTRACT_DOM_STRUCTURE') {
+    // Extract DOM structure for indexing
+    const domChunks = extractDOMStructure();
+    sendResponse({ chunks: domChunks });
+    return true;
+  }
+
+  if (message.type === 'HIGHLIGHT_ELEMENT') {
+    // Highlight an element (for visual feedback)
+    highlightElement(message.selector);
+    sendResponse({ success: true });
+    return true;
+  }
+
+  if (message.type === 'CLICK_ELEMENT') {
+    // Click an element by selector
+    const result = clickElement(message.selector);
+    sendResponse(result);
+    return true;
+  }
 });
 
 // Wait for page to be fully loaded
@@ -410,4 +431,257 @@ function fillFormWithData(mapping) {
     fieldsFilled,
     errors: errors.length > 0 ? errors : undefined
   };
+}
+
+/**
+ * Extract DOM structure for indexing
+ * Returns chunks matching the format expected by dom-indexer.js
+ */
+function extractDOMStructure() {
+  const chunks = [];
+
+  // Helper: Generate unique selector
+  function generateUniqueSelector(element) {
+    if (element.id) {
+      return `#${element.id}`;
+    }
+    if (element.dataset.testid) {
+      return `[data-testid="${element.dataset.testid}"]`;
+    }
+    if (element.name) {
+      return `[name="${element.name}"]`;
+    }
+
+    const path = [];
+    let current = element;
+
+    while (current && current !== document.body && path.length < 4) {
+      let selector = current.tagName.toLowerCase();
+
+      if (current.className && typeof current.className === 'string') {
+        const classes = current.className.trim().split(/\s+/).filter(c => c && !c.startsWith('_'));
+        if (classes.length > 0 && classes.length < 3) {
+          selector += '.' + classes.join('.');
+        }
+      }
+
+      if (current.parentElement) {
+        const siblings = Array.from(current.parentElement.children);
+        const index = siblings.indexOf(current);
+        if (siblings.filter(s => s.tagName === current.tagName).length > 1) {
+          selector += `:nth-child(${index + 1})`;
+        }
+      }
+
+      path.unshift(selector);
+      current = current.parentElement;
+    }
+
+    return path.join(' > ');
+  }
+
+  // Helper: Get element text
+  function getElementText(element) {
+    const sources = [
+      element.getAttribute('aria-label'),
+      element.getAttribute('title'),
+      element.getAttribute('placeholder'),
+      element.getAttribute('alt'),
+      element.textContent?.trim(),
+      element.value
+    ];
+
+    for (const source of sources) {
+      if (source && source.length > 0 && source.length < 200) {
+        return source.substring(0, 200);
+      }
+    }
+
+    return '';
+  }
+
+  // Helper: Get context breadcrumb
+  function getElementContext(element) {
+    const breadcrumbs = [];
+    let current = element.parentElement;
+
+    while (current && current !== document.body && breadcrumbs.length < 3) {
+      const label = current.getAttribute('aria-label') ||
+                    current.getAttribute('role') ||
+                    current.querySelector('h1, h2, h3, h4, legend')?.textContent?.trim();
+
+      if (label && label.length < 50) {
+        breadcrumbs.unshift(label.substring(0, 50));
+      }
+
+      current = current.parentElement;
+    }
+
+    return breadcrumbs.join(' > ');
+  }
+
+  // Helper: Find label for form element
+  function findLabel(element) {
+    if (element.id) {
+      const label = document.querySelector(`label[for="${element.id}"]`);
+      if (label) return label.textContent?.trim();
+    }
+
+    const parentLabel = element.closest('label');
+    if (parentLabel) return parentLabel.textContent?.trim();
+
+    let prev = element.previousElementSibling;
+    if (prev && (prev.tagName === 'LABEL' || prev.tagName === 'SPAN')) {
+      return prev.textContent?.trim();
+    }
+
+    return null;
+  }
+
+  // Index interactive elements
+  const interactiveElements = document.querySelectorAll(
+    'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]'
+  );
+
+  interactiveElements.forEach((el, index) => {
+    // Skip hidden elements
+    if (el.offsetParent === null && el.tagName !== 'INPUT') {
+      return;
+    }
+
+    const text = getElementText(el);
+    const context = getElementContext(el);
+    const label = (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA')
+      ? findLabel(el)
+      : null;
+
+    chunks.push({
+      type: 'interactive',
+      selector: generateUniqueSelector(el),
+      tagName: el.tagName.toLowerCase(),
+      text: text || '',
+      label: label || '',
+      context: context || '',
+      attributes: {
+        id: el.id || '',
+        name: el.name || '',
+        type: el.type || '',
+        placeholder: el.placeholder || '',
+        ariaLabel: el.getAttribute('aria-label') || '',
+        role: el.getAttribute('role') || '',
+        href: el.href || '',
+        className: el.className || ''
+      },
+      index: index
+    });
+  });
+
+  // Index forms
+  const forms = document.querySelectorAll('form');
+
+  forms.forEach((form, index) => {
+    const formName = form.name || form.id || `form-${index}`;
+    const legend = form.querySelector('legend')?.textContent?.trim();
+    const heading = form.querySelector('h1, h2, h3, h4')?.textContent?.trim();
+
+    chunks.push({
+      type: 'form',
+      selector: generateUniqueSelector(form),
+      tagName: 'form',
+      text: legend || heading || formName,
+      context: getElementContext(form),
+      attributes: {
+        name: form.name || '',
+        id: form.id || '',
+        action: form.action || '',
+        method: form.method || ''
+      },
+      fieldCount: form.elements.length,
+      index: chunks.length
+    });
+  });
+
+  // Index headings and landmarks
+  const landmarks = document.querySelectorAll(
+    'h1, h2, h3, main, nav, aside, section[aria-label], [role="region"]'
+  );
+
+  landmarks.forEach((el, index) => {
+    const text = getElementText(el);
+    if (!text || text.length < 3) return;
+
+    chunks.push({
+      type: 'landmark',
+      selector: generateUniqueSelector(el),
+      tagName: el.tagName.toLowerCase(),
+      text: text,
+      context: getElementContext(el),
+      attributes: {
+        role: el.getAttribute('role') || '',
+        ariaLabel: el.getAttribute('aria-label') || ''
+      },
+      index: chunks.length
+    });
+  });
+
+  console.log('[Content] Extracted', chunks.length, 'DOM chunks');
+  return chunks;
+}
+
+/**
+ * Highlight an element for visual feedback
+ */
+function highlightElement(selector) {
+  try {
+    const element = document.querySelector(selector);
+    if (!element) {
+      console.warn('[Content] Element not found for highlighting:', selector);
+      return;
+    }
+
+    // Add highlight style
+    element.style.outline = '3px solid #FFD700';
+    element.style.outlineOffset = '2px';
+    element.style.backgroundColor = 'rgba(255, 215, 0, 0.1)';
+
+    // Remove highlight after 2 seconds
+    setTimeout(() => {
+      element.style.outline = '';
+      element.style.outlineOffset = '';
+      element.style.backgroundColor = '';
+    }, 2000);
+
+    // Scroll element into view
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    console.log('[Content] Highlighted element:', selector);
+  } catch (error) {
+    console.error('[Content] Error highlighting element:', error);
+  }
+}
+
+/**
+ * Click an element by selector
+ */
+function clickElement(selector) {
+  try {
+    const element = document.querySelector(selector);
+    if (!element) {
+      return { success: false, error: `Element not found: ${selector}` };
+    }
+
+    // Highlight before clicking
+    highlightElement(selector);
+
+    // Click after a brief delay
+    setTimeout(() => {
+      element.click();
+      console.log('[Content] Clicked element:', selector);
+    }, 500);
+
+    return { success: true };
+  } catch (error) {
+    console.error('[Content] Error clicking element:', error);
+    return { success: false, error: error.message };
+  }
 }

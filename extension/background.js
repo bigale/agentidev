@@ -18,6 +18,7 @@ import { TokenBudgetManager } from './lib/token-budget.js';
 import { RecursiveExtractor } from './lib/recursive-extractor.js';
 import { extractGooglePersonalInfo, extractFormFields, fillFormFields, findTabByUrl } from './lib/agent-workflows.js';
 import { runDiagnostics } from './lib/diagnostic-helper.js';
+import { indexDOM, searchDOM, clearDOMIndex } from './lib/dom-indexer.js';
 
 console.log('Contextual Recall: Background service worker started');
 
@@ -163,6 +164,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(error => {
         console.error('[Background] AGENT_FILL_FORM error:', error);
         sendResponse({ success: false, error: error.message });
+      });
+    return true; // Async response
+  }
+
+  if (message.type === 'INDEX_DOM') {
+    handleDOMIndexing(message.tabId)
+      .then(result => sendResponse(result))
+      .catch(error => {
+        console.error('[Background] INDEX_DOM error:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    return true; // Async response
+  }
+
+  if (message.type === 'SEARCH_DOM') {
+    handleDOMSearch(message.tabId, message.intent, message.options)
+      .then(results => sendResponse({ results }))
+      .catch(error => {
+        console.error('[Background] SEARCH_DOM error:', error);
+        sendResponse({ results: [], error: error.message });
       });
     return true; // Async response
   }
@@ -851,5 +872,91 @@ JSON output:`;
   } catch (error) {
     console.error('[Agent] Failed to map fields:', error);
     return null;
+  }
+}
+
+/**
+ * Handle DOM indexing for a tab
+ * Extracts DOM structure from content script and indexes it
+ */
+async function handleDOMIndexing(tabId) {
+  console.log(`[DOM Index] Starting indexing for tab ${tabId}`);
+
+  try {
+    // Ensure embeddings are initialized
+    if (!embeddingsReady) {
+      console.log('[DOM Index] Initializing embeddings...');
+      embeddingsReady = await initEmbeddings();
+      if (!embeddingsReady) {
+        throw new Error('Failed to initialize embeddings');
+      }
+    }
+
+    // Step 1: Extract DOM structure from content script
+    console.log('[DOM Index] Extracting DOM structure from page...');
+    const response = await chrome.tabs.sendMessage(tabId, {
+      type: 'EXTRACT_DOM_STRUCTURE'
+    });
+
+    if (!response || !response.chunks) {
+      throw new Error('Failed to extract DOM structure');
+    }
+
+    const domChunks = response.chunks;
+    console.log(`[DOM Index] Extracted ${domChunks.length} DOM chunks`);
+
+    // Step 2: Index the DOM chunks (generates embeddings and stores)
+    console.log('[DOM Index] Indexing chunks...');
+    const result = await indexDOM(tabId, domChunks);
+
+    if (!result.success) {
+      throw new Error(result.error || 'Indexing failed');
+    }
+
+    console.log(`[DOM Index] Successfully indexed ${result.count} elements in ${result.elapsed}ms`);
+
+    return {
+      success: true,
+      count: result.count,
+      elapsed: result.elapsed,
+      collection: result.collection
+    };
+
+  } catch (error) {
+    console.error('[DOM Index] Indexing failed:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Handle DOM search by intent
+ * Returns matching elements for natural language query
+ */
+async function handleDOMSearch(tabId, intent, options = {}) {
+  console.log(`[DOM Search] Searching for "${intent}" in tab ${tabId}`);
+
+  try {
+    // Search indexed DOM
+    const results = await searchDOM(tabId, intent, options);
+
+    console.log(`[DOM Search] Found ${results.length} matches`);
+
+    // Highlight top match if requested
+    if (options.highlight && results.length > 0) {
+      const topMatch = results[0];
+      await chrome.tabs.sendMessage(tabId, {
+        type: 'HIGHLIGHT_ELEMENT',
+        selector: topMatch.selector
+      });
+    }
+
+    return results;
+
+  } catch (error) {
+    console.error('[DOM Search] Search failed:', error);
+    throw error;
   }
 }

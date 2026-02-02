@@ -457,6 +457,33 @@
         </h3>
         <div id="agent-status" style="font-size: 13px; color: #202124;"></div>
       </div>
+
+      <!-- DOM Indexing & Testing -->
+      <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; margin-top: 16px;">
+        <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #202124;">
+          🔍 DOM Element Finder (Beta)
+        </h3>
+        <p style="font-size: 13px; color: #5f6368; margin-bottom: 16px;">
+          Index the current page's DOM and find elements by describing them in natural language.
+        </p>
+
+        <button id="dom-index-button" style="width: 100%; padding: 10px; background: #34a853; color: white; border: none; border-radius: 4px; font-size: 13px; font-weight: 500; cursor: pointer; margin-bottom: 12px;">
+          📑 Index Current Page
+        </button>
+
+        <div style="margin-bottom: 12px;">
+          <label style="display: block; font-size: 12px; font-weight: 500; color: #5f6368; margin-bottom: 6px;">
+            Find Element (describe it):
+          </label>
+          <input type="text" id="dom-search-input" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" placeholder="e.g., 'submit button' or 'email field'">
+        </div>
+
+        <button id="dom-search-button" style="width: 100%; padding: 10px; background: #1a73e8; color: white; border: none; border-radius: 4px; font-size: 13px; font-weight: 500; cursor: pointer;">
+          🎯 Find & Highlight
+        </button>
+
+        <div id="dom-results" style="margin-top: 12px; font-size: 12px; color: #5f6368;"></div>
+      </div>
     </div>
 
     <!-- Search Results (Search Mode) -->
