@@ -20,6 +20,8 @@ import { extractGooglePersonalInfo, extractFormFields, fillFormFields, findTabBy
 import { runDiagnostics } from './lib/diagnostic-helper.js';
 import { indexDOM, searchDOM, clearDOMIndex } from './lib/dom-indexer.js';
 import { findElementByIntent } from './lib/semantic-finder.js';
+// Phase 2.0 MVP: Automation workflows
+import { fillFormWithGoogleData, executeFormFillWorkflow, fillFormWithData } from './lib/agent-workflow.js';
 
 console.log('Contextual Recall: Background service worker started');
 console.log('[Background] Note: Extension reload = re-initialize (models are cached, not re-downloaded)');
@@ -1058,9 +1060,7 @@ async function handleExecuteWorkflow(workflowType, targetTabId, options = {}) {
   console.log(`[Workflow] Executing ${workflowType} workflow on tab ${targetTabId}`);
 
   try {
-    // Dynamic import of workflow module
-    const { fillFormWithGoogleData, executeFormFillWorkflow } = await import('./lib/agent-workflow.js');
-
+    // Use static imports (defined at top of file)
     if (workflowType === 'fill_with_google_data') {
       return await fillFormWithGoogleData(targetTabId);
     } else if (workflowType === 'custom' && options.mapping) {
@@ -1093,7 +1093,7 @@ async function handleFillFormWithData(data, targetTabId) {
   console.log('[Fill Form] Filling form with data on tab', targetTabId);
 
   try {
-    const { fillFormWithData } = await import('./lib/agent-workflow.js');
+    // Use static import (defined at top of file)
     return await fillFormWithData(data, targetTabId);
 
   } catch (error) {
