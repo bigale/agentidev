@@ -268,28 +268,63 @@ export function chunkDOM(document) {
 function generateEmbeddingText(chunk) {
   const parts = [];
 
-  // Add context first (most important)
-  if (chunk.context) parts.push(chunk.context);
+  // Add element type prefix for better matching
+  const typePrefix = getTypePrefix(chunk);
+  if (typePrefix) parts.push(typePrefix);
 
-  // Add label
+  // Add label (most important for form fields)
   if (chunk.label) parts.push(chunk.label);
 
   // Add aria-label
   if (chunk.attributes?.ariaLabel) parts.push(chunk.attributes.ariaLabel);
 
-  // Add text content
-  if (chunk.text) parts.push(chunk.text);
-
   // Add placeholder for inputs
   if (chunk.attributes?.placeholder) parts.push(chunk.attributes.placeholder);
+
+  // Add context
+  if (chunk.context) parts.push(chunk.context);
+
+  // Add text content
+  if (chunk.text) parts.push(chunk.text);
 
   // Add role
   if (chunk.attributes?.role) parts.push(chunk.attributes.role);
 
-  // Add tag name for type awareness
-  parts.push(chunk.tagName);
+  // Add element name/id if meaningful
+  if (chunk.attributes?.name && chunk.attributes.name.length < 30) {
+    parts.push(chunk.attributes.name);
+  }
 
   return parts.filter(p => p).join(' ');
+}
+
+/**
+ * Get descriptive type prefix for better semantic matching
+ */
+function getTypePrefix(chunk) {
+  const tag = chunk.tagName;
+  const type = chunk.attributes?.type || '';
+
+  // Form inputs - be very specific
+  if (tag === 'input') {
+    if (type === 'text' || !type) return 'text input field';
+    if (type === 'email') return 'email input field';
+    if (type === 'password') return 'password input field';
+    if (type === 'tel') return 'phone input field';
+    if (type === 'number') return 'number input field';
+    if (type === 'date') return 'date input field';
+    if (type === 'checkbox') return 'checkbox field';
+    if (type === 'radio') return 'radio button field';
+    return 'input field';
+  }
+
+  if (tag === 'textarea') return 'text area field';
+  if (tag === 'select') return 'dropdown select field';
+  if (tag === 'button') return 'button';
+  if (tag === 'a') return 'link';
+  if (tag === 'form') return 'form';
+
+  return '';
 }
 
 /**
@@ -363,13 +398,31 @@ export async function searchDOM(tabId, intent, options = {}) {
   console.log(`[DOM Indexer] Searching "${intent}" in ${collectionName}`);
 
   try {
-    // Generate embedding for search query
-    const queryEmbedding = await generateEmbeddings([intent]);
+    // Enhance query with field-specific keywords if it looks like a form field search
+    const enhancedIntent = enhanceSearchIntent(intent);
 
-    // Search in vector store
-    const results = await domVectorStore.searchChunks(collectionName, queryEmbedding[0], topK);
+    // Generate embedding for search query
+    const queryEmbedding = await generateEmbeddings([enhancedIntent]);
+
+    // Search in vector store (get more results for re-ranking)
+    const rawResults = await domVectorStore.searchChunks(collectionName, queryEmbedding[0], topK * 2);
+
+    // Apply element-type boosting
+    const boostedResults = rawResults.map(result => ({
+      ...result,
+      score: result.score * getElementBoost(result, intent)
+    }));
+
+    // Re-sort by boosted scores
+    boostedResults.sort((a, b) => b.score - a.score);
+
+    // Return top K after boosting
+    const results = boostedResults.slice(0, topK);
 
     console.log(`[DOM Indexer] Found ${results.length} matches`);
+    if (results.length > 0) {
+      console.log(`[DOM Indexer] Top match: ${results[0].tagName} "${results[0].text || results[0].label}" (score: ${results[0].score.toFixed(3)})`);
+    }
 
     return results;
 
@@ -377,6 +430,67 @@ export async function searchDOM(tabId, intent, options = {}) {
     console.error('[DOM Indexer] Search failed:', error);
     throw error;
   }
+}
+
+/**
+ * Enhance search intent with field-specific keywords
+ */
+function enhanceSearchIntent(intent) {
+  const lower = intent.toLowerCase();
+
+  // Add "input field" to field-like searches
+  const fieldKeywords = ['email', 'password', 'name', 'phone', 'address', 'city', 'zip', 'company', 'title'];
+  for (const keyword of fieldKeywords) {
+    if (lower.includes(keyword) && !lower.includes('field') && !lower.includes('button') && !lower.includes('link')) {
+      return `${intent} input field`;
+    }
+  }
+
+  return intent;
+}
+
+/**
+ * Apply element-type boost to prioritize certain elements
+ */
+function getElementBoost(element, intent) {
+  const lower = intent.toLowerCase();
+  const tag = element.tagName;
+  const type = element.attributes?.type || '';
+
+  // Strong boost for form fields when searching for field-like terms
+  const isFieldSearch = lower.includes('field') || lower.includes('input') ||
+                        lower.includes('email') || lower.includes('password') ||
+                        lower.includes('name') || lower.includes('phone') ||
+                        lower.includes('address') || lower.includes('zip') ||
+                        lower.includes('company') || lower.includes('title') ||
+                        lower.includes('select') || lower.includes('dropdown') ||
+                        lower.includes('textarea');
+
+  if (isFieldSearch) {
+    // Boost form inputs heavily
+    if (tag === 'input' || tag === 'select' || tag === 'textarea') {
+      return 2.0; // 2x boost for form fields
+    }
+    // Penalize links
+    if (tag === 'a') {
+      return 0.3; // 70% penalty for links
+    }
+  }
+
+  // Strong boost for buttons when searching for button-like terms
+  const isButtonSearch = lower.includes('button') || lower.includes('submit') ||
+                         lower.includes('click') || lower.includes('press');
+
+  if (isButtonSearch) {
+    if (tag === 'button' || (tag === 'input' && type === 'submit')) {
+      return 1.5; // 1.5x boost for buttons
+    }
+    if (tag === 'a') {
+      return 0.5; // 50% penalty for links
+    }
+  }
+
+  return 1.0; // No boost/penalty
 }
 
 /**
