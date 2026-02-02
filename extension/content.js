@@ -111,6 +111,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
 
+        // Get XML output if available (for debugging)
+        let xmlOutput = null;
+        if (parseResult.xmlDoc) {
+          try {
+            xmlOutput = new XMLSerializer().serializeToString(parseResult.xmlDoc);
+          } catch (e) {
+            console.warn('[Content] Failed to serialize XML:', e);
+          }
+        }
+
         // If we have XML doc, try XPath finding
         if (parseResult.xmlDoc && intent) {
           const xpathResult = xpathFinder.findFieldByXPath(parseResult.xmlDoc, intent);
@@ -120,7 +130,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               method: 'xpath',
               selector: xpathResult.selector,
               confidence: xpathResult.confidence,
-              parseMethod: parseResult.method
+              parseMethod: parseResult.method,
+              xmlOutput: xmlOutput
             });
             return;
           }
@@ -135,7 +146,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           success: true,
           method: 'fields',
           fields,
-          parseMethod: parseResult.method
+          parseMethod: parseResult.method,
+          xmlOutput: xmlOutput
         });
 
       } catch (error) {

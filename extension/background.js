@@ -1218,8 +1218,9 @@ async function handleTestGrammar(tabId) {
     if (parseResult && parseResult.success) {
       return {
         success: true,
-        method: parseResult.method || parseResult.parseMethod,
-        fieldCount: parseResult.fields ? parseResult.fields.length : 0
+        method: parseResult.parseMethod || parseResult.method,
+        fieldCount: parseResult.fields ? parseResult.fields.length : 0,
+        xmlOutput: parseResult.xmlOutput || null
       };
     } else {
       return {

@@ -47,6 +47,8 @@ const grammarStatus = document.getElementById('grammar-status');
 const clearGrammarCacheButton = document.getElementById('clear-grammar-cache-button');
 const testGrammarButton = document.getElementById('test-grammar-button');
 const grammarTestResult = document.getElementById('grammar-test-result');
+const xmlOutputViewer = document.getElementById('xml-output-viewer');
+const xmlOutputContent = document.getElementById('xml-output-content');
 
 let currentMode = 'search'; // 'search', 'qa', 'extract', or 'agent'
 let currentFilter = 'all';
@@ -416,17 +418,32 @@ testGrammarButton.addEventListener('click', async () => {
     grammarTestResult.style.display = 'block';
 
     if (response && response.success) {
+      const isIXML = response.method === 'ixml';
+      const isFallback = response.method === 'fallback' || response.method === 'fields';
+
       grammarTestResult.innerHTML = `
-        <div style="color: #1e8e3e; font-weight: 500;">✅ Parse successful!</div>
+        <div style="color: ${isIXML ? '#1e8e3e' : '#ea8600'}; font-weight: 500;">
+          ${isIXML ? '✅ IXML Parse Success!' : '⚠️ Fallback Used'}
+        </div>
         <div style="color: #5f6368; margin-top: 4px;">
-          Method: ${response.method || 'unknown'}<br>
-          Fields found: ${response.fieldCount || 0}
+          Method: <strong>${response.method || 'unknown'}</strong><br>
+          Fields found: ${response.fieldCount || 0}<br>
+          ${isFallback ? '<div style="color: #ea8600; margin-top: 4px;">⚠️ Using regex extraction (grammar failed)</div>' : ''}
+          ${response.xmlOutput ? '<div style="margin-top: 4px;">📄 XML output available below</div>' : ''}
         </div>
       `;
-      grammarTestResult.style.background = '#e6f4ea';
-      grammarTestResult.style.border = '1px solid #1e8e3e';
+      grammarTestResult.style.background = isIXML ? '#e6f4ea' : '#fef7e0';
+      grammarTestResult.style.border = `1px solid ${isIXML ? '#1e8e3e' : '#ea8600'}`;
       grammarTestResult.style.padding = '8px';
       grammarTestResult.style.borderRadius = '4px';
+
+      // Show XML output if available
+      if (response.xmlOutput) {
+        xmlOutputViewer.style.display = 'block';
+        xmlOutputContent.textContent = response.xmlOutput;
+      } else {
+        xmlOutputViewer.style.display = 'none';
+      }
     } else {
       grammarTestResult.innerHTML = `
         <div style="color: #d93025; font-weight: 500;">❌ Parse failed</div>
@@ -438,6 +455,7 @@ testGrammarButton.addEventListener('click', async () => {
       grammarTestResult.style.border = '1px solid #d93025';
       grammarTestResult.style.padding = '8px';
       grammarTestResult.style.borderRadius = '4px';
+      xmlOutputViewer.style.display = 'none';
     }
 
   } catch (error) {

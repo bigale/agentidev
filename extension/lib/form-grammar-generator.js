@@ -120,12 +120,12 @@ button-field: -'<button', @type?, -'>', button-text, -'</button>' .
 label: -'<label', @for?, -'>', label-text, -'</label>' .
 option: -'<option', @value?, -'>', option-text, -'</option>' .
 
-@type: -'type="', #type-value, -'"' .
-@name: -'name="', #name-value, -'"' .
-@id: -'id="', #id-value, -'"' .
-@for: -'for="', #for-value, -'"' .
-@value: -'value="', #value-text, -'"' .
-@placeholder: -'placeholder="', #placeholder-text, -'"' .
+@type: -'type="', type-value, -'"' .
+@name: -'name="', name-value, -'"' .
+@id: -'id="', id-value, -'"' .
+@for: -'for="', for-value, -'"' .
+@value: -'value="', value-text, -'"' .
+@placeholder: -'placeholder="', placeholder-text, -'"' .
 
 label-text: text .
 button-text: text .
@@ -143,6 +143,7 @@ text: [^<"]+ .
 - Keep it simple - focus on extracting the core field information
 - Use "-" to hide literals (e.g., -'<input')
 - Use @ for attributes
+- DO NOT use # prefix with attributes (just use the nonterminal name directly)
 - Make labels optional (some fields don't have labels)
 - Capture text content for labels and button text
 
