@@ -91,6 +91,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           );
           finalGrammar = grammarResult.grammar;
           console.log('[Content] Grammar generated:', grammarResult.cached ? '(cached)' : '(fresh)');
+          console.log('[Content] ==== GRAMMAR START ====');
+          console.log(finalGrammar);
+          console.log('[Content] ==== GRAMMAR END ====');
         }
 
         // Parse with grammar (or fallback)

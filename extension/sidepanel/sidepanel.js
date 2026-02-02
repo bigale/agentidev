@@ -40,6 +40,13 @@ const domIndexButton = document.getElementById('dom-index-button');
 const domSearchInput = document.getElementById('dom-search-input');
 const domSearchButton = document.getElementById('dom-search-button');
 const domResults = document.getElementById('dom-results');
+const viewGrammarButton = document.getElementById('view-grammar-button');
+const grammarViewer = document.getElementById('grammar-viewer');
+const grammarContent = document.getElementById('grammar-content');
+const grammarStatus = document.getElementById('grammar-status');
+const clearGrammarCacheButton = document.getElementById('clear-grammar-cache-button');
+const testGrammarButton = document.getElementById('test-grammar-button');
+const grammarTestResult = document.getElementById('grammar-test-result');
 
 let currentMode = 'search'; // 'search', 'qa', 'extract', or 'agent'
 let currentFilter = 'all';
@@ -311,6 +318,135 @@ agentFillButton.addEventListener('click', async () => {
       <div style="font-size: 12px; color: #5f6368;">
         ${error.message}
       </div>
+    `;
+  }
+});
+
+// Grammar Viewer handlers (Phase 2.1)
+viewGrammarButton.addEventListener('click', async () => {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    if (!tab) {
+      alert('No active tab found');
+      return;
+    }
+
+    viewGrammarButton.disabled = true;
+    viewGrammarButton.textContent = '⏳ Loading...';
+
+    // Request grammar from background
+    const response = await chrome.runtime.sendMessage({
+      type: 'GET_GRAMMAR',
+      tabId: tab.id,
+      url: tab.url
+    });
+
+    viewGrammarButton.disabled = false;
+    viewGrammarButton.textContent = '📋 View Grammar';
+
+    if (response && response.success) {
+      grammarViewer.style.display = 'block';
+      grammarContent.textContent = response.grammar;
+      grammarStatus.textContent = response.cached ? '✅ Cached' : '🆕 Generated';
+      grammarStatus.style.color = response.cached ? '#1e8e3e' : '#8e44ad';
+    } else {
+      alert('Failed to load grammar: ' + (response?.error || 'Unknown error'));
+    }
+
+  } catch (error) {
+    console.error('[Grammar Viewer] Error:', error);
+    viewGrammarButton.disabled = false;
+    viewGrammarButton.textContent = '📋 View Grammar';
+    alert('Error: ' + error.message);
+  }
+});
+
+clearGrammarCacheButton.addEventListener('click', async () => {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    if (!tab) {
+      return;
+    }
+
+    const domain = new URL(tab.url).hostname;
+
+    if (!confirm(`Clear grammar cache for ${domain}?`)) {
+      return;
+    }
+
+    const response = await chrome.runtime.sendMessage({
+      type: 'CLEAR_GRAMMAR_CACHE',
+      domain: domain
+    });
+
+    if (response && response.success) {
+      grammarViewer.style.display = 'none';
+      alert(`Cleared ${response.count || 0} cached grammars for ${domain}`);
+    } else {
+      alert('Failed to clear cache: ' + (response?.error || 'Unknown error'));
+    }
+
+  } catch (error) {
+    console.error('[Grammar Viewer] Clear cache error:', error);
+    alert('Error: ' + error.message);
+  }
+});
+
+testGrammarButton.addEventListener('click', async () => {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    if (!tab) {
+      return;
+    }
+
+    testGrammarButton.disabled = true;
+    testGrammarButton.textContent = '⏳ Testing...';
+    grammarTestResult.style.display = 'none';
+
+    const response = await chrome.runtime.sendMessage({
+      type: 'TEST_GRAMMAR',
+      tabId: tab.id
+    });
+
+    testGrammarButton.disabled = false;
+    testGrammarButton.textContent = '✅ Test Grammar Parse';
+    grammarTestResult.style.display = 'block';
+
+    if (response && response.success) {
+      grammarTestResult.innerHTML = `
+        <div style="color: #1e8e3e; font-weight: 500;">✅ Parse successful!</div>
+        <div style="color: #5f6368; margin-top: 4px;">
+          Method: ${response.method || 'unknown'}<br>
+          Fields found: ${response.fieldCount || 0}
+        </div>
+      `;
+      grammarTestResult.style.background = '#e6f4ea';
+      grammarTestResult.style.border = '1px solid #1e8e3e';
+      grammarTestResult.style.padding = '8px';
+      grammarTestResult.style.borderRadius = '4px';
+    } else {
+      grammarTestResult.innerHTML = `
+        <div style="color: #d93025; font-weight: 500;">❌ Parse failed</div>
+        <div style="color: #5f6368; margin-top: 4px;">
+          ${response?.error || 'Unknown error'}
+        </div>
+      `;
+      grammarTestResult.style.background = '#fce8e6';
+      grammarTestResult.style.border = '1px solid #d93025';
+      grammarTestResult.style.padding = '8px';
+      grammarTestResult.style.borderRadius = '4px';
+    }
+
+  } catch (error) {
+    console.error('[Grammar Viewer] Test error:', error);
+    testGrammarButton.disabled = false;
+    testGrammarButton.textContent = '✅ Test Grammar Parse';
+    grammarTestResult.style.display = 'block';
+    grammarTestResult.innerHTML = `
+      <div style="color: #d93025;">Error: ${error.message}</div>
     `;
   }
 });

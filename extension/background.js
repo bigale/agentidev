@@ -22,6 +22,8 @@ import { indexDOM, searchDOM, clearDOMIndex } from './lib/dom-indexer.js';
 import { findElementByIntent } from './lib/semantic-finder.js';
 // Phase 2.0 MVP: Automation workflows
 import { fillFormWithGoogleData, executeFormFillWorkflow, fillFormWithData } from './lib/agent-workflow.js';
+// Phase 2.1: Grammar generation and parsing
+import { generateFormGrammar, clearGrammarCache, getGrammarCacheStats } from './lib/form-grammar-generator.js';
 
 console.log('Contextual Recall: Background service worker started');
 console.log('[Background] Note: Extension reload = re-initialize (models are cached, not re-downloaded)');
@@ -217,6 +219,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(result => sendResponse(result))
       .catch(error => {
         console.error('[Background] FILL_FORM_WITH_DATA error:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    return true; // Async response
+  }
+
+  // Phase 2.1 - Grammar viewer handlers
+  if (message.type === 'GET_GRAMMAR') {
+    handleGetGrammar(message.tabId, message.url)
+      .then(result => sendResponse(result))
+      .catch(error => {
+        console.error('[Background] GET_GRAMMAR error:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    return true; // Async response
+  }
+
+  if (message.type === 'CLEAR_GRAMMAR_CACHE') {
+    handleClearGrammarCache(message.domain)
+      .then(result => sendResponse(result))
+      .catch(error => {
+        console.error('[Background] CLEAR_GRAMMAR_CACHE error:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    return true; // Async response
+  }
+
+  if (message.type === 'TEST_GRAMMAR') {
+    handleTestGrammar(message.tabId)
+      .then(result => sendResponse(result))
+      .catch(error => {
+        console.error('[Background] TEST_GRAMMAR error:', error);
         sendResponse({ success: false, error: error.message });
       });
     return true; // Async response
@@ -1098,6 +1131,105 @@ async function handleFillFormWithData(data, targetTabId) {
 
   } catch (error) {
     console.error('[Fill Form] Failed:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Get grammar for current page (Phase 2.1)
+ */
+async function handleGetGrammar(tabId, url) {
+  console.log('[Grammar] Getting grammar for:', url);
+
+  try {
+    // Get HTML from tab
+    const htmlResult = await chrome.tabs.sendMessage(tabId, {
+      type: 'GET_PAGE_HTML'
+    });
+
+    if (!htmlResult || !htmlResult.html) {
+      return { success: false, error: 'Failed to get page HTML' };
+    }
+
+    // Generate or retrieve grammar
+    const grammarResult = await generateFormGrammar(htmlResult.html, url, { useCache: true });
+
+    return {
+      success: true,
+      grammar: grammarResult.grammar,
+      cached: grammarResult.cached || false,
+      cacheKey: grammarResult.cacheKey
+    };
+
+  } catch (error) {
+    console.error('[Grammar] Failed:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Clear grammar cache for domain (Phase 2.1)
+ */
+async function handleClearGrammarCache(domain) {
+  console.log('[Grammar] Clearing cache for:', domain);
+
+  try {
+    await clearGrammarCache(domain);
+
+    // Get stats to return count
+    const stats = await getGrammarCacheStats();
+    const count = domain ? (stats.byDomain[domain] || 0) : stats.totalEntries;
+
+    return {
+      success: true,
+      count: count
+    };
+
+  } catch (error) {
+    console.error('[Grammar] Clear cache failed:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Test grammar parsing on current page (Phase 2.1)
+ */
+async function handleTestGrammar(tabId) {
+  console.log('[Grammar] Testing parse on tab:', tabId);
+
+  try {
+    // Delegate to content script which will parse and return result
+    const parseResult = await chrome.tabs.sendMessage(tabId, {
+      type: 'PARSE_FORM_WITH_GRAMMAR',
+      intent: null, // No specific intent, just test parse
+      html: null,
+      grammar: null
+    });
+
+    if (parseResult && parseResult.success) {
+      return {
+        success: true,
+        method: parseResult.method || parseResult.parseMethod,
+        fieldCount: parseResult.fields ? parseResult.fields.length : 0
+      };
+    } else {
+      return {
+        success: false,
+        error: parseResult?.error || 'Parse failed'
+      };
+    }
+
+  } catch (error) {
+    console.error('[Grammar] Test failed:', error);
     return {
       success: false,
       error: error.message

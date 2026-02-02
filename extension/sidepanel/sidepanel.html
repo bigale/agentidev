@@ -458,6 +458,36 @@
         <div id="agent-status" style="font-size: 13px; color: #202124;"></div>
       </div>
 
+      <!-- Grammar Viewer (Phase 2.1) -->
+      <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; margin-top: 16px;">
+        <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #202124;">
+          📝 IXML Grammar Viewer
+        </h3>
+        <p style="font-size: 13px; color: #5f6368; margin-bottom: 16px;">
+          View and test the generated IXML grammar for the current page's forms.
+        </p>
+
+        <button id="view-grammar-button" style="width: 100%; padding: 10px; background: #8e44ad; color: white; border: none; border-radius: 4px; font-size: 13px; font-weight: 500; cursor: pointer; margin-bottom: 12px;">
+          📋 View Grammar
+        </button>
+
+        <div id="grammar-viewer" style="display:none;">
+          <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; color: #5f6368;" id="grammar-status"></span>
+            <button id="clear-grammar-cache-button" style="padding: 6px 12px; background: #ea4335; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer;">
+              🗑️ Clear Cache
+            </button>
+          </div>
+          <pre id="grammar-content" style="background: #f8f9fa; padding: 12px; border-radius: 4px; font-size: 11px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; font-family: 'Courier New', monospace;"></pre>
+          <div style="margin-top: 12px;">
+            <button id="test-grammar-button" style="width: 100%; padding: 8px; background: #34a853; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer;">
+              ✅ Test Grammar Parse
+            </button>
+          </div>
+          <div id="grammar-test-result" style="margin-top: 8px; font-size: 12px; display: none;"></div>
+        </div>
+      </div>
+
       <!-- DOM Indexing & Testing -->
       <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; margin-top: 16px;">
         <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #202124;">
