@@ -61,11 +61,13 @@ export async function initEmbeddings() {
 
       // Initialize embeddings in offscreen document
       console.log('[Embeddings] Initializing model...');
-      console.log('[Embeddings] First load will download ~50MB model files...');
+      console.log('[Embeddings] Note: Model files (~50MB) are cached after first download');
 
+      const startTime = Date.now();
       const response = await chrome.runtime.sendMessage({
         type: 'EMBEDDINGS_INIT'
       });
+      const elapsed = Date.now() - startTime;
 
       console.log('[Embeddings] Received response:', JSON.stringify(response));
       console.log('[Embeddings] Response type:', typeof response);
@@ -80,7 +82,12 @@ export async function initEmbeddings() {
 
       if (response.success) {
         initialized = true;
-        console.log('[Embeddings] Model loaded successfully');
+        const cached = elapsed < 2000; // If < 2s, likely cached
+        if (cached) {
+          console.log(`[Embeddings] ✓ Model loaded from cache (${elapsed}ms)`);
+        } else {
+          console.log(`[Embeddings] ✓ Model loaded (${elapsed}ms - first time download)`);
+        }
       } else {
         console.error('[Embeddings] Model initialization failed:', response.error);
         console.error('[Embeddings] Full response:', response);

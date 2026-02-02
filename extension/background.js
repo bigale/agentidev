@@ -22,6 +22,7 @@ import { indexDOM, searchDOM, clearDOMIndex } from './lib/dom-indexer.js';
 import { findElementByIntent } from './lib/semantic-finder.js';
 
 console.log('Contextual Recall: Background service worker started');
+console.log('[Background] Note: Extension reload = re-initialize (models are cached, not re-downloaded)');
 
 // Initialize database, embeddings, and LLM
 let dbReady = false;
@@ -30,57 +31,55 @@ let llmReady = false;
 
 (async () => {
   try {
+    console.log('[Background] ========================================');
+    console.log('[Background] Starting initialization...');
+    console.log('[Background] ========================================');
+
     // Initialize database first (fast)
     await vectorDB.init();
     dbReady = true;
-    console.log('[Background] Vector database initialized');
+    console.log('[Background] ✓ Vector database ready');
 
     // Initialize embeddings FIRST (fully complete before LLM)
-    console.log('[Background] Starting embeddings initialization...');
+    console.log('[Background] Initializing embeddings (all-MiniLM-L6-v2)...');
     embeddingsReady = await initEmbeddings();
     if (embeddingsReady) {
-      console.log('[Background] Embeddings ready - neural search enabled');
+      console.log('[Background] ✓ Embeddings ready (neural search enabled)');
     } else {
-      console.warn('[Background] Embeddings failed - using TF-IDF fallback');
+      console.warn('[Background] ✗ Embeddings failed (TF-IDF fallback)');
     }
 
-    console.log('[Background] Embeddings complete, starting Chrome Prompt API init...');
-
-    // Run diagnostics first
-    console.log('[Background] Running Chrome Prompt API diagnostics...');
-    const diagnostics = await runDiagnostics();
-    console.log('[Background] Diagnostics complete:', diagnostics);
-
     // Initialize Chrome Prompt API (Gemini Nano)
-    console.log('[Background] Checking Chrome Prompt API availability...');
-    console.log('[Background] checkAvailability function:', typeof checkAvailability);
+    console.log('[Background] Initializing Gemini Nano...');
 
     try {
-      console.log('[Background] Calling checkAvailability()...');
       const apiAvailable = await checkAvailability();
-      console.log('[Background] checkAvailability returned:', apiAvailable);
 
       if (apiAvailable) {
-        console.log('[Background] Chrome Prompt API available - initializing Gemini Nano...');
-        console.log('[Background] First use may take 1-3 minutes to download model (~5GB)...');
         llmReady = await initSession();
 
         if (llmReady) {
-          console.log('[Background] Gemini Nano ready - Q&A and Extract enabled');
+          console.log('[Background] ✓ Gemini Nano ready (Q&A, Extract, DOM Selection enabled)');
           const status = getStatus();
-          console.log('[Background] Model:', status.model, '| Context:', status.contextWindow, 'tokens');
+          console.log(`[Background]   Model: ${status.model} | Context: ${status.contextWindow} tokens`);
         } else {
-          console.warn('[Background] Gemini Nano initialization failed - Q&A and Extract disabled');
+          console.warn('[Background] ✗ Gemini Nano init failed (Q&A and Extract disabled)');
         }
       } else {
-        console.warn('[Background] Chrome Prompt API not available (Chrome 138+ required)');
-        console.warn('[Background] Q&A and Extract modes disabled');
-        console.warn('[Background] Search mode still works with embeddings');
+        console.warn('[Background] ✗ Chrome Prompt API not available (need Chrome 138+)');
+        console.warn('[Background]   Q&A and Extract modes disabled, Search still works');
       }
     } catch (error) {
-      console.error('[Background] Chrome Prompt API initialization error:', error);
+      console.error('[Background] ✗ Chrome Prompt API error:', error.message);
       llmReady = false;
     }
+
+    console.log('[Background] ========================================');
+    console.log('[Background] Initialization complete');
+    console.log('[Background] ✓ Database:', dbReady);
+    console.log('[Background] ✓ Embeddings:', embeddingsReady);
+    console.log('[Background] ✓ Gemini Nano:', llmReady);
+    console.log('[Background] ========================================');
   } catch (error) {
     console.error('[Background] Initialization failed:', error);
   }

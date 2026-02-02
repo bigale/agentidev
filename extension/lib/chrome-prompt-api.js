@@ -171,7 +171,9 @@ export async function initSession(options = {}) {
     }
 
     console.log('[Chrome Prompt API] Creating session...');
-    console.log('[Chrome Prompt API] First use may take 1-3 minutes to download model (~5GB)');
+    console.log('[Chrome Prompt API] Note: Gemini Nano (~5GB) is cached by Chrome after first download');
+
+    const startTime = Date.now();
 
     // Get the LanguageModel reference
     const LM = typeof LanguageModel !== 'undefined' ? LanguageModel :
@@ -192,7 +194,15 @@ export async function initSession(options = {}) {
     };
 
     session = await LM.create(sessionOptions);
-    console.log('[Chrome Prompt API] Session created successfully');
+
+    const elapsed = Date.now() - startTime;
+    const cached = elapsed < 3000; // If < 3s, model was cached
+
+    if (cached) {
+      console.log(`[Chrome Prompt API] ✓ Session created using cached model (${elapsed}ms)`);
+    } else {
+      console.log(`[Chrome Prompt API] ✓ Session created (${elapsed}ms - downloading model)`);
+    }
     console.log('[Chrome Prompt API] Model: Gemini Nano | Context: 6000 tokens');
 
     return true;
