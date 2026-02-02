@@ -33,13 +33,13 @@ async function initRustixml() {
     await module.default(); // Call init function
 
     rustixml = {
-      parse_ixml_grammar: module.parse_ixml_grammar,
-      NativeParser: module.NativeParser
+      IxmlParser: module.IxmlParser,
+      parse_ixml: module.parse_ixml
     };
 
     rustixmlInitialized = true;
 
-    console.log('[Form XML Parser] rustixml initialized');
+    console.log('[Form XML Parser] rustixml initialized:', module.version());
 
   } catch (error) {
     console.error('[Form XML Parser] rustixml initialization failed:', error);
@@ -68,18 +68,19 @@ export async function parseFormWithGrammar(html, grammar, options = {}) {
     console.log('[Form XML Parser] HTML length:', html.length);
     console.log('[Form XML Parser] Grammar length:', grammar.length);
 
-    // Parse the IXML grammar to AST
-    const ast = rustixml.parse_ixml_grammar(grammar);
-
-    console.log('[Form XML Parser] Grammar parsed to AST');
-
-    // Create parser from AST
-    const parser = new rustixml.NativeParser(ast);
+    // Create parser from grammar
+    const parser = new rustixml.IxmlParser(grammar);
 
     console.log('[Form XML Parser] Parser created');
 
     // Parse HTML → XML
-    const xmlString = parser.parse(html);
+    const parseResult = parser.parse(html);
+
+    if (!parseResult.success) {
+      throw new Error(`IXML parsing failed: ${parseResult.error || 'unknown error'}`);
+    }
+
+    const xmlString = parseResult.output;
 
     console.log('[Form XML Parser] HTML parsed to XML');
     console.log('[Form XML Parser] XML length:', xmlString.length);
