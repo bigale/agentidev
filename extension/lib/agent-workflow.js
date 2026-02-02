@@ -3,14 +3,14 @@
  *
  * Coordinates multi-step automation workflows:
  * 1. Extract data from source tab
- * 2. Find target form fields
+ * 2. Find target form fields (using hybrid XPath → Vector → LLM)
  * 3. Map and fill fields
  * 4. Submit form
  *
- * Phase 2.0 MVP - Vector-only automation
+ * Phase 2.1 - Grammar-enhanced automation with hybrid field finding
  */
 
-import { findElementByIntent } from './semantic-finder.js';
+import { findFieldHybrid } from './hybrid-field-finder.js';
 import { indexDOM } from './dom-indexer.js';
 
 console.log('[Agent Workflow] Module loaded');
@@ -112,8 +112,10 @@ export async function executeFormFillWorkflow(sourceTabId, targetTabId, mapping,
       console.log(`[Agent Workflow] Filling "${targetIntent}" with "${value}"`);
 
       try {
-        // Find target field using semantic search
-        const findResult = await findElementByIntent(targetTabId, targetIntent, {
+        // Find target field using hybrid approach (XPath → Vector → LLM)
+        const findResult = await findFieldHybrid(targetTabId, targetIntent, {
+          useXPath: true,
+          useVector: true,
           useLLM: true,
           highlightFields
         });
@@ -320,8 +322,10 @@ export async function fillFormWithData(data, targetTabId) {
     // Fill each field
     for (const [intent, value] of Object.entries(data)) {
       try {
-        // Find field
-        const findResult = await findElementByIntent(targetTabId, intent, {
+        // Find field using hybrid approach
+        const findResult = await findFieldHybrid(targetTabId, intent, {
+          useXPath: true,
+          useVector: true,
           useLLM: true
         });
 
