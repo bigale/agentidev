@@ -268,6 +268,14 @@ export function chunkDOM(document) {
 function generateEmbeddingText(chunk) {
   const parts = [];
 
+  // Extract key distinguishing words from label for emphasis
+  // For "Date of Birth - Month", extract "Month" and put it FIRST
+  const label = chunk.label || '';
+  const keyWords = extractKeyWords(label);
+  if (keyWords) {
+    parts.push(keyWords); // "Month" or "Day" or "Year" FIRST
+  }
+
   // Add element type prefix for better matching
   const typePrefix = getTypePrefix(chunk);
   if (typePrefix) parts.push(typePrefix);
@@ -296,6 +304,38 @@ function generateEmbeddingText(chunk) {
   }
 
   return parts.filter(p => p).join(' ');
+}
+
+/**
+ * Extract key distinguishing words from label
+ * For "Date of Birth - Month", returns "Month Month Month" (repeated for emphasis)
+ */
+function extractKeyWords(label) {
+  if (!label) return null;
+
+  const lower = label.toLowerCase();
+
+  // Date field types - repeat 3x for strong emphasis
+  if (lower.includes('month')) return 'Month Month Month';
+  if (lower.includes('day')) return 'Day Day Day';
+  if (lower.includes('year')) return 'Year Year Year';
+
+  // Other important distinguishers
+  if (lower.includes('password')) return 'Password Password';
+  if (lower.includes('email')) return 'Email Email';
+  if (lower.includes('phone')) return 'Phone Phone';
+  if (lower.includes('address')) return 'Address Address';
+  if (lower.includes('city')) return 'City City';
+  if (lower.includes('zip')) return 'Zip Zip';
+  if (lower.includes('state')) return 'State State';
+  if (lower.includes('country')) return 'Country Country';
+
+  // Card fields
+  if (lower.includes('card') && lower.includes('number')) return 'CardNumber CardNumber';
+  if (lower.includes('cvv') || lower.includes('cvc')) return 'CVV CVV';
+  if (lower.includes('expir')) return 'Expiration Expiration';
+
+  return null;
 }
 
 /**
