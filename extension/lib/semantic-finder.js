@@ -139,30 +139,25 @@ async function selectBestMatchWithLLM(intent, candidates) {
     // Number
     parts.push(`${index + 1}.`);
 
-    // Element type
-    parts.push(candidate.tagName);
-    if (candidate.attributes?.type) {
-      parts.push(`(${candidate.attributes.type})`);
-    }
+    // Element type (PROMINENT - this is critical!)
+    const elementType = candidate.tagName.toUpperCase();
+    const subType = candidate.attributes?.type ? ` (${candidate.attributes.type})` : '';
+    parts.push(`[${elementType}${subType}]`);
 
     // Label or text (most important!)
     const displayText = candidate.label || candidate.text || candidate.attributes?.placeholder || candidate.attributes?.ariaLabel;
     if (displayText) {
-      parts.push(`- Label: "${displayText.substring(0, 60)}"`);
+      parts.push(`"${displayText.substring(0, 60)}"`);
     } else {
-      parts.push('- (no label)');
+      parts.push('(no label)');
     }
 
     // Name/ID hints
     if (candidate.attributes?.name) {
       const hint = parseNameHint(candidate.attributes.name);
       if (hint) {
-        parts.push(`- Hint: ${hint}`);
-      } else {
-        parts.push(`- name="${candidate.attributes.name}"`);
+        parts.push(`→ ${hint}`);
       }
-    } else if (candidate.attributes?.id) {
-      parts.push(`- id="${candidate.attributes.id}"`);
     }
 
     return parts.join(' ');
@@ -173,21 +168,54 @@ async function selectBestMatchWithLLM(intent, candidates) {
     if (!name) return null;
     const lower = name.toLowerCase();
 
-    // DOB patterns
-    if (lower.includes('dob') && lower.includes('dd')) return 'Date of Birth Day';
-    if (lower.includes('dob') && lower.includes('mm')) return 'Date of Birth Month';
-    if (lower.includes('dob') && lower.includes('yy')) return 'Date of Birth Year';
+    // DOB patterns (explicit)
+    if (lower.includes('dob') || lower.includes('birth')) {
+      if (lower.includes('dd') || lower.includes('day')) return 'DOB Day';
+      if (lower.includes('mm') || lower.includes('month')) return 'DOB Month';
+      if (lower.includes('yy') || lower.includes('year')) return 'DOB Year';
+      if (lower.includes('pl') || lower.includes('place')) return 'Birth Place';
+    }
 
-    // Generic date patterns
-    if (lower.includes('dd') && !lower.includes('address')) return 'Day field';
-    if (lower.includes('mm') && !lower.includes('comm')) return 'Month field';
-    if (lower.includes('yy') || lower.includes('year')) return 'Year field';
+    // Check if it's part of a DOB group by number prefix (e.g., "66mm", "67dd", "68yy")
+    const match = name.match(/^(\d{2})([a-z_]+)$/i);
+    if (match) {
+      const prefix = match[1];
+      const suffix = match[2].toLowerCase();
+
+      // Common DOB prefixes: 66, 67, 68
+      if (['66', '67', '68'].includes(prefix)) {
+        if (suffix === 'mm' || suffix.includes('month')) return 'DOB Month';
+        if (suffix === 'dd' || suffix.includes('day')) return 'DOB Day';
+        if (suffix === 'yy' || suffix.includes('year')) return 'DOB Year';
+        if (suffix.includes('birth')) return 'Birth Place';
+      }
+    }
 
     // CC patterns
-    if ((lower.includes('cc') || lower.includes('card')) && lower.includes('mm')) return 'Card Expiration Month';
-    if ((lower.includes('cc') || lower.includes('card')) && lower.includes('yy')) return 'Card Expiration Year';
+    if ((lower.includes('cc') || lower.includes('card')) && lower.includes('mm')) return 'CC Exp Month';
+    if ((lower.includes('cc') || lower.includes('card')) && lower.includes('yy')) return 'CC Exp Year';
+
+    // Generic date patterns (fallback)
+    if (lower.includes('dd') && !lower.includes('address')) return 'Day';
+    if (lower.includes('mm') && !lower.includes('comm')) return 'Month';
+    if (lower.includes('yy') || lower.includes('year')) return 'Year';
 
     return null;
+  }
+
+  // Detect what type of element the user wants
+  const intentLower = intent.toLowerCase();
+  const wantsDropdown = intentLower.includes('dropdown') || intentLower.includes('select');
+  const wantsInput = intentLower.includes('input') || intentLower.includes('field') || intentLower.includes('textbox');
+  const wantsButton = intentLower.includes('button') || intentLower.includes('submit');
+
+  let typeGuidance = '';
+  if (wantsDropdown) {
+    typeGuidance = '\n- User wants a DROPDOWN/SELECT - ONLY pick "select" elements, NOT inputs or buttons';
+  } else if (wantsInput) {
+    typeGuidance = '\n- User wants an INPUT field - pick "input" elements, NOT selects or buttons';
+  } else if (wantsButton) {
+    typeGuidance = '\n- User wants a BUTTON - pick "button" elements';
   }
 
   const prompt = `You are helping locate the correct form field on a web page.
@@ -197,15 +225,16 @@ The user is looking for: "${intent}"
 Here are the candidate elements (pick ONE):
 ${candidateDescriptions}
 
-IMPORTANT:
-- Read the user's intent carefully
-- Match based on the label AND hint
-- For "Date of Birth Day", pick the Day field with DOB/birth hint, NOT credit card or generic day
-- For "password", pick password input, NOT password reset link
+CRITICAL RULES:
+- Match element TYPE first: if user says "dropdown", ONLY pick select elements${typeGuidance}
+- Then match label/hint: "Date of Birth" + "Month" = DOB month field
+- NEVER pick "Birth Place" input when user wants "Date of Birth Month dropdown"
+- "Birth Place" is where you were born (text input)
+- "Date of Birth Month" is the month dropdown (1-12 or Jan-Dec)
 - Return ONLY a single number (1-${candidates.length})
-- No explanation, just the number
+- No explanation
 
-Which element matches best? Number:`;
+Best match number:`;
 
   console.log('[Semantic Finder] LLM Prompt:', prompt);
 

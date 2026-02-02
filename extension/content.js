@@ -582,7 +582,22 @@ function extractDOMStructure() {
       if (lower.includes('dd') || lower.includes('day')) return 'Date of Birth - Day';
       if (lower.includes('mm') || lower.includes('month')) return 'Date of Birth - Month';
       if (lower.includes('yy') || lower.includes('year')) return 'Date of Birth - Year';
+      if (lower.includes('pl') || lower.includes('place')) return 'Birth Place';
       return 'Date of Birth';
+    }
+
+    // Check if it's part of a DOB group by number prefix (e.g., "66mm", "67dd", "68yy" are DOB fields)
+    const match = name.match(/^(\d{2})([a-z_]+)$/i);
+    if (match) {
+      const prefix = match[1];
+      const suffix = match[2].toLowerCase();
+
+      // Common DOB prefixes: 66, 67, 68 (seen in RoboForm)
+      if (['66', '67', '68'].includes(prefix)) {
+        if (suffix === 'mm' || suffix.includes('month')) return 'Date of Birth - Month';
+        if (suffix === 'dd' || suffix.includes('day')) return 'Date of Birth - Day';
+        if (suffix === 'yy' || suffix.includes('year')) return 'Date of Birth - Year';
+      }
     }
 
     // Credit card patterns
