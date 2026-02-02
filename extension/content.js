@@ -482,6 +482,24 @@ function extractDOMStructure() {
 
   // Helper: Get element text
   function getElementText(element) {
+    // For select elements, DON'T use textContent (returns selected option text)
+    // Instead, return empty and rely on findLabel() or name parsing
+    if (element.tagName === 'SELECT') {
+      const sources = [
+        element.getAttribute('aria-label'),
+        element.getAttribute('title')
+      ];
+
+      for (const source of sources) {
+        if (source && source.length > 0 && source.length < 200) {
+          return source.substring(0, 200);
+        }
+      }
+
+      return ''; // Let findLabel() or parseNameForLabel() handle it
+    }
+
+    // For other elements, use normal priority
     const sources = [
       element.getAttribute('aria-label'),
       element.getAttribute('title'),
