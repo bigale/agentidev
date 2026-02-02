@@ -522,18 +522,82 @@ function extractDOMStructure() {
 
   // Helper: Find label for form element
   function findLabel(element) {
+    // Try label[for=id]
     if (element.id) {
       const label = document.querySelector(`label[for="${element.id}"]`);
       if (label) return label.textContent?.trim();
     }
 
+    // Try parent label
     const parentLabel = element.closest('label');
     if (parentLabel) return parentLabel.textContent?.trim();
 
+    // Try previous sibling label/span
     let prev = element.previousElementSibling;
-    if (prev && (prev.tagName === 'LABEL' || prev.tagName === 'SPAN')) {
-      return prev.textContent?.trim();
+    if (prev && (prev.tagName === 'LABEL' || prev.tagName === 'SPAN' || prev.tagName === 'DIV')) {
+      const text = prev.textContent?.trim();
+      if (text && text.length < 100) return text;
     }
+
+    // Try looking for nearby text (within parent container)
+    const parent = element.parentElement;
+    if (parent) {
+      // Get all text nodes before this element
+      const walker = document.createTreeWalker(
+        parent,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
+
+      let lastText = '';
+      let node;
+      while (node = walker.nextNode()) {
+        if (node.parentNode === element) break; // Stop if we hit the element
+        if (parent.contains(element) && node.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING) {
+          const text = node.textContent?.trim();
+          if (text && text.length > 2 && text.length < 100) {
+            lastText = text;
+          }
+        }
+      }
+      if (lastText) return lastText;
+    }
+
+    // Try parsing name attribute for hints
+    const name = element.getAttribute('name') || element.getAttribute('id') || '';
+    const nameHints = parseNameForLabel(name);
+    if (nameHints) return nameHints;
+
+    return null;
+  }
+
+  // Helper: Parse name/id for semantic hints
+  function parseNameForLabel(name) {
+    if (!name) return null;
+
+    const lower = name.toLowerCase();
+
+    // Date of birth patterns
+    if (lower.includes('dob') || lower.includes('birth')) {
+      if (lower.includes('dd') || lower.includes('day')) return 'Date of Birth - Day';
+      if (lower.includes('mm') || lower.includes('month')) return 'Date of Birth - Month';
+      if (lower.includes('yy') || lower.includes('year')) return 'Date of Birth - Year';
+      return 'Date of Birth';
+    }
+
+    // Credit card patterns
+    if (lower.includes('cc') || lower.includes('card') || lower.includes('exp')) {
+      if (lower.includes('mm') || lower.includes('month')) return 'Card Expiration - Month';
+      if (lower.includes('yy') || lower.includes('year')) return 'Card Expiration - Year';
+      if (lower.includes('cvv') || lower.includes('cvc')) return 'Card CVV';
+      if (lower.includes('num')) return 'Card Number';
+      return 'Credit Card';
+    }
+
+    // Generic date patterns (not DOB or CC)
+    if (lower.includes('dd') && !lower.includes('address')) return 'Day';
+    if (lower.includes('mm') && !lower.includes('comm')) return 'Month';
+    if (lower.includes('yy') || lower.includes('year')) return 'Year';
 
     return null;
   }

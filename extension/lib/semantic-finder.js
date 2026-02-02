@@ -136,50 +136,76 @@ async function selectBestMatchWithLLM(intent, candidates) {
   const candidateDescriptions = candidates.map((candidate, index) => {
     const parts = [];
 
-    // Element type
-    parts.push(`${index + 1}. ${candidate.tagName}`);
+    // Number
+    parts.push(`${index + 1}.`);
 
-    // Element type/role
+    // Element type
+    parts.push(candidate.tagName);
     if (candidate.attributes?.type) {
-      parts.push(`(type: ${candidate.attributes.type})`);
+      parts.push(`(${candidate.attributes.type})`);
     }
 
-    // Label or text
+    // Label or text (most important!)
     const displayText = candidate.label || candidate.text || candidate.attributes?.placeholder || candidate.attributes?.ariaLabel;
     if (displayText) {
-      parts.push(`"${displayText.substring(0, 50)}"`);
+      parts.push(`- Label: "${displayText.substring(0, 60)}"`);
+    } else {
+      parts.push('- (no label)');
     }
 
-    // Context
-    if (candidate.context) {
-      parts.push(`[in: ${candidate.context}]`);
-    }
-
-    // Attributes for disambiguation
-    const attrs = [];
-    if (candidate.attributes?.name) attrs.push(`name="${candidate.attributes.name}"`);
-    if (candidate.attributes?.id) attrs.push(`id="${candidate.attributes.id}"`);
-    if (attrs.length > 0) {
-      parts.push(`{${attrs.join(', ')}}`);
+    // Name/ID hints
+    if (candidate.attributes?.name) {
+      const hint = parseNameHint(candidate.attributes.name);
+      if (hint) {
+        parts.push(`- Hint: ${hint}`);
+      } else {
+        parts.push(`- name="${candidate.attributes.name}"`);
+      }
+    } else if (candidate.attributes?.id) {
+      parts.push(`- id="${candidate.attributes.id}"`);
     }
 
     return parts.join(' ');
   }).join('\n');
 
-  const prompt = `You are helping find the correct element on a web page.
+  // Helper to parse name for human-readable hints
+  function parseNameHint(name) {
+    if (!name) return null;
+    const lower = name.toLowerCase();
 
-User wants: "${intent}"
+    // DOB patterns
+    if (lower.includes('dob') && lower.includes('dd')) return 'Date of Birth Day';
+    if (lower.includes('dob') && lower.includes('mm')) return 'Date of Birth Month';
+    if (lower.includes('dob') && lower.includes('yy')) return 'Date of Birth Year';
 
-Available elements:
+    // Generic date patterns
+    if (lower.includes('dd') && !lower.includes('address')) return 'Day field';
+    if (lower.includes('mm') && !lower.includes('comm')) return 'Month field';
+    if (lower.includes('yy') || lower.includes('year')) return 'Year field';
+
+    // CC patterns
+    if ((lower.includes('cc') || lower.includes('card')) && lower.includes('mm')) return 'Card Expiration Month';
+    if ((lower.includes('cc') || lower.includes('card')) && lower.includes('yy')) return 'Card Expiration Year';
+
+    return null;
+  }
+
+  const prompt = `You are helping locate the correct form field on a web page.
+
+The user is looking for: "${intent}"
+
+Here are the candidate elements (pick ONE):
 ${candidateDescriptions}
 
-Instructions:
-1. Match the user's intent to the most appropriate element
-2. Consider element type, label, context, and purpose
-3. Return ONLY the number (1-${candidates.length}) of the best match
-4. Do not explain, just return the number
+IMPORTANT:
+- Read the user's intent carefully
+- Match based on the label AND hint
+- For "Date of Birth Day", pick the Day field with DOB/birth hint, NOT credit card or generic day
+- For "password", pick password input, NOT password reset link
+- Return ONLY a single number (1-${candidates.length})
+- No explanation, just the number
 
-Best match number:`;
+Which element matches best? Number:`;
 
   console.log('[Semantic Finder] LLM Prompt:', prompt);
 
