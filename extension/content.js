@@ -540,21 +540,34 @@ function extractDOMStructure() {
 
   // Helper: Find label for form element
   function findLabel(element) {
+    const elementName = element.getAttribute('name') || element.getAttribute('id') || element.tagName;
+
     // Try label[for=id]
     if (element.id) {
       const label = document.querySelector(`label[for="${element.id}"]`);
-      if (label) return label.textContent?.trim();
+      if (label) {
+        const labelText = label.textContent?.trim();
+        console.log('[findLabel] Found via label[for]:', elementName, '→', labelText);
+        return labelText;
+      }
     }
 
     // Try parent label
     const parentLabel = element.closest('label');
-    if (parentLabel) return parentLabel.textContent?.trim();
+    if (parentLabel) {
+      const labelText = parentLabel.textContent?.trim();
+      console.log('[findLabel] Found via parent label:', elementName, '→', labelText);
+      return labelText;
+    }
 
     // Try previous sibling label/span
     let prev = element.previousElementSibling;
     if (prev && (prev.tagName === 'LABEL' || prev.tagName === 'SPAN' || prev.tagName === 'DIV')) {
       const text = prev.textContent?.trim();
-      if (text && text.length < 100) return text;
+      if (text && text.length < 100) {
+        console.log('[findLabel] Found via previous sibling:', elementName, '→', text);
+        return text;
+      }
     }
 
     // Try looking for nearby text (within parent container)
@@ -578,14 +591,21 @@ function extractDOMStructure() {
           }
         }
       }
-      if (lastText) return lastText;
+      if (lastText) {
+        console.log('[findLabel] Found via TreeWalker:', elementName, '→', lastText);
+        return lastText;
+      }
     }
 
     // Try parsing name attribute for hints
     const name = element.getAttribute('name') || element.getAttribute('id') || '';
     const nameHints = parseNameForLabel(name);
-    if (nameHints) return nameHints;
+    if (nameHints) {
+      console.log('[findLabel] Found via parseNameForLabel:', elementName, '→', nameHints);
+      return nameHints;
+    }
 
+    console.log('[findLabel] No label found for:', elementName);
     return null;
   }
 
@@ -593,14 +613,29 @@ function extractDOMStructure() {
   function parseNameForLabel(name) {
     if (!name) return null;
 
+    console.log('[parseNameForLabel] Parsing:', name);
+
     const lower = name.toLowerCase();
 
     // Date of birth patterns
     if (lower.includes('dob') || lower.includes('birth')) {
-      if (lower.includes('dd') || lower.includes('day')) return 'Date of Birth - Day';
-      if (lower.includes('mm') || lower.includes('month')) return 'Date of Birth - Month';
-      if (lower.includes('yy') || lower.includes('year')) return 'Date of Birth - Year';
-      if (lower.includes('pl') || lower.includes('place')) return 'Birth Place';
+      if (lower.includes('dd') || lower.includes('day')) {
+        console.log('[parseNameForLabel] Matched DOB Day pattern');
+        return 'Date of Birth - Day';
+      }
+      if (lower.includes('mm') || lower.includes('month')) {
+        console.log('[parseNameForLabel] Matched DOB Month pattern');
+        return 'Date of Birth - Month';
+      }
+      if (lower.includes('yy') || lower.includes('year')) {
+        console.log('[parseNameForLabel] Matched DOB Year pattern');
+        return 'Date of Birth - Year';
+      }
+      if (lower.includes('pl') || lower.includes('place')) {
+        console.log('[parseNameForLabel] Matched Birth Place pattern');
+        return 'Birth Place';
+      }
+      console.log('[parseNameForLabel] Matched generic DOB pattern');
       return 'Date of Birth';
     }
 
@@ -609,12 +644,23 @@ function extractDOMStructure() {
     if (match) {
       const prefix = match[1];
       const suffix = match[2].toLowerCase();
+      console.log('[parseNameForLabel] Matched numbered pattern - prefix:', prefix, 'suffix:', suffix);
 
       // Common DOB prefixes: 66, 67, 68 (seen in RoboForm)
       if (['66', '67', '68'].includes(prefix)) {
-        if (suffix === 'mm' || suffix.includes('month')) return 'Date of Birth - Month';
-        if (suffix === 'dd' || suffix.includes('day')) return 'Date of Birth - Day';
-        if (suffix === 'yy' || suffix.includes('year')) return 'Date of Birth - Year';
+        console.log('[parseNameForLabel] Prefix is DOB-related (66/67/68)');
+        if (suffix === 'mm' || suffix.includes('month')) {
+          console.log('[parseNameForLabel] Matched DOB Month (numbered)');
+          return 'Date of Birth - Month';
+        }
+        if (suffix === 'dd' || suffix.includes('day')) {
+          console.log('[parseNameForLabel] Matched DOB Day (numbered)');
+          return 'Date of Birth - Day';
+        }
+        if (suffix === 'yy' || suffix.includes('year')) {
+          console.log('[parseNameForLabel] Matched DOB Year (numbered)');
+          return 'Date of Birth - Year';
+        }
       }
     }
 
@@ -632,6 +678,7 @@ function extractDOMStructure() {
     if (lower.includes('mm') && !lower.includes('comm')) return 'Month';
     if (lower.includes('yy') || lower.includes('year')) return 'Year';
 
+    console.log('[parseNameForLabel] No pattern matched');
     return null;
   }
 
