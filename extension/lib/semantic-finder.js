@@ -145,14 +145,24 @@ async function selectBestMatchWithLLM(intent, candidates) {
     parts.push(`[${elementType}${subType}]`);
 
     // Label or text (most important!)
-    const displayText = candidate.label || candidate.text || candidate.attributes?.placeholder || candidate.attributes?.ariaLabel;
+    const displayText = candidate.label ||
+                        candidate.text ||
+                        candidate.attributes?.placeholder ||
+                        candidate.attributes?.ariaLabel;
+
     if (displayText) {
       parts.push(`"${displayText.substring(0, 60)}"`);
+    } else if (candidate.attributes?.name) {
+      // No label found - show raw name for LLM to interpret
+      parts.push(`name="${candidate.attributes.name}"`);
+    } else if (candidate.attributes?.id) {
+      // No name either - show ID
+      parts.push(`id="${candidate.attributes.id}"`);
     } else {
       parts.push('(no label)');
     }
 
-    // Name/ID hints
+    // Name/ID hints (parsed interpretation)
     if (candidate.attributes?.name) {
       const hint = parseNameHint(candidate.attributes.name);
       if (hint) {
