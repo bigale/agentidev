@@ -12,7 +12,7 @@
  */
 
 import { generateEmbeddings } from './embeddings.js';
-import { storeChunk, searchChunks, clearCollection } from './vector-store.js';
+import { domVectorStore } from './dom-vector-store.js';
 
 /**
  * Generate a unique CSS selector for an element
@@ -321,11 +321,11 @@ export async function indexDOM(tabId, domChunks) {
     const collectionName = `dom-${tabId}`;
 
     // Clear existing DOM index for this tab
-    await clearCollection(collectionName);
+    await domVectorStore.clearCollection(collectionName);
 
     // Store each chunk with its embedding
     for (let i = 0; i < domChunks.length; i++) {
-      await storeChunk(collectionName, {
+      await domVectorStore.storeChunk(collectionName, {
         ...domChunks[i],
         embeddingText: embeddingTexts[i] // Store for debugging
       }, embeddings[i]);
@@ -363,7 +363,11 @@ export async function searchDOM(tabId, intent, options = {}) {
   console.log(`[DOM Indexer] Searching "${intent}" in ${collectionName}`);
 
   try {
-    const results = await searchChunks(collectionName, intent, topK);
+    // Generate embedding for search query
+    const queryEmbedding = await generateEmbeddings([intent]);
+
+    // Search in vector store
+    const results = await domVectorStore.searchChunks(collectionName, queryEmbedding[0], topK);
 
     console.log(`[DOM Indexer] Found ${results.length} matches`);
 
@@ -380,6 +384,6 @@ export async function searchDOM(tabId, intent, options = {}) {
  */
 export async function clearDOMIndex(tabId) {
   const collectionName = `dom-${tabId}`;
-  await clearCollection(collectionName);
+  await domVectorStore.clearCollection(collectionName);
   console.log(`[DOM Indexer] Cleared ${collectionName}`);
 }
