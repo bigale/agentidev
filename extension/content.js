@@ -58,6 +58,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'GET_PAGE_HTML') {
+    // Get page HTML for grammar generation (Phase 2.1)
+    const html = document.documentElement.outerHTML;
+    sendResponse({ success: true, html });
+    return true;
+  }
+
   if (message.type === 'HIGHLIGHT_ELEMENT') {
     // Highlight an element (for visual feedback)
     highlightElement(message.selector);
