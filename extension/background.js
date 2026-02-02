@@ -197,6 +197,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     return true; // Async response
   }
+
+  // Phase 2.0 MVP: Automation message handlers
+
+  if (message.type === 'EXECUTE_WORKFLOW') {
+    handleExecuteWorkflow(message.workflowType, message.targetTabId, message.options)
+      .then(result => sendResponse(result))
+      .catch(error => {
+        console.error('[Background] EXECUTE_WORKFLOW error:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    return true; // Async response
+  }
+
+  if (message.type === 'FILL_FORM_WITH_DATA') {
+    handleFillFormWithData(message.data, message.targetTabId)
+      .then(result => sendResponse(result))
+      .catch(error => {
+        console.error('[Background] FILL_FORM_WITH_DATA error:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    return true; // Async response
+  }
 });
 
 /**
@@ -1021,6 +1043,64 @@ async function handleFindElement(tabId, intent, options = {}) {
       success: false,
       error: error.message,
       intent
+    };
+  }
+}
+
+/**
+ * Phase 2.0 MVP: Automation Handlers
+ */
+
+/**
+ * Execute an automation workflow
+ */
+async function handleExecuteWorkflow(workflowType, targetTabId, options = {}) {
+  console.log(`[Workflow] Executing ${workflowType} workflow on tab ${targetTabId}`);
+
+  try {
+    // Dynamic import of workflow module
+    const { fillFormWithGoogleData, executeFormFillWorkflow } = await import('./lib/agent-workflow.js');
+
+    if (workflowType === 'fill_with_google_data') {
+      return await fillFormWithGoogleData(targetTabId);
+    } else if (workflowType === 'custom' && options.mapping) {
+      return await executeFormFillWorkflow(
+        options.sourceTabId,
+        targetTabId,
+        options.mapping,
+        options
+      );
+    } else {
+      return {
+        success: false,
+        error: `Unknown workflow type: ${workflowType}`
+      };
+    }
+
+  } catch (error) {
+    console.error('[Workflow] Execution failed:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Fill form with provided data
+ */
+async function handleFillFormWithData(data, targetTabId) {
+  console.log('[Fill Form] Filling form with data on tab', targetTabId);
+
+  try {
+    const { fillFormWithData } = await import('./lib/agent-workflow.js');
+    return await fillFormWithData(data, targetTabId);
+
+  } catch (error) {
+    console.error('[Fill Form] Failed:', error);
+    return {
+      success: false,
+      error: error.message
     };
   }
 }

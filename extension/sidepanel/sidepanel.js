@@ -229,41 +229,67 @@ extractButton.addEventListener('click', async () => {
   });
 });
 
-// Agent fill button
+// Agent fill button (Phase 2.0 MVP)
 agentFillButton.addEventListener('click', async () => {
-  const sourceUrl = agentSourceUrl.value.trim();
-  const targetUrl = agentTargetUrl.value.trim();
+  const sourcePattern = agentSourceUrl.value.trim();
+  const targetPattern = agentTargetUrl.value.trim();
 
-  if (!sourceUrl || !targetUrl) {
-    alert('Please enter both source and target URLs');
+  if (!targetPattern) {
+    alert('Please enter target URL pattern');
     return;
   }
 
-  // Show loading state
-  agentFillButton.disabled = true;
-  agentFillButton.textContent = '🤖 Working...';
-  agentResults.style.display = 'none';
+  try {
+    // Show loading state
+    agentFillButton.disabled = true;
+    agentFillButton.textContent = '🤖 Working...';
+    agentResults.style.display = 'none';
 
-  // Send agent fill request
-  chrome.runtime.sendMessage({
-    type: 'AGENT_FILL_FORM',
-    sourceUrl: sourceUrl,
-    targetUrl: targetUrl
-  }, (response) => {
+    // Find target tab
+    const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    let targetTabId = currentTab.id;
+
+    // If target pattern specified and doesn't match current tab, try to find it
+    if (targetPattern && !currentTab.url.includes(targetPattern)) {
+      const tabs = await chrome.tabs.query({});
+      const matchingTab = tabs.find(t => t.url.includes(targetPattern));
+      if (matchingTab) {
+        targetTabId = matchingTab.id;
+      }
+    }
+
+    // Execute workflow
+    const response = await chrome.runtime.sendMessage({
+      type: 'EXECUTE_WORKFLOW',
+      workflowType: sourcePattern && sourcePattern.includes('google') ? 'fill_with_google_data' : 'custom',
+      targetTabId: targetTabId,
+      options: {}
+    });
+
+    // Reset button state
     agentFillButton.disabled = false;
     agentFillButton.textContent = '🤖 Fill Form with Agent';
-
     agentResults.style.display = 'block';
 
     if (response && response.success) {
+      const filledCount = Object.keys(response.filled || {}).length;
+      const errorCount = (response.errors || []).length;
+
       agentStatus.innerHTML = `
         <div style="color: #1e8e3e; margin-bottom: 8px;">✅ Success!</div>
         <div style="font-size: 12px; color: #5f6368;">
-          <div>📊 Fields mapped: ${response.fieldsMapped || 0}</div>
-          <div>✏️ Fields filled: ${response.fieldsFilled || 0}</div>
+          <div>✏️ Fields filled: ${filledCount}</div>
+          ${errorCount > 0 ? `<div style="color: #ea8600;">⚠️ Errors: ${errorCount}</div>` : ''}
           <div style="margin-top: 8px; padding: 8px; background: #f1f3f4; border-radius: 4px;">
-            ${response.message || 'Form filled successfully'}
+            <strong>Filled fields:</strong><br>
+            ${Object.entries(response.filled || {}).map(([k, v]) => `• ${k}: ${v}`).join('<br>')}
           </div>
+          ${errorCount > 0 ? `
+            <div style="margin-top: 8px; padding: 8px; background: #fef7e0; border-radius: 4px; color: #ea8600;">
+              <strong>Errors:</strong><br>
+              ${response.errors.map(e => `• ${e.field || 'Unknown'}: ${e.error}`).join('<br>')}
+            </div>
+          ` : ''}
         </div>
       `;
     } else {
@@ -274,7 +300,19 @@ agentFillButton.addEventListener('click', async () => {
         </div>
       `;
     }
-  });
+
+  } catch (error) {
+    console.error('[Agent] Error:', error);
+    agentFillButton.disabled = false;
+    agentFillButton.textContent = '🤖 Fill Form with Agent';
+    agentResults.style.display = 'block';
+    agentStatus.innerHTML = `
+      <div style="color: #d93025; margin-bottom: 8px;">❌ Error</div>
+      <div style="font-size: 12px; color: #5f6368;">
+        ${error.message}
+      </div>
+    `;
+  }
 });
 
 // DOM Indexing button handler

@@ -7,9 +7,19 @@
  * - Extract page content (text, HTML, metadata)
  * - Detect content type for classification
  * - Send to background worker for processing
+ * - Execute automation actions (Phase 2.0 MVP)
  */
 
 console.log('Contextual Recall: Content script loaded');
+
+// Import action executor for automation (Phase 2.0 MVP)
+let actionExecutor = null;
+async function getActionExecutor() {
+  if (!actionExecutor) {
+    actionExecutor = await import('./lib/action-executor.js');
+  }
+  return actionExecutor;
+}
 
 // Listen for messages from extension (for extraction mode and agent workflows)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -60,6 +70,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const result = clickElement(message.selector);
     sendResponse(result);
     return true;
+  }
+
+  // Phase 2.0 MVP: Automation action handlers
+
+  if (message.type === 'FILL_FIELD') {
+    // Fill a form field using action executor
+    (async () => {
+      try {
+        const executor = await getActionExecutor();
+        const result = await executor.fillField(message.selector, message.value, message.options);
+        sendResponse(result);
+      } catch (error) {
+        sendResponse({ success: false, error: error.message });
+      }
+    })();
+    return true; // Async response
+  }
+
+  if (message.type === 'SUBMIT_FORM') {
+    // Submit a form
+    (async () => {
+      try {
+        const executor = await getActionExecutor();
+        const result = await executor.submitForm(message.selector, message.options);
+        sendResponse(result);
+      } catch (error) {
+        sendResponse({ success: false, error: error.message });
+      }
+    })();
+    return true; // Async response
   }
 });
 
