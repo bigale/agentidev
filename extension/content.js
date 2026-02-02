@@ -70,31 +70,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // This must run here because dynamic imports work in content scripts but not service workers
     (async () => {
       try {
+        console.log('[Content] PARSE_FORM_WITH_GRAMMAR - starting...');
         const { html, grammar, intent } = message;
 
         // Dynamic imports (OK in content script)
+        console.log('[Content] Importing modules...');
         const grammarGen = await import('./lib/form-grammar-generator.js');
         const xmlParser = await import('./lib/form-xml-parser.js');
         const xpathFinder = await import('./lib/xpath-field-finder.js');
+        console.log('[Content] Modules imported successfully');
 
         // Generate grammar if not provided
         let finalGrammar = grammar;
         if (!finalGrammar) {
+          console.log('[Content] Generating grammar...');
           const grammarResult = await grammarGen.generateFormGrammar(
             html || document.documentElement.outerHTML,
             window.location.href,
             { useCache: true }
           );
           finalGrammar = grammarResult.grammar;
+          console.log('[Content] Grammar generated:', grammarResult.cached ? '(cached)' : '(fresh)');
         }
 
         // Parse with grammar (or fallback)
+        console.log('[Content] Parsing HTML with grammar...');
         const parseResult = await xmlParser.parseFormWithFallback(
           html || document.documentElement.outerHTML,
           finalGrammar
         );
 
+        console.log('[Content] Parse complete - method:', parseResult.method, 'success:', parseResult.success);
+
         if (!parseResult.success) {
+          console.error('[Content] Parsing failed');
           sendResponse({ success: false, error: 'Parsing failed' });
           return;
         }
