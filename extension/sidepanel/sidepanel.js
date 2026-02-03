@@ -49,6 +49,9 @@ const testGrammarButton = document.getElementById('test-grammar-button');
 const grammarTestResult = document.getElementById('grammar-test-result');
 const xmlOutputViewer = document.getElementById('xml-output-viewer');
 const xmlOutputContent = document.getElementById('xml-output-content');
+const indexSpecButton = document.getElementById('index-spec-button');
+const clearSpecButton = document.getElementById('clear-spec-button');
+const specStatusText = document.getElementById('spec-status-text');
 
 let currentMode = 'search'; // 'search', 'qa', 'extract', or 'agent'
 let currentFilter = 'all';
@@ -57,6 +60,9 @@ let lastExtractionResults = null;
 
 // Load statistics on startup
 loadStats();
+
+// Check IXML spec index status on startup
+checkSpecStatus();
 
 // Refresh stats every 5 seconds
 setInterval(() => {
@@ -886,3 +892,83 @@ function downloadFile(content, filename, mimeType) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+// IXML Spec Indexer handlers
+async function checkSpecStatus() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'GET_SPEC_STATUS'
+    });
+
+    if (response && response.indexed) {
+      specStatusText.textContent = `✅ Indexed (${response.chunkCount} chunks, ${response.ageDays} days old)`;
+      specStatusText.style.color = '#1e8e3e';
+      clearSpecButton.style.display = 'block';
+      indexSpecButton.textContent = '🔄 Re-index IXML Spec';
+    } else {
+      specStatusText.textContent = '❌ Not indexed';
+      specStatusText.style.color = '#d93025';
+      clearSpecButton.style.display = 'none';
+      indexSpecButton.textContent = '📚 Index IXML Spec';
+    }
+  } catch (error) {
+    console.error('[Spec Status] Error:', error);
+    specStatusText.textContent = '⚠️ Error checking status';
+  }
+}
+
+indexSpecButton.addEventListener('click', async () => {
+  try {
+    indexSpecButton.disabled = true;
+    indexSpecButton.textContent = '⏳ Indexing...';
+    specStatusText.textContent = 'Fetching and indexing specification...';
+
+    const response = await chrome.runtime.sendMessage({
+      type: 'INDEX_IXML_SPEC'
+    });
+
+    indexSpecButton.disabled = false;
+
+    if (response && response.success) {
+      if (response.cached) {
+        alert(`IXML spec already indexed (${response.chunkCount} chunks)`);
+      } else {
+        alert(`✅ Successfully indexed IXML specification!\n\n${response.chunkCount} chunks indexed\n\nThe LLM will now consult the spec when generating grammars.`);
+      }
+      checkSpecStatus();
+    } else {
+      alert('Failed to index spec: ' + (response?.error || 'Unknown error'));
+      indexSpecButton.textContent = '📚 Index IXML Spec';
+      specStatusText.textContent = '❌ Indexing failed';
+    }
+
+  } catch (error) {
+    console.error('[Index Spec] Error:', error);
+    indexSpecButton.disabled = false;
+    indexSpecButton.textContent = '📚 Index IXML Spec';
+    alert('Error: ' + error.message);
+  }
+});
+
+clearSpecButton.addEventListener('click', async () => {
+  if (!confirm('Clear IXML spec index?\n\nYou can re-index it anytime.')) {
+    return;
+  }
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'CLEAR_SPEC_INDEX'
+    });
+
+    if (response && response.success) {
+      alert('✅ Spec index cleared');
+      checkSpecStatus();
+    } else {
+      alert('Failed to clear: ' + (response?.error || 'Unknown error'));
+    }
+
+  } catch (error) {
+    console.error('[Clear Spec] Error:', error);
+    alert('Error: ' + error.message);
+  }
+});

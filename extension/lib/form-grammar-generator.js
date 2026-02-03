@@ -5,9 +5,11 @@
  * for normalizing form fields into queryable XML.
  *
  * Phase 2.1 - Grammar-enhanced automation
+ * Enhanced with RAG: Queries IXML spec before generating grammar
  */
 
 import { generateText } from './chrome-prompt-api.js';
+import { queryIXMLSpec, getSpecIndexStatus } from './ixml-spec-indexer.js';
 
 console.log('[Grammar Generator] Module loaded');
 
@@ -88,13 +90,50 @@ export async function generateFormGrammar(html, url, options = {}) {
 }
 
 /**
- * Generate IXML grammar using LLM
+ * Generate IXML grammar using LLM (with RAG-enhanced spec context)
  *
  * @param {string} formHTML - Form HTML sample
  * @returns {Promise<string>} IXML grammar
  */
 async function generateGrammarWithLLM(formHTML) {
+  // Query IXML spec for relevant syntax rules (RAG enhancement)
+  let specContext = '';
+
+  try {
+    const specStatus = await getSpecIndexStatus();
+
+    if (specStatus.indexed) {
+      console.log('[Grammar Generator] Querying IXML spec for syntax rules...');
+
+      const queries = [
+        'IXML attribute syntax rules',
+        'IXML nonterminal definitions',
+        'IXML grammar examples'
+      ];
+
+      const allResults = [];
+      for (const query of queries) {
+        const results = await queryIXMLSpec(query, { maxResults: 2 });
+        allResults.push(...results);
+      }
+
+      if (allResults.length > 0) {
+        specContext = '\n**IXML Specification Reference** (consult these rules):\n';
+        allResults.forEach((result, i) => {
+          specContext += `\n[${i + 1}] ${result.section}:\n${result.text.substring(0, 500)}...\n`;
+        });
+        console.log('[Grammar Generator] Added', allResults.length, 'spec sections to context');
+      }
+    } else {
+      console.log('[Grammar Generator] IXML spec not indexed - proceeding without spec context');
+    }
+  } catch (error) {
+    console.warn('[Grammar Generator] Failed to query spec:', error);
+    // Continue without spec context
+  }
+
   const prompt = `You are an IXML grammar expert. Analyze this HTML form and generate an IXML grammar to extract form fields.
+${specContext}
 
 **HTML Form Sample**:
 \`\`\`html

@@ -24,6 +24,7 @@ import { findElementByIntent } from './lib/semantic-finder.js';
 import { fillFormWithGoogleData, executeFormFillWorkflow, fillFormWithData } from './lib/agent-workflow.js';
 // Phase 2.1: Grammar generation and parsing
 import { generateFormGrammar, clearGrammarCache, getGrammarCacheStats } from './lib/form-grammar-generator.js';
+import { indexIXMLSpec, getSpecIndexStatus, clearSpecIndex } from './lib/ixml-spec-indexer.js';
 
 console.log('Contextual Recall: Background service worker started');
 console.log('[Background] Note: Extension reload = re-initialize (models are cached, not re-downloaded)');
@@ -250,6 +251,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(result => sendResponse(result))
       .catch(error => {
         console.error('[Background] TEST_GRAMMAR error:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    return true; // Async response
+  }
+
+  // IXML Spec indexer handlers
+  if (message.type === 'INDEX_IXML_SPEC') {
+    indexIXMLSpec()
+      .then(result => sendResponse(result))
+      .catch(error => {
+        console.error('[Background] INDEX_IXML_SPEC error:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    return true; // Async response
+  }
+
+  if (message.type === 'GET_SPEC_STATUS') {
+    getSpecIndexStatus()
+      .then(result => sendResponse(result))
+      .catch(error => {
+        console.error('[Background] GET_SPEC_STATUS error:', error);
+        sendResponse({ indexed: false, error: error.message });
+      });
+    return true; // Async response
+  }
+
+  if (message.type === 'CLEAR_SPEC_INDEX') {
+    clearSpecIndex()
+      .then(result => sendResponse(result))
+      .catch(error => {
+        console.error('[Background] CLEAR_SPEC_INDEX error:', error);
         sendResponse({ success: false, error: error.message });
       });
     return true; // Async response
