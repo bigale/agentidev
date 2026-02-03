@@ -49,6 +49,8 @@ const testGrammarButton = document.getElementById('test-grammar-button');
 const grammarTestResult = document.getElementById('grammar-test-result');
 const xmlOutputViewer = document.getElementById('xml-output-viewer');
 const xmlOutputContent = document.getElementById('xml-output-content');
+const debugHistoryViewer = document.getElementById('debug-history-viewer');
+const debugHistoryContent = document.getElementById('debug-history-content');
 const indexSpecButton = document.getElementById('index-spec-button');
 const clearSpecButton = document.getElementById('clear-spec-button');
 const specStatusText = document.getElementById('spec-status-text');
@@ -449,6 +451,24 @@ testGrammarButton.addEventListener('click', async () => {
         xmlOutputContent.textContent = response.xmlOutput;
       } else {
         xmlOutputViewer.style.display = 'none';
+      }
+
+      // Show debug history if available
+      if (response.debugHistory && response.debugHistory.length > 0) {
+        debugHistoryViewer.style.display = 'block';
+        let historyHTML = '<div style="font-weight: 600; margin-bottom: 8px;">LLM Self-Debugging:</div>';
+        response.debugHistory.forEach((entry, i) => {
+          historyHTML += `
+            <div style="margin-bottom: 8px; padding: 8px; background: white; border-radius: 4px;">
+              <div style="font-weight: 600; color: #ea8600;">Attempt ${entry.attempt}:</div>
+              <div style="margin-top: 4px;"><strong>Problem:</strong> ${entry.problem}</div>
+              <div style="margin-top: 4px;"><strong>Fix:</strong> ${entry.fix}</div>
+            </div>
+          `;
+        });
+        debugHistoryContent.innerHTML = historyHTML;
+      } else {
+        debugHistoryViewer.style.display = 'none';
       }
     } else {
       grammarTestResult.innerHTML = `

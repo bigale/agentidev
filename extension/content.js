@@ -78,10 +78,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const grammarGen = await import('./lib/form-grammar-generator.js');
         const xmlParser = await import('./lib/form-xml-parser.js');
         const xpathFinder = await import('./lib/xpath-field-finder.js');
+        const grammarDebugger = await import('./lib/grammar-debugger.js');
         console.log('[Content] Modules imported successfully');
 
         // Generate grammar if not provided
         let finalGrammar = grammar;
+        let grammarCached = false;
         if (!finalGrammar) {
           console.log('[Content] Generating grammar...');
           const grammarResult = await grammarGen.generateFormGrammar(
@@ -90,18 +92,55 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             { useCache: true }
           );
           finalGrammar = grammarResult.grammar;
-          console.log('[Content] Grammar generated:', grammarResult.cached ? '(cached)' : '(fresh)');
+          grammarCached = grammarResult.cached || false;
+          console.log('[Content] Grammar generated:', grammarCached ? '(cached)' : '(fresh)');
           console.log('[Content] ==== GRAMMAR START ====');
           console.log(finalGrammar);
           console.log('[Content] ==== GRAMMAR END ====');
         }
 
-        // Parse with grammar (or fallback)
+        // Parse with grammar (with debug loop if enabled)
         console.log('[Content] Parsing HTML with grammar...');
-        const parseResult = await xmlParser.parseFormWithFallback(
-          html || document.documentElement.outerHTML,
-          finalGrammar
-        );
+
+        const htmlContent = html || document.documentElement.outerHTML;
+        let parseResult = await xmlParser.parseFormWithFallback(htmlContent, finalGrammar);
+
+        // If parsing failed and grammar was cached, try debugging
+        if (!parseResult.success || parseResult.method === 'fallback') {
+          console.log('[Content] Initial parse failed, attempting debug loop...');
+
+          const debugResult = await grammarDebugger.debugLoopWithRetry(
+            // Generator function
+            async () => finalGrammar,
+            // Parser function
+            async (html, grammar) => xmlParser.parseFormWithFallback(html, grammar),
+            // HTML to parse
+            htmlContent,
+            // Options
+            {
+              maxAttempts: 2,
+              enableDebugging: !grammarCached // Only debug if not cached (avoid infinite loops)
+            }
+          );
+
+          if (debugResult.success && debugResult.result) {
+            console.log('[Content] ✓ Debug loop succeeded after', debugResult.attempts, 'attempts');
+            parseResult = debugResult.result;
+            parseResult.debugHistory = debugResult.debugHistory; // Attach debug history
+            finalGrammar = debugResult.finalGrammar;
+
+            // Log debug history
+            if (debugResult.debugHistory.length > 0) {
+              console.log('[Content] Debug history:');
+              debugResult.debugHistory.forEach((entry, i) => {
+                console.log(`  Attempt ${entry.attempt}: ${entry.problem}`);
+                console.log(`  Fix: ${entry.fix}`);
+              });
+            }
+          } else {
+            console.log('[Content] ✗ Debug loop failed, using fallback result');
+          }
+        }
 
         console.log('[Content] Parse complete - method:', parseResult.method, 'success:', parseResult.success);
 
@@ -147,7 +186,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           method: 'fields',
           fields,
           parseMethod: parseResult.method,
-          xmlOutput: xmlOutput
+          xmlOutput: xmlOutput,
+          debugHistory: parseResult.debugHistory || [] // Include debug history if available
         });
 
       } catch (error) {
