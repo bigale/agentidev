@@ -365,11 +365,14 @@ async function indexChunks(chunks) {
       // Generate embedding
       const embedding = await generateEmbedding(chunk.text);
 
-      // Store in vector DB
-      await vectorDB.add({
-        id: `ixml_spec_${Date.now()}_${indexed}`,
+      // Store in vector DB using addPage API
+      await vectorDB.addPage({
+        url: chunk.metadata.url,
+        title: chunk.metadata.title,
         text: chunk.text,
+        html: '', // Not needed for spec chunks
         embedding: embedding,
+        timestamp: chunk.metadata.timestamp,
         metadata: chunk.metadata
       });
 
