@@ -122,7 +122,10 @@ async function generateGrammarWithLLM(formHTML) {
         allResults.forEach((result, i) => {
           specContext += `\n[${i + 1}] ${result.section}:\n${result.text.substring(0, 500)}...\n`;
         });
-        console.log('[Grammar Generator] Added', allResults.length, 'spec sections to context');
+        console.log('[Grammar Generator] ✅ Added', allResults.length, 'spec sections to context');
+        console.log('[Grammar Generator] Spec sections:', allResults.map(r => r.section).join(', '));
+      } else {
+        console.log('[Grammar Generator] ⚠️ No spec results found - generating without spec context');
       }
     } else {
       console.log('[Grammar Generator] IXML spec not indexed - proceeding without spec context');
