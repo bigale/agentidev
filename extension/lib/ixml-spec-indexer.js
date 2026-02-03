@@ -50,12 +50,8 @@ export async function indexIXMLSpec() {
     const html = await response.text();
     console.log('[IXML Spec] Fetched HTML (length:', html.length, 'bytes)');
 
-    // Parse HTML to extract text content
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-
-    // Extract relevant sections
-    const chunks = extractSpecChunks(doc);
+    // Extract relevant sections (text-based, no DOMParser needed in service worker)
+    const chunks = extractSpecChunks(html);
     console.log('[IXML Spec] Extracted', chunks.length, 'chunks from spec');
 
     // Index chunks into vector DB
@@ -89,36 +85,36 @@ export async function indexIXMLSpec() {
 }
 
 /**
- * Extract meaningful chunks from IXML spec HTML
+ * Extract meaningful chunks from IXML spec HTML (text-based, no DOM parsing)
  *
- * @param {Document} doc - Parsed HTML document
+ * @param {string} html - Raw HTML content
  * @returns {Array<Object>} Chunks with text and metadata
  */
-function extractSpecChunks(doc) {
+function extractSpecChunks(html) {
   const chunks = [];
 
-  // Extract sections (h2, h3, etc.)
-  const sections = doc.querySelectorAll('section, div.section');
+  // Extract sections using regex
+  // Look for <section> or <div class="section"> tags
+  const sectionPattern = /<(?:section|div[^>]*class="[^"]*section[^"]*")[^>]*>([\s\S]*?)<\/(?:section|div)>/gi;
+  const sections = [...html.matchAll(sectionPattern)];
 
-  sections.forEach((section, index) => {
-    // Get section heading
-    const heading = section.querySelector('h1, h2, h3, h4, h5, h6');
-    const title = heading ? heading.textContent.trim() : `Section ${index + 1}`;
+  sections.forEach((match, index) => {
+    const sectionHTML = match[1];
 
-    // Get section text content
-    const text = section.textContent
-      .replace(/\s+/g, ' ')
-      .trim();
+    // Extract heading
+    const headingMatch = sectionHTML.match(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/i);
+    const title = headingMatch ? stripTags(headingMatch[1]).trim() : `Section ${index + 1}`;
 
-    // Skip empty or very short sections
-    if (text.length < 50) {
-      return;
-    }
+    // Extract section ID if present
+    const idMatch = match[0].match(/id="([^"]+)"/);
+    const sectionId = idMatch ? idMatch[1] : '';
 
-    // Extract code examples separately
-    const codeBlocks = section.querySelectorAll('pre, code');
-    codeBlocks.forEach((code, codeIndex) => {
-      const codeText = code.textContent.trim();
+    // Extract code blocks separately
+    const codePattern = /<(?:pre|code)[^>]*>([\s\S]*?)<\/(?:pre|code)>/gi;
+    const codeBlocks = [...sectionHTML.matchAll(codePattern)];
+
+    codeBlocks.forEach((codeMatch, codeIndex) => {
+      const codeText = stripTags(codeMatch[1]).trim();
       if (codeText.length < 10) {
         return;
       }
@@ -128,7 +124,7 @@ function extractSpecChunks(doc) {
         metadata: {
           type: 'code_example',
           section: title,
-          url: IXML_SPEC_URL + (section.id ? '#' + section.id : ''),
+          url: IXML_SPEC_URL + (sectionId ? '#' + sectionId : ''),
           title: `${title} - Example ${codeIndex + 1}`,
           domain: 'invisiblexml.org',
           isReference: true,
@@ -137,22 +133,32 @@ function extractSpecChunks(doc) {
       });
     });
 
+    // Get section text content (strip all HTML tags)
+    let text = stripTags(sectionHTML)
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Skip empty or very short sections
+    if (text.length < 50) {
+      return;
+    }
+
     // Split long sections into smaller chunks
     const maxChunkSize = 1000;
     if (text.length > maxChunkSize) {
-      // Split by paragraphs
-      const paragraphs = text.split(/\.\s+/);
+      // Split by sentences
+      const sentences = text.split(/\.\s+/);
       let currentChunk = '';
 
-      paragraphs.forEach(para => {
-        if (currentChunk.length + para.length > maxChunkSize) {
+      sentences.forEach(sentence => {
+        if (currentChunk.length + sentence.length > maxChunkSize) {
           if (currentChunk) {
             chunks.push({
               text: currentChunk.trim(),
               metadata: {
                 type: 'spec_section',
                 section: title,
-                url: IXML_SPEC_URL + (section.id ? '#' + section.id : ''),
+                url: IXML_SPEC_URL + (sectionId ? '#' + sectionId : ''),
                 title: title,
                 domain: 'invisiblexml.org',
                 isReference: true,
@@ -160,9 +166,9 @@ function extractSpecChunks(doc) {
               }
             });
           }
-          currentChunk = para + '. ';
+          currentChunk = sentence + '. ';
         } else {
-          currentChunk += para + '. ';
+          currentChunk += sentence + '. ';
         }
       });
 
@@ -173,7 +179,7 @@ function extractSpecChunks(doc) {
           metadata: {
             type: 'spec_section',
             section: title,
-            url: IXML_SPEC_URL + (section.id ? '#' + section.id : ''),
+            url: IXML_SPEC_URL + (sectionId ? '#' + sectionId : ''),
             title: title,
             domain: 'invisiblexml.org',
             isReference: true,
@@ -187,7 +193,7 @@ function extractSpecChunks(doc) {
         metadata: {
           type: 'spec_section',
           section: title,
-          url: IXML_SPEC_URL + (section.id ? '#' + section.id : ''),
+          url: IXML_SPEC_URL + (sectionId ? '#' + sectionId : ''),
           title: title,
           domain: 'invisiblexml.org',
           isReference: true,
@@ -198,6 +204,24 @@ function extractSpecChunks(doc) {
   });
 
   return chunks;
+}
+
+/**
+ * Strip HTML tags from string
+ *
+ * @param {string} html - HTML string
+ * @returns {string} Plain text
+ */
+function stripTags(html) {
+  return html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // Remove scripts
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')   // Remove styles
+    .replace(/<[^>]+>/g, '')                           // Remove all tags
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
 }
 
 /**
