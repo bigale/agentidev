@@ -93,10 +93,26 @@ export async function indexIXMLSpec() {
 function extractSpecChunks(html) {
   const chunks = [];
 
-  // Extract sections using regex
-  // Look for <section> or <div class="section"> tags
-  const sectionPattern = /<(?:section|div[^>]*class="[^"]*section[^"]*")[^>]*>([\s\S]*?)<\/(?:section|div)>/gi;
-  const sections = [...html.matchAll(sectionPattern)];
+  // Try multiple extraction strategies
+
+  // Strategy 1: Extract by <section> tags
+  let sectionPattern = /<section[^>]*>([\s\S]*?)<\/section>/gi;
+  let sections = [...html.matchAll(sectionPattern)];
+
+  // Strategy 2: If no sections found, try <div> with id attributes
+  if (sections.length === 0) {
+    console.log('[IXML Spec] No <section> tags found, trying <div id="...">');
+    sectionPattern = /<div[^>]*id="[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
+    sections = [...html.matchAll(sectionPattern)];
+  }
+
+  // Strategy 3: If still nothing, extract by headings
+  if (sections.length === 0) {
+    console.log('[IXML Spec] No sections found, extracting by headings');
+    return extractByHeadings(html);
+  }
+
+  console.log('[IXML Spec] Found', sections.length, 'sections');
 
   sections.forEach((match, index) => {
     const sectionHTML = match[1];
@@ -202,6 +218,117 @@ function extractSpecChunks(html) {
       });
     }
   });
+
+  return chunks;
+}
+
+/**
+ * Extract chunks by splitting at headings (fallback strategy)
+ *
+ * @param {string} html - HTML content
+ * @returns {Array<Object>} Chunks
+ */
+function extractByHeadings(html) {
+  const chunks = [];
+
+  // Split by h2 or h3 headings
+  const headingPattern = /<h[23][^>]*>(.*?)<\/h[23]>/gi;
+  const headings = [...html.matchAll(headingPattern)];
+
+  console.log('[IXML Spec] Found', headings.length, 'headings');
+
+  // Extract content between each heading and the next
+  for (let i = 0; i < headings.length; i++) {
+    const heading = headings[i];
+    const title = stripTags(heading[1]).trim();
+
+    const startPos = heading.index + heading[0].length;
+    const endPos = i < headings.length - 1 ? headings[i + 1].index : html.length;
+
+    const sectionHTML = html.substring(startPos, endPos);
+
+    // Extract code blocks from this section
+    const codePattern = /<(?:pre|code)[^>]*>([\s\S]*?)<\/(?:pre|code)>/gi;
+    const codeBlocks = [...sectionHTML.matchAll(codePattern)];
+
+    codeBlocks.forEach((codeMatch, codeIndex) => {
+      const codeText = stripTags(codeMatch[1]).trim();
+      if (codeText.length > 10) {
+        chunks.push({
+          text: codeText,
+          metadata: {
+            type: 'code_example',
+            section: title,
+            url: IXML_SPEC_URL,
+            title: `${title} - Example ${codeIndex + 1}`,
+            domain: 'invisiblexml.org',
+            isReference: true,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+    });
+
+    // Get text content
+    const text = stripTags(sectionHTML).replace(/\s+/g, ' ').trim();
+
+    if (text.length > 100) {
+      // Split into chunks if too long
+      const maxChunkSize = 800;
+      if (text.length > maxChunkSize) {
+        const sentences = text.split(/\.\s+/);
+        let currentChunk = '';
+
+        sentences.forEach(sentence => {
+          if (currentChunk.length + sentence.length > maxChunkSize && currentChunk) {
+            chunks.push({
+              text: currentChunk.trim(),
+              metadata: {
+                type: 'spec_section',
+                section: title,
+                url: IXML_SPEC_URL,
+                title: title,
+                domain: 'invisiblexml.org',
+                isReference: true,
+                timestamp: new Date().toISOString()
+              }
+            });
+            currentChunk = sentence + '. ';
+          } else {
+            currentChunk += sentence + '. ';
+          }
+        });
+
+        if (currentChunk.trim()) {
+          chunks.push({
+            text: currentChunk.trim(),
+            metadata: {
+              type: 'spec_section',
+              section: title,
+              url: IXML_SPEC_URL,
+              title: title,
+              domain: 'invisiblexml.org',
+              isReference: true,
+              timestamp: new Date().toISOString()
+            }
+          });
+        }
+      } else {
+        chunks.push({
+          text: text,
+          metadata: {
+            type: 'spec_section',
+            section: title,
+            url: IXML_SPEC_URL,
+            title: title,
+            domain: 'invisiblexml.org',
+            isReference: true,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+    }
+  }
 
   return chunks;
 }
