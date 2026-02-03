@@ -175,7 +175,7 @@ id-value: text .
 for-value: text .
 value-text: text .
 placeholder-text: text .
-text: [^<"]+ .
+text: [^<>]+ .
 \`\`\`
 
 **Important**:
@@ -183,6 +183,8 @@ text: [^<"]+ .
 - Use "-" to hide literals (e.g., -'<input')
 - Use @ for attributes
 - DO NOT use # prefix with attributes (just use the nonterminal name directly)
+- For character classes, use [^<>]+ to match text (excludes angle brackets only)
+- DO NOT use quotes inside character classes - they cause parsing errors
 - Make labels optional (some fields don't have labels)
 - Capture text content for labels and button text
 
