@@ -105,9 +105,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const htmlContent = html || document.documentElement.outerHTML;
         let parseResult = await xmlParser.parseFormWithFallback(htmlContent, finalGrammar);
 
-        // If parsing failed and grammar was cached, try debugging
+        // If parsing failed, try debugging
         if (!parseResult.success || parseResult.method === 'fallback') {
           console.log('[Content] Initial parse failed, attempting debug loop...');
+
+          if (grammarCached) {
+            console.log('[Content] ⚠️ Grammar was cached - debugging will fix but not re-cache');
+          }
 
           const debugResult = await grammarDebugger.debugLoopWithRetry(
             // Generator function
@@ -119,7 +123,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // Options
             {
               maxAttempts: 2,
-              enableDebugging: !grammarCached // Only debug if not cached (avoid infinite loops)
+              enableDebugging: true // Always enable debugging
             }
           );
 
