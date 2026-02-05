@@ -10,6 +10,7 @@
 
 import { generateText } from './chrome-prompt-api.js';
 import { queryIXMLSpec, getSpecIndexStatus } from './ixml-spec-indexer.js';
+import { preprocessHTML } from './html-preprocessor.js';
 
 console.log('[Grammar Generator] Module loaded');
 
@@ -92,10 +93,13 @@ export async function generateFormGrammar(html, url, options = {}) {
 /**
  * Generate IXML grammar using LLM (with RAG-enhanced spec context)
  *
- * @param {string} formHTML - Form HTML sample
+ * @param {string} formHTML - Form HTML sample (will be preprocessed to pipe-delimited format)
  * @returns {Promise<string>} IXML grammar
  */
 async function generateGrammarWithLLM(formHTML) {
+  // Preprocess HTML to pipe-delimited format
+  const preprocessed = preprocessHTML(formHTML);
+  console.log('[Grammar Generator] Preprocessed HTML sample:', preprocessed.substring(0, 200) + '...');
   // Query IXML spec for relevant syntax rules (RAG enhancement)
   let specContext = '';
 
@@ -135,61 +139,77 @@ async function generateGrammarWithLLM(formHTML) {
     // Continue without spec context
   }
 
-  const prompt = `You are an IXML grammar expert. Analyze this HTML form and generate an IXML grammar to extract form fields.
+  const prompt = `You are an IXML grammar expert. Analyze this preprocessed HTML form and generate an IXML grammar to extract form fields.
+
+**IMPORTANT**: The HTML has been preprocessed using pipe-delimited format:
+- All angle brackets < and > have been replaced with pipes |
+- Example: <form action="/login">Hello</form> becomes |form action="/login"|Hello|/form|
+
 ${specContext}
 
-**HTML Form Sample**:
-\`\`\`html
-${formHTML}
+**Preprocessed Form (pipe-delimited format)**:
+\`\`\`
+${preprocessed}
 \`\`\`
 
 **Task**: Generate an IXML grammar that:
-1. Extracts all input fields with their labels
-2. Extracts select dropdowns with their labels
+1. Parses the pipe-delimited format (not raw HTML)
+2. Extracts all input fields with their labels
 3. Extracts buttons (submit, reset, etc.)
-4. Associates labels with fields (via label[for], parent label, or nearby text)
-5. Outputs XML with: field type, name, label, and CSS selector
+4. Outputs clean LLM-friendly XML with semantic field information
 
-**Output Format** (IXML grammar):
+**Example Grammar** (use this pattern):
 \`\`\`ixml
-form: field* .
-field: input-field | select-field | button-field .
+{ LLM-Friendly Form Grammar - pipe-delimited format }
 
-input-field: label?, -'<input', @type, @name, @id?, @placeholder?, -'/>' .
-select-field: label?, -'<select', @name, @id?, -'>', option+, -'</select>' .
-button-field: -'<button', @type?, -'>', button-text, -'</button>' .
+document: form .
 
-label: -'<label', @for?, -'>', label-text, -'</label>' .
-option: -'<option', @value?, -'>', option-text, -'</option>' .
+form: -"|form", -skip-attrs, -"|", -s?, content*, -"|/form|" .
 
-@type: -'type="', type-value, -'"' .
-@name: -'name="', name-value, -'"' .
-@id: -'id="', id-value, -'"' .
-@for: -'for="', for-value, -'"' .
-@value: -'value="', value-text, -'"' .
-@placeholder: -'placeholder="', placeholder-text, -'"' .
+-skip-attrs: (" ", ~["|"]+) | "" .
 
-label-text: text .
-button-text: text .
-option-text: text .
-type-value: text .
-name-value: text .
-id-value: text .
-for-value: text .
-value-text: text .
-placeholder-text: text .
-text: [^<>]+ .
+content: -s?, (field | action | other), -s? .
+
+field: -"|label", -skip-label-attrs, -"|", label-text, -"|/label|", -s?, -"|input ", input-attrs, -"|" .
+
+-skip-label-attrs: (" ", ~["|"]+) | "" .
+
+label-text: ~["|"]+ .
+
+input-attrs: ~["|"]+ .
+
+action: -"|input ", action-attrs, -"|" .
+
+action-attrs: ~["|"]+ .
+
+-other: -"|", -other-content, -"|" .
+
+-other-content: ~["|"]* .
+
+-s: -[" ", #9, #A, #D]+ .
 \`\`\`
 
-**Important**:
-- Keep it simple - focus on extracting the core field information
-- Use "-" to hide literals (e.g., -'<input')
-- Use @ for attributes
-- DO NOT use # prefix with attributes (just use the nonterminal name directly)
-- For character classes, use [^<>]+ to match text (excludes angle brackets only)
-- DO NOT use quotes inside character classes - they cause parsing errors
-- Make labels optional (some fields don't have labels)
-- Capture text content for labels and button text
+**CRITICAL rustixml Syntax Rules**:
+- Use ~["|"] to match any character EXCEPT pipes (NOT [^|])
+- NEVER combine marks with negation: -~[...]+ is INVALID
+- Instead use named rules with alternatives: -skip: (" ", ~["|"]+) | ""
+- Use -"literal" to hide literals from output
+- Use ~["|"]+ to capture text content between pipes
+- Keep output semantic: <field>, <label-text>, <input-attrs>, <action>
+- **HANDLE WHITESPACE**: Real HTML has newlines and spaces between elements
+  - Use -s: -[" ", #9, #A, #D]+ . for whitespace
+  - Add -s? before and after content rules to skip whitespace
+- **SKIP NON-FORM ELEMENTS**: Forms contain div, span, etc. that aren't fields
+  - Use -other: -"|", -~["|"]*, -"|" . to skip these
+
+**Pattern to Follow**:
+1. Match opening pipe + tag name: -"|form"
+2. Skip optional attributes: -skip-attrs rule with alternatives
+3. Match closing pipe: -"|"
+4. Skip optional whitespace: -s?
+5. Match content between tags (with -s? before/after each)
+6. Skip non-form elements using -other rule
+7. Match closing tag with pipes: -"|/form|"
 
 Generate ONLY the IXML grammar, no explanation:`;
 
@@ -208,6 +228,9 @@ Generate ONLY the IXML grammar, no explanation:`;
   // Remove markdown code fences if present
   grammar = grammar.replace(/^```ixml\n?/, '').replace(/\n?```$/, '');
   grammar = grammar.trim();
+
+  // Fix common LLM mistakes in rustixml syntax
+  grammar = fixCommonGrammarErrors(grammar);
 
   console.log('[Grammar Generator] Generated grammar:', grammar.substring(0, 200) + '...');
 
@@ -288,6 +311,48 @@ function simpleHash(str) {
     hash = hash & hash; // Convert to 32bit integer
   }
   return Math.abs(hash).toString(36);
+}
+
+/**
+ * Fix common grammar errors made by LLMs
+ *
+ * @param {string} grammar - IXML grammar with potential errors
+ * @returns {string} Fixed grammar
+ */
+function fixCommonGrammarErrors(grammar) {
+  console.log('[Grammar Generator] Checking for common syntax errors...');
+
+  // Fix 1: Cannot combine mark (-) with negation (~)
+  // Pattern: -~["|"]* or -~["|"]+
+  // Fix: Create a named rule instead
+  const invalidPattern = /-~\[([^\]]+)\]([*+?])/g;
+
+  if (invalidPattern.test(grammar)) {
+    console.log('[Grammar Generator] ⚠️ Found invalid -~[...] pattern, fixing...');
+
+    // Replace -~["|"]* with -any-char where any-char is a new rule
+    grammar = grammar.replace(/-~\["([^"]+)"\]([*+?])/g, (match, chars, quantifier) => {
+      // Just use the existing rule if it exists, otherwise create inline alternative
+      if (chars === '|') {
+        return quantifier === '*' ? 'other-content' : 'other-content+';
+      }
+      return `~["${chars}"]${quantifier}`;
+    });
+
+    // Simpler fix: just remove the mark if combined with negation
+    grammar = grammar.replace(/-~\[/g, '~[');
+
+    console.log('[Grammar Generator] ✓ Fixed -~[...] patterns');
+  }
+
+  // Fix 2: Ensure other-content rule exists if referenced
+  if (grammar.includes('other-content') && !grammar.match(/^-?other-content:/m)) {
+    console.log('[Grammar Generator] ⚠️ other-content used but not defined, adding rule...');
+    grammar += '\n-other-content: ~["|"]* .';
+    console.log('[Grammar Generator] ✓ Added other-content rule');
+  }
+
+  return grammar;
 }
 
 /**

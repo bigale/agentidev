@@ -112,7 +112,12 @@ class VectorDB {
         contentType: r.contentType,
         chunkType: r.metadata?.chunkType || 'unknown',
         chunkIndex: r.metadata?.chunkIndex,
-        chunkTotal: r.metadata?.chunkTotal
+        chunkTotal: r.metadata?.chunkTotal,
+        metadata: r.metadata, // Include full metadata for filtering
+        // Also include these for backward compatibility
+        isReference: r.metadata?.isReference,
+        domain: r.metadata?.domain,
+        section: r.metadata?.section
       }));
   }
 

@@ -1,0 +1,43 @@
+{ LLM-Friendly Form Grammar
+
+  Goal: Clean output for LLM consumption
+}
+
+document: form .
+
+form: -"|form", form-attrs?, -"|", content*, -"|/form|" .
+
+form-attrs: -" ", -"action=", -'"', action-value, -'"' .
+
+action-value: ~["]+ .
+
+content: field | action | skip .
+
+{ Field: label + input }
+field: -"|label", label-attrs?, -"|", label-text, -"|/label||input ", input-attrs, -"|" .
+
+label-attrs: -" ", attrs .
+
+label-text: ~["|"]+ .
+
+input-attrs: attr+ .
+
+{ Action: submit input }
+action: -"|input ", action-attrs, -"|" .
+
+action-attrs: action-attr-item+ .
+
+action-attr-item: attr, -" "? .
+
+{ Attributes - parse key="value" }
+attr: attr-name, -"=", -'"', attr-value, -'"', -" "? .
+
+attr-name: ~["="]+ .
+
+attr-value: ~["]+ .
+
+{ Generic attributes (unparsed) }
+attrs: ~["|"]+ .
+
+{ Skip other tags }
+-skip: -"|", ~["|"]*, -"|" .

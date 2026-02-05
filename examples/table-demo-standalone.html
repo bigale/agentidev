@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Standalone Table Linearization Demo</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+    .header {
+      background: white;
+      padding: 32px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      margin-bottom: 24px;
+    }
+    .header h1 {
+      margin: 0 0 8px 0;
+      color: #1a202c;
+      font-size: 32px;
+    }
+    .header p {
+      margin: 0;
+      color: #718096;
+      font-size: 16px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 24px;
+    }
+    .panel {
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .panel h2 {
+      margin: 0 0 16px 0;
+      font-size: 18px;
+      color: #2d3748;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel h2::before {
+      content: '▶';
+      color: #667eea;
+      font-size: 14px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 14px;
+    }
+    th {
+      background: #edf2f7;
+      padding: 12px;
+      text-align: left;
+      font-weight: 600;
+      color: #2d3748;
+      border: 1px solid #cbd5e0;
+    }
+    td {
+      padding: 10px 12px;
+      border: 1px solid #e2e8f0;
+      color: #4a5568;
+    }
+    tbody tr:hover {
+      background: #f7fafc;
+    }
+    pre {
+      background: #1a202c;
+      color: #a0aec0;
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.6;
+      margin: 0;
+      max-height: 400px;
+    }
+    .output-success {
+      background: #f0fff4;
+      border: 2px solid #48bb78;
+    }
+    .output-success pre {
+      background: #22543d;
+      color: #c6f6d5;
+    }
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin: 16px 0;
+      flex-wrap: wrap;
+    }
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    }
+    button:active {
+      transform: translateY(0);
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+    .badge-success {
+      background: #c6f6d5;
+      color: #22543d;
+    }
+    .badge-info {
+      background: #bee3f8;
+      color: #2c5282;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin: 16px 0;
+    }
+    .stat {
+      background: #f7fafc;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: #718096;
+      margin-bottom: 4px;
+    }
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #2d3748;
+    }
+    .info-box {
+      background: #e3f2fd;
+      border-left: 4px solid #2196f3;
+      padding: 16px;
+      margin: 16px 0;
+      border-radius: 4px;
+    }
+    .info-box strong {
+      color: #1565c0;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🎯 Linearized Table Parsing Demo</h1>
+    <p>Demonstrating IXML concept without actual parsing (server-free version)</p>
+  </div>
+
+  <div class="panel">
+    <div class="info-box">
+      <strong>ℹ️ Note:</strong> This is a standalone demo that shows the linearization concept without requiring rustixml WASM.
+      To see actual IXML parsing, run: <code>cd examples && ./serve.sh</code> and open table-demo-integrated.html
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Sample Data Table<span class="badge badge-info" id="table-info">3 rows × 3 columns</span></h2>
+    <table id="demo-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Phone</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>John Doe</td>
+          <td>john@example.com</td>
+          <td>555-1234</td>
+        </tr>
+        <tr>
+          <td>Jane Smith</td>
+          <td>jane@example.com</td>
+          <td>555-5678</td>
+        </tr>
+        <tr>
+          <td>Bob Johnson</td>
+          <td>bob@example.com</td>
+          <td>555-9999</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="controls">
+      <button onclick="showTabDelimited()">📊 Show Tab-Delimited</button>
+      <button onclick="showPipeDelimited()">📋 Show Pipe-Delimited</button>
+      <button onclick="showSpaceSeparated()">📝 Show Space-Separated</button>
+      <button onclick="analyzeTable()">🔍 Analyze Structure</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Step 1: Linearized Text</h2>
+      <pre id="linearized-output">Click a button to extract...</pre>
+    </div>
+
+    <div class="panel">
+      <h2>Step 2: Generated Grammar</h2>
+      <pre id="grammar-output">Grammar will appear here...</pre>
+    </div>
+
+    <div class="panel output-success">
+      <h2>Step 3: Expected XML Output<span class="badge badge-success">Conceptual</span></h2>
+      <pre id="xml-output">XML output will appear here...</pre>
+    </div>
+
+    <div class="panel">
+      <h2>Step 4: Structured Data</h2>
+      <pre id="data-output">Structured data will appear here...</pre>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Processing Statistics</h2>
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">Rows Processed</div>
+        <div class="stat-value" id="stat-rows">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Columns</div>
+        <div class="stat-value" id="stat-columns">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Format</div>
+        <div class="stat-value" id="stat-format" style="font-size: 16px;">-</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Status</div>
+        <div class="stat-value" id="stat-status" style="font-size: 16px; color: #718096;">Ready</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Utility functions (inlined from table-extractor.js)
+
+    function extractLinearizedTable(table, format) {
+      const rows = table.querySelectorAll('tr');
+      const lines = [];
+
+      rows.forEach(row => {
+        const cells = row.querySelectorAll('td, th');
+        const cellTexts = Array.from(cells).map(cell => cell.textContent.trim());
+
+        if (cellTexts.length === 0) return;
+
+        let line;
+        switch (format) {
+          case 'tab':
+            line = cellTexts.join('\t');
+            break;
+          case 'pipe':
+            line = '| ' + cellTexts.join(' | ') + ' |';
+            break;
+          case 'spaces':
+            const maxLengths = getMaxColumnLengths(table);
+            line = cellTexts.map((text, i) => text.padEnd(maxLengths[i])).join('  ');
+            break;
+          default:
+            line = cellTexts.join('\t');
+        }
+
+        lines.push(line);
+      });
+
+      return lines.join('\n');
+    }
+
+    function getMaxColumnLengths(table) {
+      const rows = table.querySelectorAll('tr');
+      const maxLengths = [];
+
+      rows.forEach(row => {
+        const cells = row.querySelectorAll('td, th');
+        cells.forEach((cell, i) => {
+          const length = cell.textContent.trim().length;
+          maxLengths[i] = Math.max(maxLengths[i] || 0, length);
+        });
+      });
+
+      return maxLengths;
+    }
+
+    function generateTableGrammar(format, columnCount) {
+      switch (format) {
+        case 'tab':
+          return generateTabDelimitedGrammar(columnCount);
+        case 'pipe':
+          return generatePipeDelimitedGrammar(columnCount);
+        case 'spaces':
+          return generateSpaceSeparatedGrammar(columnCount);
+        default:
+          return generateTabDelimitedGrammar(columnCount);
+      }
+    }
+
+    function generateTabDelimitedGrammar(columnCount) {
+      const cellPattern = 'cell' + (columnCount > 1 ? ', (-tab, cell){' + (columnCount - 1) + '}' : '');
+
+      return `table: header, rows .
+
+header: ${cellPattern} .
+
+rows: row+ .
+
+row: -nl, ${cellPattern} .
+
+cell: text .
+
+text: [^#09#0A]+ .
+
+-tab: #09 .
+-nl: #0A .`;
+    }
+
+    function generatePipeDelimitedGrammar(columnCount) {
+      const cellPattern = 'cell' + (columnCount > 1 ? ', (-pipe, cell){' + (columnCount - 1) + '}' : '');
+
+      return `table: header, rows .
+
+header: -pipe, ${cellPattern}, -pipe .
+
+rows: row+ .
+
+row: -nl, -pipe, ${cellPattern}, -pipe .
+
+cell: -ws, text, -ws .
+
+text: [^|#0A]+ .
+
+-pipe: "|" .
+-ws: " "* .
+-nl: #0A .`;
+    }
+
+    function generateSpaceSeparatedGrammar(columnCount) {
+      const cellPattern = 'cell' + (columnCount > 1 ? ', (-ws, cell){' + (columnCount - 1) + '}' : '');
+
+      return `table: header, rows .
+
+header: ${cellPattern} .
+
+rows: row+ .
+
+row: -nl, ${cellPattern} .
+
+cell: word, (-sp, word)* .
+
+word: [A-Za-z0-9@.\\-]+ .
+
+-ws: "  "+ .
+-sp: " " .
+-nl: #0A .`;
+    }
+
+    function generateMockXml(table) {
+      const rows = table.querySelectorAll('tr');
+      const headerRow = rows[0];
+      const bodyRows = Array.from(rows).slice(1);
+
+      let xml = '<table>\n  <header>\n';
+
+      const headerCells = headerRow.querySelectorAll('th, td');
+      headerCells.forEach(cell => {
+        xml += `    <cell>${cell.textContent.trim()}</cell>\n`;
+      });
+
+      xml += '  </header>\n  <rows>\n';
+
+      bodyRows.forEach(row => {
+        xml += '    <row>\n';
+        const cells = row.querySelectorAll('td');
+        cells.forEach(cell => {
+          xml += `      <cell>${cell.textContent.trim()}</cell>\n`;
+        });
+        xml += '    </row>\n';
+      });
+
+      xml += '  </rows>\n</table>';
+
+      return xml;
+    }
+
+    function extractStructuredData(table) {
+      const rows = table.querySelectorAll('tr');
+      const headerRow = rows[0];
+      const bodyRows = Array.from(rows).slice(1);
+
+      const headers = Array.from(headerRow.querySelectorAll('th, td')).map(c => c.textContent.trim());
+      const data = bodyRows.map(row => {
+        return Array.from(row.querySelectorAll('td')).map(c => c.textContent.trim());
+      });
+
+      return { headers, rows: data };
+    }
+
+    function displayResults(format) {
+      const table = document.getElementById('demo-table');
+      const columnCount = table.querySelector('tr').querySelectorAll('th, td').length;
+
+      // Extract linearized text
+      const linearized = extractLinearizedTable(table, format);
+      document.getElementById('linearized-output').textContent = linearized;
+
+      // Generate grammar
+      const grammar = generateTableGrammar(format, columnCount);
+      document.getElementById('grammar-output').textContent = grammar;
+
+      // Generate mock XML
+      const xml = generateMockXml(table);
+      document.getElementById('xml-output').textContent = xml;
+
+      // Extract structured data
+      const data = extractStructuredData(table);
+      document.getElementById('data-output').textContent = JSON.stringify(data, null, 2);
+
+      // Update stats
+      document.getElementById('stat-rows').textContent = data.rows.length;
+      document.getElementById('stat-columns').textContent = columnCount;
+      document.getElementById('stat-format').textContent = format.toUpperCase();
+      document.getElementById('stat-status').textContent = 'Complete';
+      document.getElementById('stat-status').style.color = '#48bb78';
+
+      console.log('[Demo] Displayed results for format:', format);
+    }
+
+    function showTabDelimited() {
+      displayResults('tab');
+    }
+
+    function showPipeDelimited() {
+      displayResults('pipe');
+    }
+
+    function showSpaceSeparated() {
+      displayResults('spaces');
+    }
+
+    function analyzeTable() {
+      const table = document.getElementById('demo-table');
+      const rows = table.querySelectorAll('tr');
+      const headerRow = table.querySelector('thead tr') || rows[0];
+      const bodyRows = table.querySelectorAll('tbody tr');
+
+      const structure = {
+        totalRows: rows.length,
+        headerCells: headerRow.querySelectorAll('th, td').length,
+        bodyRows: bodyRows.length,
+        columnCount: headerRow.querySelectorAll('th, td').length,
+        headers: Array.from(headerRow.querySelectorAll('th, td')).map(c => c.textContent.trim()),
+        sampleData: []
+      };
+
+      bodyRows.forEach((row, i) => {
+        if (i < 3) {
+          const cells = row.querySelectorAll('td');
+          const rowData = Array.from(cells).map(cell => cell.textContent.trim());
+          structure.sampleData.push(rowData);
+        }
+      });
+
+      const output = `Table Structure Analysis:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Dimensions: ${structure.bodyRows} rows × ${structure.columnCount} columns
+
+Headers:
+${structure.headers.map((h, i) => `  [${i}] ${h}`).join('\n')}
+
+Sample Data (first 3 rows):
+${structure.sampleData.map((row, i) =>
+  `  Row ${i + 1}: ${row.map(cell => `"${cell}"`).join(', ')}`
+).join('\n')}`;
+
+      alert(output);
+      console.log('[Demo] Structure:', structure);
+    }
+
+    // Auto-run on load
+    window.addEventListener('load', () => {
+      console.log('[Demo] Standalone version loaded');
+      document.getElementById('stat-status').textContent = 'Ready';
+      document.getElementById('stat-status').style.color = '#48bb78';
+    });
+  </script>
+</body>
+</html>

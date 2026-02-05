@@ -1,0 +1,19 @@
+{ Simple Scanner Grammar - Just Extract Form Elements }
+
+document: element* .
+
+element: input-el | select-el | skip .
+
+input-el: -"|input ", attrs, -"|" .
+
+select-el: -"|select ", select-attrs, -"|", -select-content-skip
+         | -"|SELECT ", select-attrs, -"|", -select-content-skip .
+
+attrs: ~["|"]+ .
+select-attrs: ~["|"]+ .
+
+-select-content-skip: (~["|"] | -pipe-not-close)* .
+-pipe-not-close: "|", ~["/"]+ .
+
+-skip: -"|", -skip-content, -"|" | -~["|"]+ .
+-skip-content: ~["|"]+ .

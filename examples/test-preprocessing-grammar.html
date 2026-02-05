@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Preprocessing Grammar</title>
+  <style>
+    body {
+      font-family: 'Monaco', 'Courier New', monospace;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+      background: #1a202c;
+      color: #e2e8f0;
+    }
+    h1 {
+      color: #4fd1c5;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      color: #a0aec0;
+      margin-bottom: 32px;
+    }
+    .test-case {
+      background: #2d3748;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      border-left: 4px solid #4fd1c5;
+    }
+    .test-case h3 {
+      margin-top: 0;
+      color: #63b3ed;
+    }
+    .section {
+      margin: 16px 0;
+    }
+    .label {
+      color: #4fd1c5;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    pre {
+      background: #1a202c;
+      color: #e2e8f0;
+      padding: 12px;
+      border-radius: 4px;
+      overflow-x: auto;
+      border: 1px solid #4a5568;
+      margin: 8px 0;
+    }
+    .success {
+      border-left-color: #48bb78;
+    }
+    .success .label {
+      color: #48bb78;
+    }
+    .error {
+      border-left-color: #f56565;
+    }
+    .error .label {
+      color: #f56565;
+    }
+    .error pre {
+      color: #fc8181;
+    }
+    button {
+      background: #4fd1c5;
+      color: #1a202c;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      margin: 8px 8px 8px 0;
+    }
+    button:hover {
+      background: #38b2ac;
+    }
+    .status {
+      padding: 12px;
+      border-radius: 4px;
+      margin: 16px 0;
+      font-weight: 600;
+    }
+    .status.ready {
+      background: #2f855a;
+      color: #c6f6d5;
+    }
+    .status.loading {
+      background: #744210;
+      color: #fbd38d;
+    }
+    .status.error {
+      background: #742a2a;
+      color: #fed7d7;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧪 Preprocessing Grammar Test Suite</h1>
+  <div class="subtitle">Testing Level 1: Remove angle brackets from element.outerHTML</div>
+
+  <div id="status" class="status loading">Loading rustixml WASM...</div>
+
+  <button onclick="runAllTests()">▶ Run All Tests</button>
+  <button onclick="runSingleTest(0)">Test 1: Simple Div</button>
+  <button onclick="runSingleTest(1)">Test 2: Nested</button>
+  <button onclick="runSingleTest(2)">Test 3: Void Element</button>
+  <button onclick="runSingleTest(3)">Test 4: Script Removal</button>
+
+  <div id="results"></div>
+
+  <script type="module">
+    import init, { parse_ixml } from '../extension/pkg/rustixml.js';
+
+    const testCases = [
+      {
+        name: "Test 1: Simple Div",
+        input: '<div class="container">Hello World</div>',
+        expected: 'div class="container" Hello World / div'
+      },
+      {
+        name: "Test 2: Nested Elements",
+        input: '<div class="outer"><span id="inner">Text</span></div>',
+        expected: 'div class="outer" span id="inner" Text / span / div'
+      },
+      {
+        name: "Test 3: Void Element (Input)",
+        input: '<input type="text" name="username" placeholder="Enter name">',
+        expected: 'input type="text" name="username" placeholder="Enter name"'
+      },
+      {
+        name: "Test 4: Script Tag Removal",
+        input: '<div>Before<script>alert("evil");<\/script>After</div>',
+        expected: 'div Before After / div'
+      },
+      {
+        name: "Test 5: Style Tag Removal",
+        input: '<div>Content<style>.foo { color: red; }<\/style>More</div>',
+        expected: 'div Content More / div'
+      },
+      {
+        name: "Test 6: Line Break",
+        input: '<div>Hello<br>World</div>',
+        expected: 'div Hello br World / div'
+      },
+      {
+        name: "Test 7: Form with Inputs",
+        input: '<form action="/submit"><label>Name:</label><input type="text"><input type="submit" value="Go"></form>',
+        expected: 'form action="/submit" label Name: / label input type="text" input type="submit" value="Go" / form'
+      },
+      {
+        name: "Test 8: Image",
+        input: '<img src="photo.jpg" alt="My Photo" width="300">',
+        expected: 'img src="photo.jpg" alt="My Photo" width="300"'
+      }
+    ];
+
+    let wasmReady = false;
+    let grammar = '';
+
+    // Initialize WASM
+    init().then(async () => {
+      wasmReady = true;
+      console.log('[Test] rustixml initialized');
+
+      // Load grammar
+      try {
+        const response = await fetch('./preprocessing-grammar-level1.ixml');
+        grammar = await response.text();
+        console.log('[Test] Grammar loaded:', grammar.length, 'bytes');
+
+        document.getElementById('status').className = 'status ready';
+        document.getElementById('status').textContent = '✓ Ready to test';
+      } catch (error) {
+        console.error('[Test] Failed to load grammar:', error);
+        document.getElementById('status').className = 'status error';
+        document.getElementById('status').textContent = '✗ Failed to load grammar: ' + error.message;
+      }
+    }).catch(err => {
+      console.error('[Test] WASM init failed:', err);
+      document.getElementById('status').className = 'status error';
+      document.getElementById('status').textContent = '✗ WASM initialization failed';
+    });
+
+    function parseWithGrammar(input) {
+      if (!wasmReady) {
+        return { success: false, error: 'WASM not ready' };
+      }
+      if (!grammar) {
+        return { success: false, error: 'Grammar not loaded' };
+      }
+
+      try {
+        const result = parse_ixml(grammar, input);
+        if (result.success) {
+          return { success: true, xml: result.output };
+        } else {
+          return { success: false, error: result.error || 'Parse failed' };
+        }
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    }
+
+    function extractTextFromXml(xmlString) {
+      // Simple extraction - get text content without XML tags
+      const textOnly = xmlString
+        .replace(/<\?xml[^>]*\?>/g, '')
+        .replace(/<[^>]+>/g, ' ')  // Add space when removing tags
+        .replace(/\s+/g, ' ')      // Collapse all whitespace to single space
+        .trim();
+      return textOnly;
+    }
+
+    function runTest(testCase, index) {
+      console.log(`[Test ${index + 1}] Running:`, testCase.name);
+
+      const result = parseWithGrammar(testCase.input);
+
+      const testDiv = document.createElement('div');
+      testDiv.className = 'test-case ' + (result.success ? 'success' : 'error');
+
+      let html = `<h3>${testCase.name}</h3>`;
+
+      html += `<div class="section">
+        <div class="label">Input HTML:</div>
+        <pre>${escapeHtml(testCase.input)}</pre>
+      </div>`;
+
+      if (result.success) {
+        const extracted = extractTextFromXml(result.xml);
+        const matches = extracted === testCase.expected;
+
+        html += `<div class="section">
+          <div class="label">✓ Parsed Successfully</div>
+          <div class="label">Output (extracted text):</div>
+          <pre>${escapeHtml(extracted)}</pre>
+        </div>`;
+
+        html += `<div class="section">
+          <div class="label">Expected:</div>
+          <pre>${escapeHtml(testCase.expected)}</pre>
+        </div>`;
+
+        html += `<div class="section">
+          <div class="label">Match: ${matches ? '✓ PASS' : '✗ FAIL'}</div>
+        </div>`;
+
+        html += `<div class="section">
+          <div class="label">Raw XML Output:</div>
+          <pre>${escapeHtml(result.xml)}</pre>
+        </div>`;
+
+        console.log(`[Test ${index + 1}] ${matches ? 'PASS' : 'FAIL'}`);
+      } else {
+        html += `<div class="section">
+          <div class="label">✗ Parse Failed</div>
+          <pre>${escapeHtml(result.error)}</pre>
+        </div>`;
+
+        html += `<div class="section">
+          <div class="label">Expected:</div>
+          <pre>${escapeHtml(testCase.expected)}</pre>
+        </div>`;
+
+        console.error(`[Test ${index + 1}] FAIL:`, result.error);
+      }
+
+      testDiv.innerHTML = html;
+      return testDiv;
+    }
+
+    window.runAllTests = function() {
+      console.log('[Test] Running all tests...');
+      const resultsDiv = document.getElementById('results');
+      resultsDiv.innerHTML = '';
+
+      testCases.forEach((testCase, index) => {
+        const resultDiv = runTest(testCase, index);
+        resultsDiv.appendChild(resultDiv);
+      });
+    };
+
+    window.runSingleTest = function(index) {
+      console.log(`[Test] Running test ${index + 1}...`);
+      const resultsDiv = document.getElementById('results');
+      resultsDiv.innerHTML = '';
+
+      const resultDiv = runTest(testCases[index], index);
+      resultsDiv.appendChild(resultDiv);
+    };
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Export for console debugging
+    window.testSuite = {
+      testCases,
+      parseWithGrammar,
+      extractTextFromXml,
+      grammar: () => grammar
+    };
+  </script>
+</body>
+</html>

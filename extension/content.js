@@ -99,15 +99,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           console.log('[Content] ==== GRAMMAR END ====');
         }
 
-        // Parse with grammar (with debug loop if enabled)
-        console.log('[Content] Parsing HTML with grammar...');
+        // Parse with multi-grammar library approach
+        console.log('[Content] Parsing HTML with multi-grammar library...');
 
         const htmlContent = html || document.documentElement.outerHTML;
-        let parseResult = await xmlParser.parseFormWithFallback(htmlContent, finalGrammar);
+        let parseResult = await xmlParser.parseFormWithLibrary(htmlContent);
 
-        // If parsing failed, try debugging
-        if (!parseResult.success || parseResult.method === 'fallback') {
-          console.log('[Content] Initial parse failed, attempting debug loop...');
+        // Log results
+        if (parseResult.method === 'multi-grammar') {
+          console.log('[Content] ✓ Multi-grammar success! Found', parseResult.fields.length, 'fields in', parseResult.passCount, 'passes');
+        } else if (parseResult.method === 'fallback' && parseResult.fields && parseResult.fields.length > 0) {
+          console.log('[Content] IXML parsing failed, using regex fallback (found', parseResult.fields.length, 'fields) ✓');
+        }
+
+        // Only debug if parsing completely failed (no fields found)
+        const shouldDebug = !parseResult.success || !parseResult.fields || parseResult.fields.length === 0;
+
+        if (shouldDebug) {
+          console.log('[Content] Parse failed completely, attempting debug loop...');
 
           if (grammarCached) {
             console.log('[Content] ⚠️ Grammar was cached - debugging will fix but not re-cache');

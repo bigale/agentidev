@@ -5,7 +5,11 @@
  * Integrates rustixml WASM parser
  *
  * Phase 2.1 - Grammar-enhanced automation
+ * Phase 2.2 - Multi-grammar library approach
  */
+
+import { preprocessHTML } from './html-preprocessor.js';
+import { getDefaultGrammarSet } from './grammar-library.js';
 
 console.log('[Form XML Parser] Module loaded');
 
@@ -50,8 +54,8 @@ async function initRustixml() {
 /**
  * Parse HTML form with IXML grammar
  *
- * @param {string} html - HTML content to parse
- * @param {string} grammar - IXML grammar
+ * @param {string} html - HTML content to parse (will be preprocessed to pipe-delimited format)
+ * @param {string} grammar - IXML grammar (should expect pipe-delimited format)
  * @param {Object} options - Parse options
  * @returns {Promise<Document>} XML document
  */
@@ -64,8 +68,13 @@ export async function parseFormWithGrammar(html, grammar, options = {}) {
     // Ensure rustixml is initialized
     await initRustixml();
 
+    // Preprocess HTML to pipe-delimited format
+    const preprocessed = preprocessHTML(html);
+
     console.log('[Form XML Parser] Parsing HTML with grammar...');
     console.log('[Form XML Parser] HTML length:', html.length);
+    console.log('[Form XML Parser] Preprocessed length:', preprocessed.length);
+    console.log('[Form XML Parser] Preprocessed sample:', preprocessed.substring(0, 200) + '...');
     console.log('[Form XML Parser] Grammar length:', grammar.length);
 
     // Create parser from grammar
@@ -73,8 +82,8 @@ export async function parseFormWithGrammar(html, grammar, options = {}) {
 
     console.log('[Form XML Parser] Parser created');
 
-    // Parse HTML → XML
-    const parseResult = parser.parse(html);
+    // Parse preprocessed HTML → XML
+    const parseResult = parser.parse(preprocessed);
 
     if (!parseResult.success) {
       throw new Error(`IXML parsing failed: ${parseResult.error || 'unknown error'}`);
@@ -150,6 +159,27 @@ function validateXMLStructure(xmlDoc) {
 }
 
 /**
+ * Parse attribute string into object
+ * @param {string} attrString - e.g., ' type="text" name="email" id="email-field"'
+ * @returns {Object} Parsed attributes
+ */
+function parseAttributeString(attrString) {
+  const attrs = {};
+
+  if (!attrString) return attrs;
+
+  // Match attr="value" or attr='value'
+  const attrPattern = /(\w+)=["']([^"']+)["']/g;
+  let match;
+
+  while ((match = attrPattern.exec(attrString)) !== null) {
+    attrs[match[1]] = match[2];
+  }
+
+  return attrs;
+}
+
+/**
  * Extract field information from XML
  *
  * @param {Document} xmlDoc - Parsed XML document
@@ -158,24 +188,42 @@ function validateXMLStructure(xmlDoc) {
 export function extractFieldsFromXML(xmlDoc) {
   const fields = [];
 
-  // Query for all field types
-  const fieldElements = xmlDoc.querySelectorAll('input-field, select-field, button-field, field');
+  // Query for all field types (supports both naming conventions)
+  const fieldElements = xmlDoc.querySelectorAll('input-field, select-field, button-field, field, input-el, select-el, textarea-el, button-el');
 
   fieldElements.forEach((element, index) => {
+    const tagName = element.tagName.toLowerCase();
+
+    // For library grammars (*-el elements), extract from child text content
+    let attrsText = '';
+    if (tagName === 'input-el') {
+      attrsText = element.querySelector('input-attrs')?.textContent || '';
+    } else if (tagName === 'select-el') {
+      attrsText = element.querySelector('select-attrs')?.textContent || '';
+    }
+
+    // Parse attributes from text (e.g., ' type="text" name="email"')
+    const parsedAttrs = parseAttributeString(attrsText);
+
     const field = {
       index,
-      type: element.tagName.toLowerCase(),
-      name: element.getAttribute('name') || '',
-      id: element.getAttribute('id') || '',
+      type: tagName,
+      name: parsedAttrs.name || element.getAttribute('name') || '',
+      id: parsedAttrs.id || element.getAttribute('id') || '',
       label: element.getAttribute('label') || element.querySelector('label')?.textContent || '',
-      placeholder: element.getAttribute('placeholder') || '',
-      inputType: element.getAttribute('type') || '',
-      value: element.getAttribute('value') || '',
-      selector: generateSelector(element),
+      placeholder: parsedAttrs.placeholder || element.getAttribute('placeholder') || '',
+      inputType: parsedAttrs.type || element.getAttribute('type') || '',
+      value: parsedAttrs.value || element.getAttribute('value') || '',
+      selector: null,
       xmlElement: element
     };
 
-    fields.push(field);
+    // Generate selector
+    field.selector = field.id ? `#${field.id}` : (field.name ? `[name="${field.name}"]` : null);
+
+    if (field.selector) {
+      fields.push(field);
+    }
   });
 
   console.log('[Form XML Parser] Extracted', fields.length, 'fields from XML');
@@ -262,14 +310,21 @@ export function isRustixmlReady() {
  * Parse HTML form with fallback
  * Tries IXML parsing, falls back to simple extraction if parsing fails
  *
- * @param {string} html - HTML content
+ * @param {string} html - HTML content (can be full page or just form)
  * @param {string} grammar - IXML grammar
  * @returns {Promise<Object>} Parse result with fields array
  */
 export async function parseFormWithFallback(html, grammar) {
   try {
+    // Extract form HTML if we got full page
+    const formHTML = extractFormHTML(html);
+    const htmlToParse = formHTML || html;
+
+    console.log('[Form XML Parser] Input HTML length:', html.length);
+    console.log('[Form XML Parser] Extracted form length:', htmlToParse.length);
+
     // Try IXML parsing
-    const xmlDoc = await parseFormWithGrammar(html, grammar);
+    const xmlDoc = await parseFormWithGrammar(htmlToParse, grammar);
     const fields = extractFieldsFromXML(xmlDoc);
 
     return {
@@ -282,8 +337,12 @@ export async function parseFormWithFallback(html, grammar) {
   } catch (error) {
     console.warn('[Form XML Parser] IXML parsing failed, using fallback:', error.message);
 
+    // Extract form HTML if we got full page
+    const formHTML = extractFormHTML(html);
+    const htmlToExtract = formHTML || html;
+
     // Fallback: Simple regex extraction
-    const fields = extractFieldsSimple(html);
+    const fields = extractFieldsSimple(htmlToExtract);
 
     return {
       success: true,
@@ -292,6 +351,29 @@ export async function parseFormWithFallback(html, grammar) {
       error: error.message
     };
   }
+}
+
+/**
+ * Extract form HTML from page
+ *
+ * @param {string} html - Full page HTML or form HTML
+ * @returns {string|null} Form HTML or null if not found
+ */
+function extractFormHTML(html) {
+  // Try to find <form> tag
+  const formMatch = html.match(/<form[^>]*>[\s\S]*?<\/form>/i);
+
+  if (formMatch) {
+    return formMatch[0];
+  }
+
+  // If no form tag found, check if input is already a form
+  if (html.trim().startsWith('<form')) {
+    return html;
+  }
+
+  // No explicit form tag - return null (will use full HTML)
+  return null;
 }
 
 /**
@@ -348,6 +430,85 @@ function extractFieldsSimple(html) {
   console.log('[Form XML Parser] Fallback extraction found', fields.length, 'fields');
 
   return fields;
+}
+
+/**
+ * Parse form using multi-grammar library approach
+ * Uses proven working grammars in multiple passes
+ *
+ * @param {string} html - HTML content
+ * @returns {Promise<Object>} Parse result with combined fields
+ */
+export async function parseFormWithLibrary(html) {
+  console.log('[Form XML Parser] Using multi-grammar library approach');
+
+  try {
+    // Extract form HTML if we got full page
+    const formHTML = extractFormHTML(html);
+    const htmlToParse = formHTML || html;
+
+    console.log('[Form XML Parser] Input HTML length:', html.length);
+    console.log('[Form XML Parser] Extracted form length:', htmlToParse.length);
+
+    // Get grammar set from library
+    const grammarSet = getDefaultGrammarSet();
+    console.log('[Form XML Parser] Using', grammarSet.length, 'grammars:', grammarSet.map(g => g.name).join(', '));
+
+    const allFields = [];
+    let passCount = 0;
+
+    // Parse with each grammar
+    for (const grammarDef of grammarSet) {
+      passCount++;
+      console.log(`[Form XML Parser] Pass ${passCount}: ${grammarDef.name}`);
+
+      try {
+        const xmlDoc = await parseFormWithGrammar(htmlToParse, grammarDef.grammar);
+        const fields = extractFieldsFromXML(xmlDoc);
+
+        console.log(`[Form XML Parser]   → Found ${fields.length} fields`);
+
+        // Tag fields with grammar name
+        fields.forEach(f => f.grammarSource = grammarDef.name);
+        allFields.push(...fields);
+
+      } catch (error) {
+        console.warn(`[Form XML Parser]   → Pass failed:`, error.message);
+        // Continue with other grammars
+      }
+    }
+
+    if (allFields.length > 0) {
+      console.log(`[Form XML Parser] ✓ Multi-grammar success: ${allFields.length} total fields`);
+
+      return {
+        success: true,
+        method: 'multi-grammar',
+        fields: allFields,
+        passCount: passCount
+      };
+    }
+
+    // All passes failed, use fallback
+    throw new Error('All grammar passes failed');
+
+  } catch (error) {
+    console.warn('[Form XML Parser] Multi-grammar failed, using fallback:', error.message);
+
+    // Extract form HTML if we got full page
+    const formHTML = extractFormHTML(html);
+    const htmlToExtract = formHTML || html;
+
+    // Fallback: Simple regex extraction
+    const fields = extractFieldsSimple(htmlToExtract);
+
+    return {
+      success: true,
+      method: 'fallback',
+      fields,
+      error: error.message
+    };
+  }
 }
 
 console.log('[Form XML Parser] Module ready');

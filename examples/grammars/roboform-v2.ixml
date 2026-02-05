@@ -1,0 +1,23 @@
+{ Simple Extraction Grammar - Skip Structure, Extract Inputs }
+
+document: item* .
+
+item: input-el | select-el | skip .
+
+input-el: -"|input", -space-then-attrs?, -"|" .
+space-then-attrs: " ", ~["|"]+ .
+
+select-el: -"|SELECT", select-attrs, -"|", -select-content, -pipe?, -"|/SELECT|"
+         | -"|select", select-attrs, -"|", -select-content, -pipe?, -"|/select|" .
+
+-pipe: "|" .
+
+select-attrs: (" ", ~["|"]+) | "" .
+
+-select-content: -not-close-select* .
+-not-close-select: ~["|"] | ok-pipe .
+-ok-pipe: "|/", ~["S"; "s"], ~["|"]*, -"|"
+        | "|", ~["/"], ~["|"]*, -"|"
+        | "|" .
+
+-skip: ~["|"]+ | -"|", ~["|"]+, -"|" .

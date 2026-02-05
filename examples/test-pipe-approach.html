@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Pipe-Delimited Approach</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 24px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+    .header {
+      background: white;
+      padding: 32px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      margin-bottom: 24px;
+    }
+    .header h1 {
+      margin: 0 0 8px 0;
+      color: #1a202c;
+      font-size: 32px;
+    }
+    .header p {
+      margin: 0;
+      color: #718096;
+      font-size: 16px;
+    }
+    .insight {
+      background: #e3f2fd;
+      border-left: 4px solid #2196f3;
+      padding: 16px;
+      margin: 16px 0;
+      border-radius: 4px;
+    }
+    .insight strong {
+      color: #1565c0;
+    }
+    .test-case {
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      margin: 20px 0;
+    }
+    .test-case h3 {
+      margin: 0 0 16px 0;
+      color: #2d3748;
+    }
+    .step {
+      background: #f7fafc;
+      padding: 16px;
+      border-radius: 8px;
+      margin: 12px 0;
+      border-left: 4px solid #4299e1;
+    }
+    .step-title {
+      font-weight: 600;
+      color: #2b6cb0;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .output {
+      background: #1a202c;
+      color: #e2e8f0;
+      padding: 12px;
+      border-radius: 4px;
+      font-family: 'Monaco', monospace;
+      font-size: 13px;
+      overflow-x: auto;
+      margin-top: 8px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .success {
+      border-left-color: #48bb78;
+    }
+    .success .step-title {
+      color: #22543d;
+    }
+    .error {
+      border-left-color: #f56565;
+    }
+    .error .step-title {
+      color: #742a2a;
+    }
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-right: 12px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    }
+    .controls {
+      margin: 20px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🔀 Pipe-Delimited Approach</h1>
+    <p>Replace angle brackets with pipes to preserve structure</p>
+  </div>
+
+  <div class="insight">
+    <strong>Key Insight:</strong> Instead of removing brackets (losing structure), replace them with pipes (preserving structure).<br><br>
+    <code>&lt;form&gt;Hello&lt;/form&gt;</code> becomes <code>|form|Hello|/form|</code><br><br>
+    Now tags have clear boundaries and grammar can parse structure easily!
+  </div>
+
+  <div class="controls">
+    <button onclick="testSimpleForm()">Test Simple Form</button>
+    <button onclick="testLoginForm()">Test Login Form</button>
+  </div>
+
+  <div id="results"></div>
+
+  <script type="module">
+    import init, { parse_ixml } from '../extension/pkg/rustixml.js';
+    import { preprocessHTML } from './html-preprocessor-pipes.js';
+
+    let wasmReady = false;
+    let grammar = '';
+
+    // Initialize
+    init().then(async () => {
+      wasmReady = true;
+      console.log('[Pipe Test] rustixml initialized');
+
+      // Load grammar
+      try {
+        const response = await fetch('./pipe-delimited-form.ixml');
+        grammar = await response.text();
+        console.log('[Pipe Test] Grammar loaded:', grammar.length, 'bytes');
+      } catch (error) {
+        console.error('[Pipe Test] Failed to load grammar:', error);
+      }
+    }).catch(err => {
+      console.error('[Pipe Test] WASM init failed:', err);
+    });
+
+    function parseWithGrammar(input) {
+      if (!wasmReady || !grammar) {
+        return { success: false, error: 'Not ready' };
+      }
+
+      try {
+        const result = parse_ixml(grammar, input);
+        if (result.success) {
+          return { success: true, xml: result.output };
+        } else {
+          return { success: false, error: result.error || 'Parse failed' };
+        }
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    }
+
+    function runTest(name, html) {
+      console.log('[Test]', name);
+
+      // Preprocess with pipes
+      const preprocessed = preprocessHTML(html);
+      console.log('[Test] Pipe-delimited:', preprocessed.final);
+
+      // Parse with grammar
+      const parseResult = parseWithGrammar(preprocessed.final);
+      console.log('[Test] Parse result:', parseResult);
+
+      // Display
+      const testDiv = document.createElement('div');
+      testDiv.className = 'test-case';
+
+      let htmlContent = `<h3>${name}</h3>`;
+
+      // Show preprocessing steps
+      preprocessed.steps.forEach(step => {
+        htmlContent += `<div class="step">
+          <div class="step-title">Step ${step.step}: ${step.name}</div>
+          <div class="output">${escapeHtml(step.output)}</div>
+        </div>`;
+      });
+
+      // Show parse result
+      const stepClass = parseResult.success ? 'step success' : 'step error';
+      const stepTitle = parseResult.success ? '✓ Parse Successful' : '✗ Parse Failed';
+
+      htmlContent += `<div class="${stepClass}">
+        <div class="step-title">${stepTitle}</div>
+        <div class="output">${escapeHtml(parseResult.success ? parseResult.xml : parseResult.error)}</div>
+      </div>`;
+
+      testDiv.innerHTML = htmlContent;
+
+      const resultsDiv = document.getElementById('results');
+      resultsDiv.innerHTML = '';
+      resultsDiv.appendChild(testDiv);
+    }
+
+    window.testSimpleForm = function() {
+      const html = '<form action="/submit"><label>Name:</label><input type="text" name="name"></form>';
+      runTest('Simple Form', html);
+    };
+
+    window.testLoginForm = function() {
+      const html = '<form action="/login"><label>Email:</label><input type="email" name="email"><label>Password:</label><input type="password" name="pwd"><input type="submit" value="Login"></form>';
+      runTest('Login Form', html);
+    };
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

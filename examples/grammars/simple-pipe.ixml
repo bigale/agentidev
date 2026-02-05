@@ -1,0 +1,11 @@
+{ Simple Pipe Grammar - Just tokenize }
+
+document: item+ .
+
+item: pipe-tag | other .
+
+pipe-tag: "|", tag-content, "|" .
+
+tag-content: ~["|"]+ .
+
+other: ~["|"]+ .

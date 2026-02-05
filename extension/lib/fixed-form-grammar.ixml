@@ -1,0 +1,31 @@
+{ Fixed Robust Form Grammar - Handles nested divs and real-world structure }
+
+document: content* .
+
+content: input-el | select-el | label-el | button-el | any-el | text .
+
+input-el: -"|input ",  input-attrs, -"|" .
+input-attrs: ~["|"]+ .
+
+select-el: -"|select ", select-attrs, -"|", option*, -"|/select|" .
+select-attrs: ~["|"]+ .
+option: -"|option", -attrs?, -"|", option-text, -"|/option|" .
+option-text: ~["|"]+ .
+
+label-el: -"|label", -attrs?, -"|", label-text, -"|/label|" .
+label-text: ~["|"]+ .
+
+button-el: -"|button", -attrs?, -"|", button-text, -"|/button|"
+         | -"|input type=\"submit\"", -attrs-rest?, -"|"
+         | -"|input type=\"button\"", -attrs-rest?, -"|" .
+button-text: ~["|"]+ .
+
+-attrs-rest: " ", ~["|"]+ .
+
+-any-el: -"|", -any-content, -"|" .
+
+-any-content: ~["|"]* .
+
+-text: ~["|"]+ .
+
+-attrs: " ", ~["|"]+ .

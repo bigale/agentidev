@@ -1212,15 +1212,16 @@ async function handleClearGrammarCache(domain) {
   console.log('[Grammar] Clearing cache for:', domain);
 
   try {
-    await clearGrammarCache(domain);
+    // Get stats BEFORE clearing to return accurate count
+    const statsBefore = await getGrammarCacheStats();
+    const countBefore = domain ? (statsBefore.byDomain[domain] || 0) : statsBefore.totalEntries;
 
-    // Get stats to return count
-    const stats = await getGrammarCacheStats();
-    const count = domain ? (stats.byDomain[domain] || 0) : stats.totalEntries;
+    // Clear cache
+    await clearGrammarCache(domain);
 
     return {
       success: true,
-      count: count
+      count: countBefore
     };
 
   } catch (error) {

@@ -1,0 +1,21 @@
+{ LLM-Friendly Form Grammar - rustixml compatible }
+
+document: form .
+
+form: -"|form", -skip-attrs, -"|", content*, -"|/form|" .
+
+-skip-attrs: (" ", ~["|"]+) | "" .
+
+content: field | action .
+
+field: -"|label", -skip-label-attrs, -"|", label-text, -"|/label||input ", input-attrs, -"|" .
+
+-skip-label-attrs: (" ", ~["|"]+) | "" .
+
+label-text: ~["|"]+ .
+
+input-attrs: ~["|"]+ .
+
+action: -"|input ", action-attrs, -"|" .
+
+action-attrs: ~["|"]+ .

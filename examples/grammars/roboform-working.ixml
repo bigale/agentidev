@@ -1,0 +1,28 @@
+{ Working Grammar for Real-World Forms - Recursive Structure }
+
+document: content* .
+
+content: input-el | select-el | text-div | any-el | text .
+
+input-el: -"|input ", attrs, -"|" .
+attrs: ~["|"]+ .
+
+select-el: -"|select ", select-attrs, -"|", option*, -"|/select|"
+         | -"|SELECT ", select-attrs, -"|", option*, -"|/SELECT|" .
+select-attrs: ~["|"]+ .
+
+option: -"|option ", option-attrs, -"|", option-text, -"|/option|"
+      | -"|OPTION ", option-attrs, -"|", option-text, -"|/OPTION|" .
+option-attrs: ~["|"]+ .
+option-text: ~["|"]+ .
+
+text-div: -"|div", div-attrs, -"|", div-text, -"|/div|" .
+div-attrs: (" ", ~["|"]+) | "" .
+div-text: ~["|"]+ .
+
+any-el: -"|", -tag-and-attrs, -"|", content*, -"|/", -tag-and-attrs, -"|"
+      | -"|", -tag-and-attrs, -"|" .
+
+-tag-and-attrs: ~["|"]+ .
+
+text: ~["|"]+ .

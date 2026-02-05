@@ -1,0 +1,46 @@
+{ LLM Instructions Grammar
+
+  Purpose: Transform linearized HTML directly into LLM-friendly instructions
+
+  Input:  form action="/submit" label Username: /label input type="text" name="user" /form
+  Output: Form: /submit
+          Field: Username (text, name: user)
+          Action: Submit
+}
+
+form: "form", form-attrs?, items+, "/form" .
+
+items: field | button | other-element .
+
+{ Field: label followed by input }
+field: "label", label-attrs?, label-text, "/label", input-tag .
+
+label-text: text .
+
+input-tag: "input", input-attrs .
+
+{ Button or submit input }
+button: button-element | submit-input .
+
+button-element: "button", button-attrs?, button-text, "/button" .
+submit-input: "input", submit-attrs .
+
+{ Attributes - extract what we need }
+form-attrs: attr-content .
+label-attrs: attr-content .
+input-attrs: attr-content .
+button-attrs: attr-content .
+submit-attrs: attr-content .
+
+attr-content: ~[">"; "l"; "i"; "b"; "f"; "/"]+ .
+
+button-text: text .
+
+text: word+ .
+word: ~[" "; "/"; "l"; "i"; "b"; "f"]+ .
+
+{ Skip other elements we don't care about }
+-other-element: div-tag | span-tag | br-tag .
+-div-tag: "div", ~["/"]*, "/div" | "div" .
+-span-tag: "span", ~["/"]*, "/span" | "span" .
+-br-tag: "br" .
