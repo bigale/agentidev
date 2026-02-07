@@ -394,8 +394,12 @@
           </label>
         </div>
 
-        <button id="extract-button" style="width: 100%; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 4px; font-size: 14px; font-weight: 500; cursor: pointer;">
-          🕷️ Extract Now
+        <button id="extract-button" style="width: 100%; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 4px; font-size: 14px; font-weight: 500; cursor: pointer; margin-bottom: 8px;">
+          🕷️ Extract Now (LLM)
+        </button>
+
+        <button id="extract-table-button" style="width: 100%; padding: 10px; background: #34a853; color: white; border: none; border-radius: 4px; font-size: 13px; font-weight: 500; cursor: pointer;">
+          📊 Quick Extract Tables (Grammar)
         </button>
       </div>
 
@@ -407,7 +411,10 @@
             </h3>
             <div style="display: flex; gap: 8px;">
               <button id="export-json" style="padding: 6px 12px; background: #f1f3f4; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; cursor: pointer;">
-                📋 JSON
+                📋 JSON (Flat)
+              </button>
+              <button id="export-json-structured" style="padding: 6px 12px; background: #f1f3f4; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; cursor: pointer; display: none;">
+                📋 JSON (By Table)
               </button>
               <button id="export-csv" style="padding: 6px 12px; background: #f1f3f4; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; cursor: pointer;">
                 📊 CSV
@@ -551,6 +558,47 @@
         </button>
 
         <div id="dom-results" style="margin-top: 12px; font-size: 12px; color: #5f6368;"></div>
+      </div>
+
+      <!-- XML Field Viewer & Tester (Phase 2.2) -->
+      <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; margin-top: 16px;">
+        <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #202124;">
+          🎯 XML Field Tester
+        </h3>
+        <p style="font-size: 13px; color: #5f6368; margin-bottom: 16px;">
+          Test the XML parser by viewing and highlighting extracted form fields.
+        </p>
+
+        <button id="xml-get-fields-button" style="width: 100%; padding: 10px; background: #1a73e8; color: white; border: none; border-radius: 4px; font-size: 13px; font-weight: 500; cursor: pointer; margin-bottom: 12px;">
+          📋 Get Parsed Fields
+        </button>
+
+        <button id="xml-highlight-button" style="width: 100%; padding: 10px; background: #34a853; color: white; border: none; border-radius: 4px; font-size: 13px; font-weight: 500; cursor: pointer; margin-bottom: 12px; display: none;">
+          🎯 Highlight All Fields
+        </button>
+
+        <button id="xml-clear-highlights-button" style="width: 100%; padding: 8px; background: #ea4335; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; margin-bottom: 12px; display: none;">
+          🧹 Clear Highlights
+        </button>
+
+        <div id="xml-field-results" style="margin-top: 12px; font-size: 12px;"></div>
+
+        <div id="xml-field-list" style="display: none; margin-top: 12px; max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 12px; border-radius: 4px;">
+          <div style="font-weight: 600; margin-bottom: 8px; color: #202124;">
+            Extracted Fields:
+          </div>
+          <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
+            <thead>
+              <tr style="background: #e8eaed;">
+                <th style="padding: 4px; text-align: left;">Type</th>
+                <th style="padding: 4px; text-align: left;">Selector</th>
+                <th style="padding: 4px; text-align: left;">Name/ID</th>
+                <th style="padding: 4px; text-align: left;">Source</th>
+              </tr>
+            </thead>
+            <tbody id="xml-field-table-body"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 

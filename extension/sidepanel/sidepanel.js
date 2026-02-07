@@ -18,11 +18,13 @@ const extractPrompt = document.getElementById('extract-prompt');
 const extractPagination = document.getElementById('extract-pagination');
 const extractMaxPages = document.getElementById('extract-max-pages');
 const extractButton = document.getElementById('extract-button');
+const extractTableButton = document.getElementById('extract-table-button');
 const extractResults = document.getElementById('extract-results');
 const extractItemCount = document.getElementById('extract-item-count');
 const extractStats = document.getElementById('extract-stats');
 const extractPreview = document.getElementById('extract-preview');
 const exportJSON = document.getElementById('export-json');
+const exportJSONStructured = document.getElementById('export-json-structured');
 const exportCSV = document.getElementById('export-csv');
 const filtersDiv = document.getElementById('filters');
 const settingsButton = document.getElementById('settings-button');
@@ -54,11 +56,18 @@ const debugHistoryContent = document.getElementById('debug-history-content');
 const indexSpecButton = document.getElementById('index-spec-button');
 const clearSpecButton = document.getElementById('clear-spec-button');
 const specStatusText = document.getElementById('spec-status-text');
+const xmlGetFieldsButton = document.getElementById('xml-get-fields-button');
+const xmlHighlightButton = document.getElementById('xml-highlight-button');
+const xmlClearHighlightsButton = document.getElementById('xml-clear-highlights-button');
+const xmlFieldResults = document.getElementById('xml-field-results');
+const xmlFieldList = document.getElementById('xml-field-list');
+const xmlFieldTableBody = document.getElementById('xml-field-table-body');
 
 let currentMode = 'search'; // 'search', 'qa', 'extract', or 'agent'
 let currentFilter = 'all';
 let debounceTimer = null;
 let lastExtractionResults = null;
+let currentXMLFields = null; // Phase 2.2 - XML UI Integration
 
 // Load statistics on startup
 loadStats();
@@ -235,7 +244,7 @@ extractButton.addEventListener('click', async () => {
     }
   }, (response) => {
     extractButton.disabled = false;
-    extractButton.textContent = '🕷️ Extract Now';
+    extractButton.textContent = '🕷️ Extract Now (LLM)';
 
     if (response && response.success) {
       lastExtractionResults = response;
@@ -244,6 +253,43 @@ extractButton.addEventListener('click', async () => {
       alert(`Extraction failed: ${response?.error || 'Unknown error'}`);
     }
   });
+});
+
+// Grammar-based table extraction (Phase 2.2)
+extractTableButton.addEventListener('click', async () => {
+  extractTableButton.disabled = true;
+  extractTableButton.textContent = '⏳ Extracting tables...';
+  extractResults.style.display = 'none';
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      type: 'EXTRACT_TABLES_WITH_GRAMMAR'
+    });
+
+    extractTableButton.disabled = false;
+    extractTableButton.textContent = '📊 Quick Extract Tables (Grammar)';
+
+    if (response && response.success) {
+      // Convert table data to extraction format
+      lastExtractionResults = {
+        success: true,
+        items: response.allRows,
+        pagesProcessed: 1,
+        tokensUsed: 0,
+        tokenBudget: { total: 0, used: 0, remaining: 0 },
+        schema: response.schema
+      };
+      displayExtractionResults(lastExtractionResults);
+    } else {
+      alert(`Table extraction failed: ${response?.error || 'No tables found'}`);
+    }
+  } catch (error) {
+    extractTableButton.disabled = false;
+    extractTableButton.textContent = '📊 Quick Extract Tables (Grammar)';
+    alert(`Error: ${error.message}`);
+  }
 });
 
 // Agent fill button (Phase 2.0 MVP)
@@ -611,12 +657,154 @@ domSearchButton.addEventListener('click', async () => {
   });
 });
 
+// XML Field Tester handlers (Phase 2.2)
+xmlGetFieldsButton.addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  if (!tab) {
+    xmlFieldResults.innerHTML = '<div style="color: #d93025;">❌ No active tab</div>';
+    return;
+  }
+
+  xmlGetFieldsButton.disabled = true;
+  xmlGetFieldsButton.textContent = '⏳ Getting fields...';
+  xmlFieldResults.innerHTML = '<div style="color: #5f6368;">Requesting parsed fields...</div>';
+
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      type: 'GET_XML_FIELDS'
+    });
+
+    xmlGetFieldsButton.disabled = false;
+    xmlGetFieldsButton.textContent = '📋 Get Parsed Fields';
+
+    if (response && response.success) {
+      currentXMLFields = response.fields;
+
+      xmlFieldResults.innerHTML = `
+        <div style="color: #1e8e3e; margin-bottom: 8px;">✅ Found ${response.count} fields</div>
+        <div style="font-size: 11px; color: #5f6368;">
+          • Method: <strong>${response.method}</strong>
+          • Fields parsed successfully
+        </div>
+      `;
+
+      // Show field list
+      displayXMLFields(response.fields);
+
+      // Show action buttons
+      xmlHighlightButton.style.display = 'block';
+      xmlClearHighlightsButton.style.display = 'block';
+
+    } else {
+      xmlFieldResults.innerHTML = `
+        <div style="color: #d93025;">❌ ${response?.error || 'Failed to get fields'}</div>
+        <div style="font-size: 11px; color: #5f6368;">
+          The page may not have been parsed yet, or contains no forms.
+        </div>
+      `;
+      xmlFieldList.style.display = 'none';
+      xmlHighlightButton.style.display = 'none';
+      xmlClearHighlightsButton.style.display = 'none';
+    }
+  } catch (error) {
+    xmlGetFieldsButton.disabled = false;
+    xmlGetFieldsButton.textContent = '📋 Get Parsed Fields';
+    xmlFieldResults.innerHTML = `
+      <div style="color: #d93025;">❌ Error: ${error.message}</div>
+    `;
+  }
+});
+
+xmlHighlightButton.addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  xmlHighlightButton.disabled = true;
+  xmlHighlightButton.textContent = '⏳ Highlighting...';
+
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      type: 'HIGHLIGHT_XML_FIELDS'
+    });
+
+    xmlHighlightButton.disabled = false;
+    xmlHighlightButton.textContent = '🎯 Highlight All Fields';
+
+    if (response && response.success) {
+      const accuracy = ((response.foundCount / response.total) * 100).toFixed(1);
+
+      xmlFieldResults.innerHTML = `
+        <div style="color: #1e8e3e; margin-bottom: 8px;">
+          ✅ Highlighted ${response.foundCount}/${response.total} fields (${accuracy}% accuracy)
+        </div>
+        ${response.missingCount > 0 ? `
+          <div style="color: #ea8600; font-size: 11px; margin-top: 8px;">
+            ⚠️ ${response.missingCount} selectors not found in DOM:
+            <div style="background: #fef7e0; padding: 6px; border-radius: 4px; margin-top: 4px; font-family: monospace; max-height: 100px; overflow-y: auto;">
+              ${response.missing.join('<br>')}
+            </div>
+          </div>
+        ` : ''}
+        <div style="margin-top: 8px; padding: 8px; background: #e8f0fe; border-radius: 4px; font-size: 11px; color: #1967d2;">
+          💡 Fields highlighted in yellow on page
+        </div>
+      `;
+    } else {
+      xmlFieldResults.innerHTML = `
+        <div style="color: #d93025;">❌ Failed to highlight: ${response?.error || 'Unknown error'}</div>
+      `;
+    }
+  } catch (error) {
+    xmlHighlightButton.disabled = false;
+    xmlHighlightButton.textContent = '🎯 Highlight All Fields';
+    xmlFieldResults.innerHTML = `
+      <div style="color: #d93025;">❌ Error: ${error.message}</div>
+    `;
+  }
+});
+
+xmlClearHighlightsButton.addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  try {
+    await chrome.tabs.sendMessage(tab.id, {
+      type: 'CLEAR_HIGHLIGHTS'
+    });
+
+    xmlFieldResults.innerHTML = `
+      <div style="color: #5f6368;">🧹 Highlights cleared</div>
+    `;
+  } catch (error) {
+    console.error('Clear highlights error:', error);
+  }
+});
+
+function displayXMLFields(fields) {
+  xmlFieldList.style.display = 'block';
+
+  xmlFieldTableBody.innerHTML = fields.map(field => `
+    <tr style="border-bottom: 1px solid #e0e0e0;">
+      <td style="padding: 4px;">${field.type}</td>
+      <td style="padding: 4px; font-family: monospace; font-size: 10px; max-width: 150px; overflow: hidden; text-overflow: ellipsis;">${field.selector}</td>
+      <td style="padding: 4px;">${field.name || field.id || '-'}</td>
+      <td style="padding: 4px; color: #5f6368;">${field.grammarSource || '-'}</td>
+    </tr>
+  `).join('');
+}
+
 // Export handlers
 exportJSON.addEventListener('click', () => {
   if (!lastExtractionResults) return;
 
   const json = JSON.stringify(lastExtractionResults.items, null, 2);
   downloadFile(json, 'extraction.json', 'application/json');
+});
+
+exportJSONStructured.addEventListener('click', () => {
+  if (!lastExtractionResults || !lastExtractionResults.tables) return;
+
+  const json = JSON.stringify(lastExtractionResults.tables, null, 2);
+  downloadFile(json, 'extraction-by-table.json', 'application/json');
 });
 
 exportCSV.addEventListener('click', () => {
@@ -868,7 +1056,17 @@ function displayExtractionResults(results) {
     const percentUsed = Math.round((results.tokensUsed / results.tokenBudget.total) * 100);
     stats.push(`🪙 ${results.tokensUsed}/${results.tokenBudget.total} tokens (${percentUsed}%)`);
   }
+  if (results.tableCount) {
+    stats.push(`📊 ${results.tableCount} tables`);
+  }
   extractStats.innerHTML = stats.join(' &nbsp;•&nbsp; ');
+
+  // Show structured export button if tables are available
+  if (results.tables && results.tables.length > 0) {
+    exportJSONStructured.style.display = 'inline-block';
+  } else {
+    exportJSONStructured.style.display = 'none';
+  }
 
   // Display preview
   const preview = JSON.stringify(results.items, null, 2);
