@@ -1,0 +1,18 @@
+{
+  "name": "contextual-recall-bridge",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "WebSocket bridge between Chrome extension and Claude Code for playwright-cli automation",
+  "main": "server.mjs",
+  "bin": {
+    "bridge-cli": "./bridge-cli.mjs"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "stop": "node server.mjs --stop"
+  },
+  "dependencies": {
+    "ws": "^8.16.0",
+    "yaml": "^2.3.4"
+  }
+}
