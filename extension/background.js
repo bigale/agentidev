@@ -25,6 +25,11 @@ import { fillFormWithGoogleData, executeFormFillWorkflow, fillFormWithData } fro
 // Phase 2.1: Grammar generation and parsing
 import { generateFormGrammar, clearGrammarCache, getGrammarCacheStats } from './lib/form-grammar-generator.js';
 import { indexIXMLSpec, getSpecIndexStatus, clearSpecIndex } from './lib/ixml-spec-indexer.js';
+// Phase 2.5: Playwright bridge + YAML snapshot intelligence
+import * as bridgeClient from './lib/bridge-client.js';
+import { chunkYAMLSnapshot, extractRaceMetadata } from './lib/yaml-snapshot-chunker.js';
+import { yamlSnapshotStore } from './lib/yaml-snapshot-store.js';
+import { AutomationReasoner } from './lib/automation-reasoning.js';
 
 console.log('Contextual Recall: Background service worker started');
 console.log('[Background] Note: Extension reload = re-initialize (models are cached, not re-downloaded)');
@@ -286,6 +291,128 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     return true; // Async response
   }
+
+  // Phase 2.5: Bridge + Automation message handlers
+  if (message.type === 'BRIDGE_CONNECT') {
+    bridgeClient.connectToBridge(message.port || 9876)
+      .then(() => sendResponse({ success: true, connected: true }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'BRIDGE_DISCONNECT') {
+    bridgeClient.disconnectFromBridge();
+    sendResponse({ success: true, connected: false });
+    return true;
+  }
+
+  if (message.type === 'BRIDGE_STATUS') {
+    sendResponse({ connected: bridgeClient.isConnected() });
+    return true;
+  }
+
+  if (message.type === 'BRIDGE_CREATE_SESSION') {
+    bridgeClient.createSession(message.name, message.options || {})
+      .then(result => sendResponse({ success: true, ...result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'BRIDGE_DESTROY_SESSION') {
+    bridgeClient.destroySession(message.sessionId)
+      .then(result => sendResponse({ success: true, ...result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'BRIDGE_LIST_SESSIONS') {
+    bridgeClient.listSessions()
+      .then(result => sendResponse({ success: true, ...result }))
+      .catch(error => sendResponse({ success: false, error: error.message, sessions: [] }));
+    return true;
+  }
+
+  if (message.type === 'BRIDGE_SEND_COMMAND') {
+    bridgeClient.sendCommand(message.sessionId, message.command)
+      .then(result => sendResponse({ success: true, ...result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'BRIDGE_TAKE_SNAPSHOT') {
+    bridgeClient.takeSnapshot(message.sessionId)
+      .then(async (result) => {
+        // Also store snapshot in vector DB for intelligence layer
+        if (result.yaml) {
+          try {
+            await handleSnapshotStorage(message.sessionId, result.yaml, result.url);
+          } catch (err) {
+            console.warn('[Background] Snapshot storage failed (non-fatal):', err.message);
+          }
+        }
+        sendResponse({ success: true, ...result });
+      })
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'BRIDGE_NAVIGATE') {
+    bridgeClient.navigateSession(message.sessionId, message.url)
+      .then(result => sendResponse({ success: true, ...result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'BRIDGE_CLICK') {
+    bridgeClient.clickRef(message.sessionId, message.ref)
+      .then(result => sendResponse({ success: true, ...result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'BRIDGE_FILL') {
+    bridgeClient.fillRef(message.sessionId, message.ref, message.value)
+      .then(result => sendResponse({ success: true, ...result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'BRIDGE_EVAL') {
+    bridgeClient.evalInSession(message.sessionId, message.expr)
+      .then(result => sendResponse({ success: true, ...result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  // Snapshot intelligence handlers (Phase B)
+  if (message.type === 'SNAPSHOT_STORE') {
+    handleSnapshotStorage(message.sessionId, message.yaml, message.url)
+      .then(result => sendResponse({ success: true, ...result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'SNAPSHOT_SEARCH') {
+    handleSnapshotSearch(message.query, message.options)
+      .then(results => sendResponse({ success: true, results }))
+      .catch(error => sendResponse({ success: false, error: error.message, results: [] }));
+    return true;
+  }
+
+  if (message.type === 'SNAPSHOT_GET_CACHED') {
+    yamlSnapshotStore.getCachedStructure(message.url, message.sectionType)
+      .then(result => sendResponse({ success: true, ...result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  // Automation reasoning handler (Phase D)
+  if (message.type === 'AUTOMATION_REASON') {
+    handleAutomationReason(message.intent, message.sessionId)
+      .then(result => sendResponse({ success: true, ...result }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
 });
 
 /**
@@ -441,11 +568,20 @@ async function handleQuery(query, filter = 'all') {
  * Get database statistics
  */
 async function getStats() {
-  if (!dbReady) {
-    return { pagesIndexed: 0, storageUsed: 0, queriesToday: 0 };
+  const baseStats = dbReady
+    ? await vectorDB.getStats()
+    : { pagesIndexed: 0, storageUsed: 0, queriesToday: 0 };
+
+  // Include snapshot store chunks in the count
+  try {
+    const snapshotStats = await yamlSnapshotStore.getStats();
+    baseStats.snapshotChunks = snapshotStats.totalRecords || 0;
+    baseStats.pagesIndexed += baseStats.snapshotChunks;
+  } catch {
+    baseStats.snapshotChunks = 0;
   }
 
-  return await vectorDB.getStats();
+  return baseStats;
 }
 
 /**
@@ -1268,6 +1404,281 @@ async function handleTestGrammar(tabId) {
     return {
       success: false,
       error: error.message
+    };
+  }
+}
+
+// ============================================================
+// Phase 2.5: Snapshot Intelligence Functions
+// ============================================================
+
+// Initialize snapshot store alongside main DB
+(async () => {
+  try {
+    await yamlSnapshotStore.init();
+    console.log('[Background] Snapshot store ready');
+  } catch (err) {
+    console.warn('[Background] Snapshot store init failed (non-fatal):', err.message);
+  }
+})();
+
+// Register bridge event callbacks
+bridgeClient.onSnapshotReceived(async (data) => {
+  console.log(`[Background] Snapshot broadcast received (${data.lines} lines)`);
+  if (data.yaml && data.url) {
+    try {
+      await handleSnapshotStorage(data.sessionId, data.yaml, data.url);
+    } catch (err) {
+      console.warn('[Background] Auto-store snapshot failed:', err.message);
+    }
+  }
+});
+
+bridgeClient.onStatusChange((data) => {
+  console.log(`[Background] Bridge status: session=${data.sessionId} state=${data.state}`);
+});
+
+bridgeClient.onConnectionChange((data) => {
+  console.log(`[Background] Bridge connection: ${data.connected ? 'connected' : 'disconnected'}`);
+});
+
+/**
+ * Chunk, embed, and store a YAML snapshot
+ * @param {string} sessionId - Playwright session ID
+ * @param {string} yamlText - Full YAML snapshot
+ * @param {string} url - Page URL
+ * @returns {Promise<object>} Storage results
+ */
+async function handleSnapshotStorage(sessionId, yamlText, url) {
+  console.log(`[Snapshot] Storing snapshot (${yamlText.split('\n').length} lines) for ${url}`);
+
+  // Chunk the snapshot
+  const metadata = extractRaceMetadata(yamlText);
+  const chunks = chunkYAMLSnapshot(yamlText, { url, sessionId, ...metadata });
+
+  console.log(`[Snapshot] Created ${chunks.length} chunks`);
+
+  let stored = 0;
+  for (const chunk of chunks) {
+    try {
+      // Generate embedding for the text description
+      let embedding;
+      if (isInitialized()) {
+        embedding = await generateEmbedding(chunk.textDescription);
+      } else {
+        embedding = generateSimpleEmbedding(chunk.textDescription);
+      }
+
+      await yamlSnapshotStore.storeSnapshot({
+        url,
+        urlPattern: url ? url.replace(/\/\d+/g, '/*').replace(/\?.*$/, '') : '',
+        track: metadata.track || null,
+        race: metadata.race || null,
+        sectionType: chunk.sectionType,
+        yamlText: chunk.yamlText,
+        textDescription: chunk.textDescription,
+        embedding,
+        metadata: {
+          ...chunk.metadata,
+          sessionId,
+          snapshotSize: yamlText.length,
+        },
+      });
+      stored++;
+    } catch (err) {
+      console.warn(`[Snapshot] Failed to store chunk ${chunk.sectionType}:`, err.message);
+    }
+  }
+
+  // Check for stable patterns
+  if (url) {
+    try {
+      await detectStablePatterns(url);
+    } catch (err) {
+      console.warn('[Snapshot] Stable pattern detection failed:', err.message);
+    }
+  }
+
+  console.log(`[Snapshot] Stored ${stored}/${chunks.length} chunks`);
+  return { chunksStored: stored, totalChunks: chunks.length, metadata };
+}
+
+/**
+ * Search snapshot store by natural language query
+ * @param {string} query - Search query
+ * @param {object} [options] - Search options
+ * @returns {Promise<Array>} Matching snapshot sections
+ */
+async function handleSnapshotSearch(query, options = {}) {
+  console.log(`[Snapshot Search] "${query}"`);
+
+  let queryEmbedding;
+  if (isInitialized()) {
+    queryEmbedding = await generateEmbedding(query);
+  } else {
+    queryEmbedding = generateSimpleEmbedding(query);
+  }
+
+  const results = await yamlSnapshotStore.search(queryEmbedding, {
+    limit: options.limit || 5,
+    sectionType: options.sectionType || null,
+    stableOnly: options.stableOnly || false,
+    threshold: options.threshold || (isInitialized() ? 0.3 : 0.05),
+  });
+
+  console.log(`[Snapshot Search] Found ${results.length} results`);
+  return results;
+}
+
+/**
+ * Detect stable patterns for a URL
+ * If the same section structure appears 3+ times, mark it as stable
+ * @param {string} url - Page URL
+ */
+async function detectStablePatterns(url) {
+  const urlPattern = url.replace(/\/\d+/g, '/*').replace(/\?.*$/, '');
+  const existing = await yamlSnapshotStore.getByUrlPattern(urlPattern);
+
+  // Group by sectionType
+  const bySection = {};
+  for (const record of existing) {
+    if (!bySection[record.sectionType]) {
+      bySection[record.sectionType] = [];
+    }
+    bySection[record.sectionType].push(record);
+  }
+
+  // For each section type with 3+ records, check structural similarity
+  for (const [sectionType, records] of Object.entries(bySection)) {
+    if (records.length >= 3 && !records.some(r => r.isStablePattern)) {
+      // Mark the most recent one as stable
+      const latest = records.sort((a, b) => b.timestamp - a.timestamp)[0];
+      await yamlSnapshotStore.markAsStablePattern(latest.id);
+      console.log(`[Snapshot] Marked ${sectionType} as stable pattern for ${urlPattern}`);
+    }
+  }
+}
+
+// Automation reasoner instance (Phase D)
+const automationReasoner = new AutomationReasoner();
+
+/**
+ * Handle automation reasoning request (Phase D)
+ * Takes natural language intent, generates commands, executes them, and verifies
+ * @param {string} intent - Natural language intent
+ * @param {string} sessionId - Session to operate on
+ */
+async function handleAutomationReason(intent, sessionId) {
+  console.log(`[Automation] Reasoning for: "${intent}" on session ${sessionId}`);
+
+  if (!llmReady) {
+    console.warn('[Automation] LLM not ready, cannot generate commands');
+    return {
+      commands: [],
+      message: 'Gemini Nano not available. Cannot generate automation commands.',
+      intent,
+      sessionId,
+    };
+  }
+
+  try {
+    // Step 1: Take current snapshot for context
+    let currentSnapshot = null;
+    let currentUrl = null;
+    if (bridgeClient.isConnected() && sessionId) {
+      try {
+        const snapResult = await bridgeClient.takeSnapshot(sessionId);
+        currentSnapshot = snapResult.yaml;
+        currentUrl = snapResult.url;
+      } catch (err) {
+        console.warn('[Automation] Could not take snapshot:', err.message);
+      }
+    }
+
+    // Step 2: Generate commands from intent
+    const result = await automationReasoner.generateCommands(intent, currentUrl, currentSnapshot);
+
+    if (!result.commands || result.commands.length === 0) {
+      return {
+        commands: [],
+        message: result.reasoning || 'No commands generated for this intent.',
+        intent,
+        sessionId,
+        metadata: result.metadata,
+      };
+    }
+
+    // Step 3: Execute commands sequentially via bridge
+    const executionResults = [];
+    if (bridgeClient.isConnected() && sessionId) {
+      for (const cmd of result.commands) {
+        try {
+          let cmdResult;
+          switch (cmd.type) {
+            case 'click':
+              cmdResult = await bridgeClient.clickRef(sessionId, cmd.ref);
+              break;
+            case 'fill':
+              cmdResult = await bridgeClient.fillRef(sessionId, cmd.ref, cmd.value);
+              break;
+            case 'goto':
+              cmdResult = await bridgeClient.navigateSession(sessionId, cmd.url);
+              break;
+            case 'snapshot':
+              cmdResult = await bridgeClient.takeSnapshot(sessionId);
+              break;
+            case 'evaluate':
+              cmdResult = await bridgeClient.evalInSession(sessionId, cmd.expr);
+              break;
+            default:
+              cmdResult = await bridgeClient.sendCommand(sessionId, `${cmd.type} ${cmd.ref || cmd.url || cmd.value || ''}`);
+          }
+          executionResults.push({ cmd, success: true, output: cmdResult });
+        } catch (err) {
+          executionResults.push({ cmd, success: false, error: err.message });
+          console.warn(`[Automation] Command failed: ${cmd.type}`, err.message);
+          break; // Stop on first failure
+        }
+      }
+    }
+
+    // Step 4: Verify result
+    let verification = null;
+    if (bridgeClient.isConnected() && sessionId && executionResults.length > 0) {
+      try {
+        const postSnapshot = await bridgeClient.takeSnapshot(sessionId);
+        if (postSnapshot.yaml) {
+          verification = await automationReasoner.verifyResult(
+            result.expectedOutcome,
+            postSnapshot.yaml
+          );
+
+          // Store the post-execution snapshot
+          await handleSnapshotStorage(sessionId, postSnapshot.yaml, postSnapshot.url);
+        }
+      } catch (err) {
+        console.warn('[Automation] Verification failed:', err.message);
+      }
+    }
+
+    return {
+      commands: result.commands,
+      executionResults,
+      expectedOutcome: result.expectedOutcome,
+      reasoning: result.reasoning,
+      verification,
+      intent,
+      sessionId,
+      metadata: result.metadata,
+    };
+
+  } catch (error) {
+    console.error('[Automation] Reasoning failed:', error);
+    return {
+      commands: [],
+      message: `Reasoning error: ${error.message}`,
+      intent,
+      sessionId,
     };
   }
 }

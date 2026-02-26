@@ -226,6 +226,38 @@ function startServer() {
         break;
       }
 
+      case MSG.BRIDGE_SESSION_CLEAN: {
+        // Destroy all dead/stale sessions, optionally destroy all
+        const destroyAll = msg.payload?.all === true;
+        const cleaned = [];
+        for (const [id, session] of sessions) {
+          if (session.state === SESSION_STATE.DESTROYED) {
+            sessions.delete(id);
+            cleaned.push({ id, name: session.name, reason: 'already_destroyed' });
+            continue;
+          }
+          if (destroyAll) {
+            await session.destroy();
+            sessions.delete(id);
+            cleaned.push({ id, name: session.name, reason: 'force_cleaned' });
+            continue;
+          }
+          // Check if browser is still alive
+          const alive = await session.isAlive();
+          if (!alive) {
+            await session.destroy();
+            sessions.delete(id);
+            cleaned.push({ id, name: session.name, reason: 'dead_browser' });
+          }
+        }
+        sendTo(ws, buildReply(msg, {
+          success: true,
+          cleaned,
+          remaining: listSessionInfos(),
+        }));
+        break;
+      }
+
       case MSG.BRIDGE_SNAPSHOT: {
         const session = getSession(msg.payload?.sessionId);
         if (!session) {
@@ -337,7 +369,10 @@ function startServer() {
           return;
         }
         try {
-          const result = await session.sendCommand(msg.payload.command);
+          const parts = msg.payload.command.trim().split(/\s+/);
+          const cmd = parts[0];
+          const cmdArgs = parts.slice(1);
+          const result = await session.sendCommand(cmd, cmdArgs);
           sendTo(ws, buildReply(msg, {
             success: true,
             sessionId: session.id,
@@ -434,11 +469,17 @@ function startServer() {
   }
 
   /**
-   * Get a session by ID
+   * Get a session by ID or name
    */
   function getSession(sessionId) {
     if (!sessionId) return null;
-    return sessions.get(sessionId) || null;
+    // Try by ID first
+    if (sessions.has(sessionId)) return sessions.get(sessionId);
+    // Then by name
+    for (const s of sessions.values()) {
+      if (s.name === sessionId && s.state !== SESSION_STATE.DESTROYED) return s;
+    }
+    return null;
   }
 
   /**

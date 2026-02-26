@@ -48,6 +48,8 @@ for (const arg of rawArgs) {
     flags.quiet = true;
   } else if (arg.startsWith('--auth=')) {
     flags.auth = arg.split('=')[1];
+  } else if (arg === '--all') {
+    flags.all = true;
   } else if (arg.startsWith('--limit=')) {
     flags.limit = parseInt(arg.split('=')[1], 10);
   } else if (arg === '--help' || arg === '-h') {
@@ -94,9 +96,10 @@ Usage: bridge-cli <command> [args] [flags]
 Commands:
   status                              Bridge health + connected clients
   sessions                            List sessions
+  sessions clean [--all]              Remove dead sessions (--all = remove all)
   session create <name> [--auth=path] Create playwright session
-  session destroy <id>                Destroy session
-  session info <id>                   Get session info
+  session destroy <id|name>           Destroy session
+  session info <id|name>              Get session info
   snapshot <session> [--raw]          Take accessibility snapshot (YAML)
   navigate <session> <url>            Navigate to URL
   click <session> <ref>               Click element by ref
@@ -280,6 +283,13 @@ async function cmdStatus() {
 
 async function cmdSessions() {
   const result = await withBridge(ws => sendRequest(ws, MSG.BRIDGE_SESSION_LIST, {}));
+  output(result);
+}
+
+async function cmdSessionsClean() {
+  const result = await withBridge(ws =>
+    sendRequest(ws, MSG.BRIDGE_SESSION_CLEAN, { all: !!flags.all })
+  );
   output(result);
 }
 
@@ -471,7 +481,11 @@ async function main() {
         break;
 
       case 'sessions':
-        await cmdSessions();
+        if (subcommand === 'clean') {
+          await cmdSessionsClean();
+        } else {
+          await cmdSessions();
+        }
         break;
 
       case 'session':
