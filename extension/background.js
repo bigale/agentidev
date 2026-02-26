@@ -1442,6 +1442,12 @@ bridgeClient.onConnectionChange((data) => {
   console.log(`[Background] Bridge connection: ${data.connected ? 'connected' : 'disconnected'}`);
 });
 
+// Handle search requests relayed from bridge server (from CLI or other clients)
+bridgeClient.onSearchRequest(async (query, options) => {
+  console.log(`[Background] Bridge search request: "${query}"`);
+  return handleSnapshotSearch(query, options);
+});
+
 /**
  * Chunk, embed, and store a YAML snapshot
  * @param {string} sessionId - Playwright session ID
