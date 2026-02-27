@@ -7,7 +7,7 @@
  * - Extract page content (text, HTML, metadata)
  * - Detect content type for classification
  * - Send to background worker for processing
- * - Execute automation actions (Phase 2.0 MVP)
+ * - Execute generic automation actions (Phase 2.0 MVP)
  */
 
 console.log('Contextual Recall: Content script loaded');
@@ -319,6 +319,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })();
     return true;
   }
+
 });
 
 // Wait for page to be fully loaded
