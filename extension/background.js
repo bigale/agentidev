@@ -27,8 +27,9 @@ import { generateFormGrammar, clearGrammarCache, getGrammarCacheStats } from './
 import { indexIXMLSpec, getSpecIndexStatus, clearSpecIndex } from './lib/ixml-spec-indexer.js';
 // Phase 2.5: Playwright bridge + YAML snapshot intelligence
 import * as bridgeClient from './lib/bridge-client.js';
-import { chunkYAMLSnapshot, extractRaceMetadata } from './lib/yaml-snapshot-chunker.js';
+import { chunkYAMLSnapshot, extractRaceMetadata, normalizeStructure } from './lib/yaml-snapshot-chunker.js';
 import { yamlSnapshotStore } from './lib/yaml-snapshot-store.js';
+import { structDB } from './lib/structdb.js';
 import { AutomationReasoner } from './lib/automation-reasoning.js';
 
 console.log('Contextual Recall: Background service worker started');
@@ -45,10 +46,12 @@ let llmReady = false;
     console.log('[Background] Starting initialization...');
     console.log('[Background] ========================================');
 
-    // Initialize database first (fast)
+    // Initialize databases first (fast)
     await vectorDB.init();
+    await structDB.init();
     dbReady = true;
     console.log('[Background] ✓ Vector database ready');
+    console.log('[Background] ✓ Structured records database ready');
 
     // Initialize embeddings FIRST (fully complete before LLM)
     console.log('[Background] Initializing embeddings (all-MiniLM-L6-v2)...');
@@ -135,6 +138,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleQuery(message.query, message.filter)
       .then(results => sendResponse({ results }))
       .catch(error => sendResponse({ results: [], error: error.message }));
+    return true; // Async response
+  }
+
+  if (message.type === 'STRUCTURED_QUERY') {
+    structDB.query(message.options || {})
+      .then(results => sendResponse({ results }))
+      .catch(error => {
+        console.error('[Background] STRUCTURED_QUERY error:', error);
+        sendResponse({ results: [], error: error.message });
+      });
     return true; // Async response
   }
 
@@ -456,10 +469,12 @@ async function handlePageCapture(data, tab) {
     }
 
     const chunks = chunkResponse.chunks;
-    console.log(`[Capture] Created ${chunks.length} chunks`);
+    const structuredRecords = chunkResponse.structuredRecords || [];
+    console.log(`[Capture] Created ${chunks.length} chunks, ${structuredRecords.length} structured records`);
 
     // Store each chunk separately with its own embedding
     let chunksIndexed = 0;
+    const chunkIds = []; // Track IDs for linking structured records
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
 
@@ -477,7 +492,7 @@ async function handlePageCapture(data, tab) {
       }
 
       // Store chunk in database
-      await vectorDB.addPage({
+      const chunkId = await vectorDB.addPage({
         url: data.url,
         title: chunk.title || data.title,
         text: chunk.text,
@@ -485,6 +500,7 @@ async function handlePageCapture(data, tab) {
         timestamp: data.timestamp,
         contentType: contentType,
         embedding: embedding,
+        keywords: chunk.keywords || [],
         metadata: {
           ...data.metadata,
           chunkIndex: i,
@@ -493,7 +509,36 @@ async function handlePageCapture(data, tab) {
         }
       });
 
+      chunkIds.push({ id: chunkId, tableIndex: chunk.tableIndex });
       chunksIndexed++;
+    }
+
+    // Store structured records for table chunks
+    if (structuredRecords.length > 0) {
+      const pageDomain = new URL(data.url).hostname;
+      const tableRecordsToStore = [];
+
+      for (const sr of structuredRecords) {
+        // Find the chunk ID for this table
+        const matchingChunk = chunkIds.find(c => c.tableIndex === sr.tableIndex);
+        tableRecordsToStore.push({
+          sourceUrl: data.url,
+          sourceChunkId: matchingChunk ? matchingChunk.id : null,
+          schemaType: 'auto_table',
+          fields: sr.fields,
+          headers: sr.headers,
+          domain: pageDomain
+        });
+      }
+
+      if (tableRecordsToStore.length > 0) {
+        try {
+          await structDB.addRecords(tableRecordsToStore);
+          console.log(`[Capture] Stored ${tableRecordsToStore.length} structured records from:`, data.url);
+        } catch (error) {
+          console.error('[Capture] Failed to store structured records:', error);
+        }
+      }
     }
 
     console.log(`[Capture] Indexed ${chunksIndexed} chunks from:`, data.url);
@@ -506,6 +551,72 @@ async function handlePageCapture(data, tab) {
     console.error('Failed to capture page:', error);
     throw error;
   }
+}
+
+// Common stop words to filter from implicit keyword extraction
+const STOP_WORDS = new Set([
+  'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+  'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for',
+  'on', 'with', 'at', 'by', 'from', 'as', 'into', 'about', 'between',
+  'through', 'during', 'before', 'after', 'above', 'below', 'and', 'but',
+  'or', 'nor', 'not', 'so', 'yet', 'both', 'either', 'neither', 'each',
+  'every', 'all', 'any', 'few', 'more', 'most', 'some', 'such', 'no',
+  'only', 'own', 'same', 'than', 'too', 'very', 'just', 'because',
+  'if', 'when', 'where', 'how', 'what', 'which', 'who', 'whom', 'this',
+  'that', 'these', 'those', 'i', 'me', 'my', 'we', 'our', 'you', 'your',
+  'he', 'him', 'his', 'she', 'her', 'it', 'its', 'they', 'them', 'their',
+  'show', 'find', 'get', 'give', 'look', 'tell', 'want', 'like'
+]);
+
+/**
+ * Parse structured filter syntax from a raw query string.
+ * Extracts: domain:example.com, after:2026-01-15, keyword:express
+ * Remaining words become implicit query keywords (stop words filtered).
+ *
+ * @param {string} rawQuery
+ * @returns {{ cleanQuery: string, queryKeywords: string[], domainFilter: string|null, afterDate: string|null }}
+ */
+function parseQueryFilters(rawQuery) {
+  let domainFilter = null;
+  let afterDate = null;
+  const explicitKeywords = [];
+  const remainingWords = [];
+
+  const tokens = rawQuery.split(/\s+/);
+
+  for (const token of tokens) {
+    const domainMatch = token.match(/^domain:(.+)$/i);
+    if (domainMatch) {
+      domainFilter = domainMatch[1].toLowerCase();
+      continue;
+    }
+
+    const afterMatch = token.match(/^after:(\d{4}-\d{2}-\d{2})$/i);
+    if (afterMatch) {
+      afterDate = afterMatch[1];
+      continue;
+    }
+
+    const keywordMatch = token.match(/^keyword:(.+)$/i);
+    if (keywordMatch) {
+      explicitKeywords.push(keywordMatch[1].toLowerCase());
+      continue;
+    }
+
+    remainingWords.push(token);
+  }
+
+  const cleanQuery = remainingWords.join(' ');
+
+  // Extract implicit keywords from remaining words (filter stop words, min length 3)
+  const implicitKeywords = remainingWords
+    .map(w => w.replace(/[^\w-]/g, '').toLowerCase())
+    .filter(w => w.length >= 3 && !STOP_WORDS.has(w));
+
+  const queryKeywords = [...new Set([...explicitKeywords, ...implicitKeywords])];
+
+  return { cleanQuery, queryKeywords, domainFilter, afterDate };
 }
 
 /**
@@ -531,28 +642,35 @@ async function handleQuery(query, filter = 'all') {
     }
     await chrome.storage.local.set({ stats });
 
+    // Parse structured filters from query
+    const { cleanQuery, queryKeywords, domainFilter, afterDate } = parseQueryFilters(query);
+    const searchQuery = cleanQuery || query; // Fall back to full query if all tokens were filters
+
     // Generate query embedding (neural if ready, TF-IDF fallback)
     let queryEmbedding;
     if (isInitialized()) {
       try {
-        queryEmbedding = await generateEmbedding(query);
+        queryEmbedding = await generateEmbedding(searchQuery);
       } catch (error) {
         console.error('[Query] Neural embedding failed, using TF-IDF:', error);
-        queryEmbedding = generateSimpleEmbedding(query);
+        queryEmbedding = generateSimpleEmbedding(searchQuery);
       }
     } else {
-      queryEmbedding = generateSimpleEmbedding(query);
+      queryEmbedding = generateSimpleEmbedding(searchQuery);
     }
 
-    // Vector search with filter
+    // Hybrid search with filters
     const threshold = isInitialized() ? 0.3 : 0.1;
     const results = await vectorDB.search(queryEmbedding, {
       limit: 10,
       filter: filter,
-      threshold: threshold
+      threshold: threshold,
+      queryKeywords,
+      domainFilter,
+      afterDate
     });
 
-    console.log(`[Query] "${query}" - Found ${results.length} results`);
+    console.log(`[Query] "${query}" - Found ${results.length} results (keywords: [${queryKeywords.join(', ')}]${domainFilter ? ', domain: ' + domainFilter : ''}${afterDate ? ', after: ' + afterDate : ''})`);
     if (results.length > 0) {
       console.log(`[Query] Top match: ${results[0].title} (${Math.round(results[0].score * 100)}% similarity)`);
     }
@@ -579,6 +697,14 @@ async function getStats() {
     baseStats.pagesIndexed += baseStats.snapshotChunks;
   } catch {
     baseStats.snapshotChunks = 0;
+  }
+
+  // Include structured record count
+  try {
+    const structStats = await structDB.getStats();
+    baseStats.structuredRecords = structStats.totalRecords || 0;
+  } catch {
+    baseStats.structuredRecords = 0;
   }
 
   return baseStats;
@@ -1464,9 +1590,24 @@ async function handleSnapshotStorage(sessionId, yamlText, url) {
 
   console.log(`[Snapshot] Created ${chunks.length} chunks`);
 
+  const urlPattern = url ? url.replace(/\/\d+/g, '/*').replace(/\?.*$/, '') : '';
   let stored = 0;
+  let skipped = 0;
+
   for (const chunk of chunks) {
     try {
+      // Compute content hash for dedup
+      const normalized = normalizeStructure(chunk.yamlText);
+      const contentHash = simpleHash(normalized);
+
+      // Check for existing identical chunk
+      const existing = await yamlSnapshotStore.findByHash(urlPattern, chunk.sectionType, contentHash);
+      if (existing) {
+        await yamlSnapshotStore.updateTimestamp(existing.id);
+        skipped++;
+        continue;
+      }
+
       // Generate embedding for the text description
       let embedding;
       if (isInitialized()) {
@@ -1477,13 +1618,14 @@ async function handleSnapshotStorage(sessionId, yamlText, url) {
 
       await yamlSnapshotStore.storeSnapshot({
         url,
-        urlPattern: url ? url.replace(/\/\d+/g, '/*').replace(/\?.*$/, '') : '',
+        urlPattern,
         track: metadata.track || null,
         race: metadata.race || null,
         sectionType: chunk.sectionType,
         yamlText: chunk.yamlText,
         textDescription: chunk.textDescription,
         embedding,
+        contentHash,
         metadata: {
           ...chunk.metadata,
           sessionId,
@@ -1505,7 +1647,7 @@ async function handleSnapshotStorage(sessionId, yamlText, url) {
     }
   }
 
-  console.log(`[Snapshot] Stored ${stored}/${chunks.length} chunks`);
+  console.log(`[Snapshot] Stored ${stored} new, skipped ${skipped} unchanged (${chunks.length} total chunks)`);
   return { chunksStored: stored, totalChunks: chunks.length, metadata };
 }
 

@@ -77,17 +77,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Import chunker here (has access to DOM APIs)
       import(chrome.runtime.getURL('lib/chunker.js'))
         .then(({ chunkContent }) => {
-          const chunks = chunkContent(message.html, message.contentType);
-          console.log('[Offscreen] Created', chunks.length, 'chunks');
-          sendResponse({ chunks });
+          const result = chunkContent(message.html, message.contentType);
+          console.log('[Offscreen] Created', result.chunks.length, 'chunks,', (result.structuredRecords || []).length, 'structured records');
+          sendResponse({
+            chunks: result.chunks,
+            structuredRecords: result.structuredRecords || []
+          });
         })
         .catch(error => {
           console.error('[Offscreen] Chunking error:', error);
-          sendResponse({ chunks: null, error: error.message });
+          sendResponse({ chunks: null, structuredRecords: [], error: error.message });
         });
     } catch (error) {
       console.error('[Offscreen] Chunking error:', error);
-      sendResponse({ chunks: null, error: error.message });
+      sendResponse({ chunks: null, structuredRecords: [], error: error.message });
     }
     return true; // Async response
   }

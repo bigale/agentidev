@@ -63,7 +63,27 @@ const xmlFieldResults = document.getElementById('xml-field-results');
 const xmlFieldList = document.getElementById('xml-field-list');
 const xmlFieldTableBody = document.getElementById('xml-field-table-body');
 
-let currentMode = 'search'; // 'search', 'qa', 'extract', or 'agent'
+// Automation mode elements
+const modeAutomationBtn = document.getElementById('mode-automation');
+const automationContainer = document.getElementById('automation-container');
+const bridgeDot = document.getElementById('bridge-dot');
+const bridgeStatusText = document.getElementById('bridge-status-text');
+const bridgeConnectBtn = document.getElementById('bridge-connect-btn');
+const autoNewSessionBtn = document.getElementById('auto-new-session-btn');
+const autoSessionList = document.getElementById('auto-session-list');
+const autoSnapshotBtn = document.getElementById('auto-snapshot-btn');
+const autoNavigateBtn = document.getElementById('auto-navigate-btn');
+const autoClickBtn = document.getElementById('auto-click-btn');
+const autoFillBtn = document.getElementById('auto-fill-btn');
+const autoCommandInput = document.getElementById('auto-command-input');
+const autoSendBtn = document.getElementById('auto-send-btn');
+const autoSnapshotViewer = document.getElementById('auto-snapshot-viewer');
+const autoSnapshotInfo = document.getElementById('auto-snapshot-info');
+const autoKnowledgeInput = document.getElementById('auto-knowledge-input');
+const autoKnowledgeSearchBtn = document.getElementById('auto-knowledge-search-btn');
+const autoKnowledgeResults = document.getElementById('auto-knowledge-results');
+
+let currentMode = 'search'; // 'search', 'qa', 'extract', 'agent', or 'automation'
 let currentFilter = 'all';
 let debounceTimer = null;
 let lastExtractionResults = null;
@@ -139,59 +159,51 @@ modeAgentBtn.addEventListener('click', () => {
   setMode('agent');
 });
 
+modeAutomationBtn.addEventListener('click', () => {
+  setMode('automation');
+  checkBridgeStatus();
+});
+
 function setMode(mode) {
   currentMode = mode;
 
+  // Deactivate all mode buttons
+  modeSearchBtn.classList.remove('active');
+  modeQABtn.classList.remove('active');
+  modeExtractBtn.classList.remove('active');
+  modeAgentBtn.classList.remove('active');
+  modeAutomationBtn.classList.remove('active');
+
+  // Hide all containers
+  queryInput.style.display = 'none';
+  filtersDiv.style.display = 'none';
+  resultsDiv.style.display = 'none';
+  answerContainer.style.display = 'none';
+  extractContainer.style.display = 'none';
+  agentContainer.style.display = 'none';
+  automationContainer.style.display = 'none';
+
   if (mode === 'search') {
-    // Activate search mode
     modeSearchBtn.classList.add('active');
-    modeQABtn.classList.remove('active');
-    modeExtractBtn.classList.remove('active');
-    modeAgentBtn.classList.remove('active');
     queryInput.style.display = 'block';
     filtersDiv.style.display = 'flex';
     queryInput.placeholder = 'Search your browsing history...';
-    answerContainer.style.display = 'none';
-    extractContainer.style.display = 'none';
-    agentContainer.style.display = 'none';
     resultsDiv.style.display = 'block';
   } else if (mode === 'qa') {
-    // Activate Q&A mode
     modeQABtn.classList.add('active');
-    modeSearchBtn.classList.remove('active');
-    modeExtractBtn.classList.remove('active');
-    modeAgentBtn.classList.remove('active');
     queryInput.style.display = 'block';
     filtersDiv.style.display = 'flex';
     queryInput.placeholder = 'Ask a question about your history...';
-    resultsDiv.style.display = 'none';
-    extractContainer.style.display = 'none';
-    agentContainer.style.display = 'none';
     answerContainer.style.display = 'block';
   } else if (mode === 'extract') {
-    // Activate Extract mode
     modeExtractBtn.classList.add('active');
-    modeSearchBtn.classList.remove('active');
-    modeQABtn.classList.remove('active');
-    modeAgentBtn.classList.remove('active');
-    queryInput.style.display = 'none';
-    filtersDiv.style.display = 'none';
-    resultsDiv.style.display = 'none';
-    answerContainer.style.display = 'none';
     extractContainer.style.display = 'block';
-    agentContainer.style.display = 'none';
   } else if (mode === 'agent') {
-    // Activate Agent mode
     modeAgentBtn.classList.add('active');
-    modeSearchBtn.classList.remove('active');
-    modeQABtn.classList.remove('active');
-    modeExtractBtn.classList.remove('active');
-    queryInput.style.display = 'none';
-    filtersDiv.style.display = 'none';
-    resultsDiv.style.display = 'none';
-    answerContainer.style.display = 'none';
-    extractContainer.style.display = 'none';
     agentContainer.style.display = 'block';
+  } else if (mode === 'automation') {
+    modeAutomationBtn.classList.add('active');
+    automationContainer.style.display = 'block';
   }
 }
 
@@ -821,7 +833,55 @@ async function performSearch() {
     return;
   }
 
-  if (currentMode === 'search') {
+  if (currentMode === 'search' && currentFilter === 'structured') {
+    // Structured data query mode
+    resultsDiv.innerHTML = '<div class="loading">Searching structured data...</div>';
+
+    // Parse field:value syntax from query
+    const fieldFilters = {};
+    const queryParts = [];
+    for (const token of query.split(/\s+/)) {
+      const fieldMatch = token.match(/^(\w+):(.+)$/);
+      if (fieldMatch && !['domain', 'after', 'keyword'].includes(fieldMatch[1].toLowerCase())) {
+        fieldFilters[fieldMatch[1]] = fieldMatch[2];
+      } else {
+        queryParts.push(token);
+      }
+    }
+
+    const options = {
+      limit: 100,
+      fieldFilters: Object.keys(fieldFilters).length > 0 ? fieldFilters : undefined
+    };
+
+    // Extract domain filter from query
+    const domainToken = query.split(/\s+/).find(t => t.match(/^domain:/i));
+    if (domainToken) {
+      options.domain = domainToken.replace(/^domain:/i, '');
+    }
+
+    chrome.runtime.sendMessage({
+      type: 'STRUCTURED_QUERY',
+      options
+    }, (response) => {
+      if (response && response.results && response.results.length > 0) {
+        displayStructuredResults(response.results);
+      } else {
+        resultsDiv.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">📊</div>
+            <div class="empty-state-text">
+              No structured data found.<br>
+              Browse pages with HTML tables to populate this index.<br>
+              Try field filters like: price:>100 or name:Widget
+            </div>
+          </div>
+        `;
+      }
+      loadStats();
+    });
+
+  } else if (currentMode === 'search') {
     // Search mode - semantic search
     resultsDiv.innerHTML = '<div class="loading">Searching...</div>';
 
@@ -922,11 +982,27 @@ function displayResults(results) {
     meta.appendChild(chunkInfo);
     meta.appendChild(relevance);
 
+    // Keyword chips (show up to 5)
+    let keywordChipsEl = null;
+    if (result.keywords && result.keywords.length > 0) {
+      keywordChipsEl = document.createElement('div');
+      keywordChipsEl.className = 'keyword-chips';
+      result.keywords.slice(0, 5).forEach(kw => {
+        const chip = document.createElement('span');
+        chip.className = 'keyword-chip';
+        chip.textContent = kw;
+        keywordChipsEl.appendChild(chip);
+      });
+    }
+
     // Assemble item
     item.appendChild(title);
     item.appendChild(url);
     item.appendChild(snippet);
     item.appendChild(meta);
+    if (keywordChipsEl) {
+      item.appendChild(keywordChipsEl);
+    }
 
     // Click handler - open URL
     item.addEventListener('click', () => {
@@ -935,6 +1011,108 @@ function displayResults(results) {
 
     resultsDiv.appendChild(item);
   });
+}
+
+function displayStructuredResults(records) {
+  if (!records || records.length === 0) {
+    resultsDiv.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">📊</div>
+        <div class="empty-state-text">No structured records found.</div>
+      </div>
+    `;
+    return;
+  }
+
+  // Collect all unique headers and source pages
+  const allHeaders = [];
+  const sourceUrls = new Set();
+  for (const record of records) {
+    sourceUrls.add(record.sourceUrl);
+    if (record.headers) {
+      for (const h of record.headers) {
+        if (!allHeaders.includes(h)) allHeaders.push(h);
+      }
+    }
+  }
+
+  const container = document.createElement('div');
+  container.className = 'struct-results-container';
+
+  // Summary
+  const summary = document.createElement('div');
+  summary.className = 'struct-results-summary';
+  summary.textContent = `${records.length} records from ${sourceUrls.size} page${sourceUrls.size !== 1 ? 's' : ''}`;
+  container.appendChild(summary);
+
+  // Table
+  if (allHeaders.length > 0) {
+    const table = document.createElement('table');
+    table.className = 'struct-results-table';
+
+    // Header row
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    for (const h of allHeaders) {
+      const th = document.createElement('th');
+      th.textContent = h;
+      headerRow.appendChild(th);
+    }
+    // Source column
+    const sourceTh = document.createElement('th');
+    sourceTh.textContent = 'Source';
+    headerRow.appendChild(sourceTh);
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    // Data rows
+    const tbody = document.createElement('tbody');
+    for (const record of records) {
+      const tr = document.createElement('tr');
+      for (const h of allHeaders) {
+        const td = document.createElement('td');
+        const val = record.fields[h];
+        td.textContent = val !== undefined && val !== null ? String(val) : '';
+        tr.appendChild(td);
+      }
+      // Source link
+      const sourceTd = document.createElement('td');
+      const sourceLink = document.createElement('span');
+      sourceLink.className = 'struct-source-link';
+      try {
+        sourceLink.textContent = new URL(record.sourceUrl).hostname;
+      } catch {
+        sourceLink.textContent = record.sourceUrl;
+      }
+      sourceLink.addEventListener('click', (e) => {
+        e.stopPropagation();
+        chrome.tabs.create({ url: record.sourceUrl });
+      });
+      sourceTd.appendChild(sourceLink);
+      tr.appendChild(sourceTd);
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+
+    // Wrap in scrollable div
+    const tableWrap = document.createElement('div');
+    tableWrap.style.overflowX = 'auto';
+    tableWrap.style.maxHeight = '500px';
+    tableWrap.style.overflowY = 'auto';
+    tableWrap.appendChild(table);
+    container.appendChild(tableWrap);
+  } else {
+    // Fallback: show as JSON
+    const pre = document.createElement('pre');
+    pre.style.fontSize = '11px';
+    pre.style.maxHeight = '400px';
+    pre.style.overflow = 'auto';
+    pre.textContent = JSON.stringify(records.map(r => r.fields), null, 2);
+    container.appendChild(pre);
+  }
+
+  resultsDiv.innerHTML = '';
+  resultsDiv.appendChild(container);
 }
 
 function displayAnswer(result) {
@@ -1190,3 +1368,311 @@ clearSpecButton.addEventListener('click', async () => {
     alert('Error: ' + error.message);
   }
 });
+
+// ============================================================
+// Automation Mode Handlers (Phase 2.5)
+// ============================================================
+
+let bridgeConnected = false;
+let activeSessions = [];
+let activeSessionId = null;
+
+function checkBridgeStatus() {
+  chrome.runtime.sendMessage({ type: 'BRIDGE_STATUS' }, (response) => {
+    bridgeConnected = response?.connected || false;
+    updateBridgeUI();
+    if (bridgeConnected) {
+      refreshSessions();
+    }
+  });
+}
+
+function updateBridgeUI() {
+  bridgeDot.className = bridgeConnected ? 'bridge-dot connected' : 'bridge-dot';
+  bridgeStatusText.textContent = bridgeConnected ? 'Connected' : 'Disconnected';
+  bridgeConnectBtn.textContent = bridgeConnected ? 'Disconnect' : 'Connect';
+  bridgeConnectBtn.style.background = bridgeConnected ? '#d93025' : '#1a73e8';
+
+  // Enable/disable controls based on connection
+  const connected = bridgeConnected;
+  autoNewSessionBtn.disabled = !connected;
+  autoSnapshotBtn.disabled = !connected || !activeSessionId;
+  autoNavigateBtn.disabled = !connected || !activeSessionId;
+  autoClickBtn.disabled = !connected || !activeSessionId;
+  autoFillBtn.disabled = !connected || !activeSessionId;
+  autoCommandInput.disabled = !connected || !activeSessionId;
+  autoSendBtn.disabled = !connected || !activeSessionId;
+}
+
+// Bridge connect/disconnect
+bridgeConnectBtn.addEventListener('click', async () => {
+  if (bridgeConnected) {
+    chrome.runtime.sendMessage({ type: 'BRIDGE_DISCONNECT' }, () => {
+      bridgeConnected = false;
+      activeSessions = [];
+      activeSessionId = null;
+      updateBridgeUI();
+      autoSessionList.innerHTML = 'No sessions';
+    });
+  } else {
+    bridgeConnectBtn.disabled = true;
+    bridgeConnectBtn.textContent = 'Connecting...';
+    chrome.runtime.sendMessage({ type: 'BRIDGE_CONNECT', port: 9876 }, (response) => {
+      bridgeConnectBtn.disabled = false;
+      if (response?.success) {
+        bridgeConnected = true;
+        updateBridgeUI();
+        refreshSessions();
+      } else {
+        bridgeStatusText.textContent = `Error: ${response?.error || 'Failed'}`;
+        bridgeConnectBtn.textContent = 'Connect';
+      }
+    });
+  }
+});
+
+// New session
+autoNewSessionBtn.addEventListener('click', async () => {
+  const name = prompt('Session name:', `session_${activeSessions.length + 1}`);
+  if (!name) return;
+
+  autoNewSessionBtn.disabled = true;
+  autoNewSessionBtn.textContent = 'Creating...';
+
+  chrome.runtime.sendMessage({
+    type: 'BRIDGE_CREATE_SESSION',
+    name,
+    options: {}
+  }, (response) => {
+    autoNewSessionBtn.disabled = false;
+    autoNewSessionBtn.textContent = '+ New';
+
+    if (response?.success && response.session) {
+      activeSessionId = response.session.id;
+      refreshSessions();
+    } else {
+      alert(`Failed: ${response?.error || 'Unknown error'}`);
+    }
+  });
+});
+
+function refreshSessions() {
+  chrome.runtime.sendMessage({ type: 'BRIDGE_LIST_SESSIONS' }, (response) => {
+    activeSessions = response?.sessions || [];
+    renderSessions();
+  });
+}
+
+function renderSessions() {
+  if (activeSessions.length === 0) {
+    autoSessionList.innerHTML = '<div style="color: #5f6368;">No active sessions</div>';
+    activeSessionId = null;
+    updateBridgeUI();
+    return;
+  }
+
+  // Auto-select first session if none selected
+  if (!activeSessionId && activeSessions.length > 0) {
+    activeSessionId = activeSessions[0].id;
+  }
+
+  autoSessionList.innerHTML = activeSessions.map(s => `
+    <div class="session-item" data-session-id="${s.id}" style="cursor: pointer; ${s.id === activeSessionId ? 'border-color: #1a73e8; border-width: 2px;' : ''}">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span class="session-name">${s.name}</span>
+        <span class="session-state ${s.state}">${s.state}</span>
+      </div>
+      ${s.currentUrl ? `<div class="session-url">${s.currentUrl}</div>` : ''}
+      ${s.hasSnapshot ? `<div style="font-size: 10px; color: #1e8e3e;">${s.snapshotLines} lines cached</div>` : ''}
+    </div>
+  `).join('');
+
+  // Click handler for session selection
+  autoSessionList.querySelectorAll('.session-item').forEach(el => {
+    el.addEventListener('click', () => {
+      activeSessionId = el.dataset.sessionId;
+      renderSessions();
+      updateBridgeUI();
+    });
+  });
+
+  updateBridgeUI();
+}
+
+// Quick command buttons
+autoSnapshotBtn.addEventListener('click', () => {
+  if (!activeSessionId) return;
+  autoSnapshotBtn.disabled = true;
+  autoSnapshotBtn.textContent = 'Taking...';
+
+  chrome.runtime.sendMessage({
+    type: 'BRIDGE_TAKE_SNAPSHOT',
+    sessionId: activeSessionId
+  }, (response) => {
+    autoSnapshotBtn.disabled = false;
+    autoSnapshotBtn.textContent = 'Snapshot';
+
+    if (response?.success && response.yaml) {
+      autoSnapshotViewer.textContent = response.yaml;
+      autoSnapshotInfo.textContent = `${response.lines} lines | ${new Date(response.timestamp).toLocaleTimeString()}`;
+    } else {
+      autoSnapshotViewer.textContent = `Error: ${response?.error || 'Failed'}`;
+    }
+  });
+});
+
+autoNavigateBtn.addEventListener('click', () => {
+  const url = prompt('Navigate to URL:');
+  if (!url || !activeSessionId) return;
+
+  chrome.runtime.sendMessage({
+    type: 'BRIDGE_NAVIGATE',
+    sessionId: activeSessionId,
+    url
+  }, (response) => {
+    if (response?.success) {
+      autoSnapshotViewer.textContent = `Navigated to ${url}`;
+      refreshSessions();
+    } else {
+      autoSnapshotViewer.textContent = `Navigate error: ${response?.error}`;
+    }
+  });
+});
+
+autoClickBtn.addEventListener('click', () => {
+  const ref = prompt('Click element ref (e.g., e123):');
+  if (!ref || !activeSessionId) return;
+
+  chrome.runtime.sendMessage({
+    type: 'BRIDGE_CLICK',
+    sessionId: activeSessionId,
+    ref
+  }, (response) => {
+    if (response?.success) {
+      autoSnapshotViewer.textContent = `Clicked ${ref}\n${response.output || ''}`;
+    } else {
+      autoSnapshotViewer.textContent = `Click error: ${response?.error}`;
+    }
+  });
+});
+
+autoFillBtn.addEventListener('click', () => {
+  const ref = prompt('Element ref to fill (e.g., e123):');
+  if (!ref || !activeSessionId) return;
+  const value = prompt('Value to fill:');
+  if (value === null) return;
+
+  chrome.runtime.sendMessage({
+    type: 'BRIDGE_FILL',
+    sessionId: activeSessionId,
+    ref,
+    value
+  }, (response) => {
+    if (response?.success) {
+      autoSnapshotViewer.textContent = `Filled ${ref} with "${value}"\n${response.output || ''}`;
+    } else {
+      autoSnapshotViewer.textContent = `Fill error: ${response?.error}`;
+    }
+  });
+});
+
+// Generic command / natural language input
+autoSendBtn.addEventListener('click', sendAutoCommand);
+autoCommandInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') sendAutoCommand();
+});
+
+function sendAutoCommand() {
+  const input = autoCommandInput.value.trim();
+  if (!input || !activeSessionId) return;
+
+  autoSendBtn.disabled = true;
+  autoSendBtn.textContent = '...';
+
+  // Check if it looks like a raw command (starts with goto, click, fill, snapshot, evaluate)
+  const isRawCommand = /^(goto|click|fill|snapshot|evaluate|select|type|press|hover|scroll)\s/i.test(input);
+
+  if (isRawCommand) {
+    // Send as raw bridge command
+    chrome.runtime.sendMessage({
+      type: 'BRIDGE_SEND_COMMAND',
+      sessionId: activeSessionId,
+      command: input
+    }, (response) => {
+      autoSendBtn.disabled = false;
+      autoSendBtn.textContent = 'Send';
+      autoCommandInput.value = '';
+
+      if (response?.success) {
+        autoSnapshotViewer.textContent = response.output || 'Command executed';
+      } else {
+        autoSnapshotViewer.textContent = `Error: ${response?.error}`;
+      }
+    });
+  } else {
+    // Route to automation reasoning (natural language intent)
+    chrome.runtime.sendMessage({
+      type: 'AUTOMATION_REASON',
+      intent: input,
+      sessionId: activeSessionId
+    }, (response) => {
+      autoSendBtn.disabled = false;
+      autoSendBtn.textContent = 'Send';
+      autoCommandInput.value = '';
+
+      if (response?.success) {
+        const output = [];
+        if (response.message) output.push(response.message);
+        if (response.commands && response.commands.length > 0) {
+          output.push('\nCommands:');
+          response.commands.forEach((cmd, i) => {
+            output.push(`  ${i + 1}. ${cmd.type} ${cmd.ref || cmd.url || cmd.value || ''}`);
+            if (cmd.reasoning) output.push(`     -> ${cmd.reasoning}`);
+          });
+        }
+        autoSnapshotViewer.textContent = output.join('\n');
+      } else {
+        autoSnapshotViewer.textContent = `Error: ${response?.error}`;
+      }
+    });
+  }
+}
+
+// Page Knowledge search
+autoKnowledgeSearchBtn.addEventListener('click', searchPageKnowledge);
+autoKnowledgeInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') searchPageKnowledge();
+});
+
+function searchPageKnowledge() {
+  const query = autoKnowledgeInput.value.trim();
+  if (!query) return;
+
+  autoKnowledgeSearchBtn.disabled = true;
+  autoKnowledgeSearchBtn.textContent = '...';
+
+  chrome.runtime.sendMessage({
+    type: 'SNAPSHOT_SEARCH',
+    query,
+    options: { limit: 5 }
+  }, (response) => {
+    autoKnowledgeSearchBtn.disabled = false;
+    autoKnowledgeSearchBtn.textContent = 'Search';
+
+    if (response?.success && response.results?.length > 0) {
+      autoKnowledgeResults.innerHTML = response.results.map(r => `
+        <div class="snapshot-search-result">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <span style="font-weight: 600; color: #202124;">${r.sectionType}</span>
+            <span class="score">${Math.round(r.score * 100)}%</span>
+          </div>
+          <div style="font-size: 11px; color: #5f6368; margin-bottom: 4px;">${r.textDescription}</div>
+          ${r.isStablePattern ? '<div style="font-size: 10px; color: #1e8e3e;">Stable pattern</div>' : ''}
+          <div style="font-size: 10px; color: #70757a;">${r.track || ''} ${r.race ? 'R' + r.race : ''} | ${new Date(r.timestamp).toLocaleString()}</div>
+        </div>
+      `).join('');
+    } else {
+      autoKnowledgeResults.innerHTML = `<div style="color: #5f6368;">No cached snapshots match "${query}"</div>`;
+    }
+  });
+}

@@ -3,11 +3,16 @@
  *
  * Stores page content with embeddings and provides cosine similarity search.
  * This is a POC implementation - production would use LanceDB WASM.
+ *
+ * v2: Added keywords multiEntry index and hybrid search scoring.
  */
 
 const DB_NAME = 'contextual-recall-db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'pages';
+
+// Recency half-life: 1 week in milliseconds
+const RECENCY_HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000;
 
 class VectorDB {
   constructor() {
@@ -29,8 +34,9 @@ class VectorDB {
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
+        const oldVersion = event.oldVersion;
 
-        // Create object store for pages
+        // v1: Create object store for pages
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           const store = db.createObjectStore(STORE_NAME, {
             keyPath: 'id',
@@ -42,6 +48,14 @@ class VectorDB {
           store.createIndex('timestamp', 'timestamp', { unique: false });
           store.createIndex('domain', 'domain', { unique: false });
           store.createIndex('contentType', 'contentType', { unique: false });
+        }
+
+        // v2: Add keywords multiEntry index
+        if (oldVersion < 2) {
+          const store = event.target.transaction.objectStore(STORE_NAME);
+          if (!store.indexNames.contains('keywords')) {
+            store.createIndex('keywords', 'keywords', { unique: false, multiEntry: true });
+          }
         }
       };
     });
@@ -63,6 +77,7 @@ class VectorDB {
       domain: new URL(pageData.url).hostname,
       contentType: pageData.contentType || 'unknown',
       embedding: pageData.embedding, // Float32Array or regular array
+      keywords: pageData.keywords || [],
       metadata: pageData.metadata || {}
     };
 
@@ -74,28 +89,113 @@ class VectorDB {
   }
 
   /**
-   * Search for similar pages using cosine similarity
+   * Get pages matching any of the given keywords using the multiEntry index.
+   * Returns a Map of page id -> page record for deduplication.
+   */
+  async getPagesByKeywords(keywords) {
+    if (!keywords || keywords.length === 0) return new Map();
+
+    const transaction = this.db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const index = store.index('keywords');
+    const pageMap = new Map();
+
+    const fetches = keywords.map(kw => {
+      return new Promise((resolve, reject) => {
+        const request = index.getAll(kw.toLowerCase());
+        request.onsuccess = () => {
+          for (const page of request.result) {
+            if (!pageMap.has(page.id)) {
+              pageMap.set(page.id, page);
+            }
+          }
+          resolve();
+        };
+        request.onerror = () => reject(request.error);
+      });
+    });
+
+    await Promise.all(fetches);
+    return pageMap;
+  }
+
+  /**
+   * Search for similar pages using hybrid scoring:
+   *   finalScore = vectorScore * 0.7 + keywordScore * 0.2 + recencyScore * 0.1
+   *
+   * @param {Array} queryEmbedding - The query embedding vector
+   * @param {object} options
+   * @param {number} [options.limit=10]
+   * @param {string} [options.filter='all'] - Time/type filter
+   * @param {number} [options.threshold=0.5]
+   * @param {string[]} [options.queryKeywords] - Keywords extracted from the query
+   * @param {string} [options.domainFilter] - Restrict results to this domain
+   * @param {string} [options.afterDate] - ISO date string, only return results after this date
    */
   async search(queryEmbedding, options = {}) {
     const {
       limit = 10,
       filter = 'all',
-      threshold = 0.5
+      threshold = 0.5,
+      queryKeywords = [],
+      domainFilter = null,
+      afterDate = null
     } = options;
 
+    const hasKeywords = queryKeywords.length > 0;
+    const now = Date.now();
+
     // Get all pages (for POC - production would use vector index)
-    const pages = await this.getAllPages();
+    let pages = await this.getAllPages();
 
-    // Filter by date/type if requested
-    const filteredPages = this.applyFilters(pages, filter);
+    // If keywords provided, also fetch keyword-matched pages to ensure they're included
+    // (they'll be in the full scan too, but this ensures scoring works)
+    let keywordMatchedIds = new Set();
+    if (hasKeywords) {
+      const keywordPages = await this.getPagesByKeywords(queryKeywords);
+      keywordMatchedIds = new Set(keywordPages.keys());
+    }
 
-    // Calculate cosine similarity for each page
-    const results = filteredPages.map(page => ({
-      ...page,
-      score: this.cosineSimilarity(queryEmbedding, page.embedding)
-    }));
+    // Apply standard filters (time-based, content-type)
+    pages = this.applyFilters(pages, filter);
 
-    // Sort by similarity score and filter by threshold
+    // Apply domain filter
+    if (domainFilter) {
+      pages = pages.filter(p => p.domain === domainFilter || p.domain?.endsWith('.' + domainFilter));
+    }
+
+    // Apply afterDate filter
+    if (afterDate) {
+      const cutoff = new Date(afterDate);
+      pages = pages.filter(p => new Date(p.timestamp) >= cutoff);
+    }
+
+    // Calculate hybrid scores
+    const results = pages.map(page => {
+      const vectorScore = this.cosineSimilarity(queryEmbedding, page.embedding);
+
+      // Keyword score: fraction of query keywords found in page keywords
+      let keywordScore = 0;
+      if (hasKeywords && page.keywords && page.keywords.length > 0) {
+        const pageKwSet = new Set(page.keywords.map(k => k.toLowerCase()));
+        const matchCount = queryKeywords.filter(qk => pageKwSet.has(qk.toLowerCase())).length;
+        keywordScore = matchCount / queryKeywords.length;
+      }
+
+      // Recency score: exponential decay with 1-week half-life
+      const pageTime = new Date(page.timestamp).getTime();
+      const ageMs = Math.max(0, now - pageTime);
+      const recencyScore = Math.pow(0.5, ageMs / RECENCY_HALF_LIFE_MS);
+
+      // Hybrid score
+      const finalScore = hasKeywords
+        ? vectorScore * 0.7 + keywordScore * 0.2 + recencyScore * 0.1
+        : vectorScore * 0.9 + recencyScore * 0.1;
+
+      return { ...page, score: finalScore, vectorScore, keywordScore, recencyScore };
+    });
+
+    // Sort by final score and filter by threshold
     results.sort((a, b) => b.score - a.score);
 
     return results
@@ -110,13 +210,14 @@ class VectorDB {
         timestamp: r.timestamp,
         score: r.score,
         contentType: r.contentType,
+        keywords: r.keywords || [],
         chunkType: r.metadata?.chunkType || 'unknown',
         chunkIndex: r.metadata?.chunkIndex,
         chunkTotal: r.metadata?.chunkTotal,
         metadata: r.metadata, // Include full metadata for filtering
         // Also include these for backward compatibility
         isReference: r.metadata?.isReference,
-        domain: r.metadata?.domain,
+        domain: r.domain || r.metadata?.domain,
         section: r.metadata?.section
       }));
   }

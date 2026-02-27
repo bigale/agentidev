@@ -313,6 +313,174 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+
+    /* Automation Mode Styles */
+    .bridge-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #f8f9fa;
+      border-radius: 6px;
+      margin-bottom: 12px;
+    }
+
+    .bridge-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #d93025;
+    }
+
+    .bridge-dot.connected {
+      background: #1e8e3e;
+    }
+
+    .session-item {
+      padding: 8px 12px;
+      background: #f8f9fa;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+
+    .session-item .session-name {
+      font-weight: 600;
+      color: #202124;
+    }
+
+    .session-item .session-url {
+      color: #5f6368;
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .session-state {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 500;
+    }
+
+    .session-state.ready { background: #e6f4ea; color: #1e8e3e; }
+    .session-state.navigating { background: #e8f0fe; color: #1967d2; }
+    .session-state.error { background: #fce8e6; color: #d93025; }
+    .session-state.idle { background: #f1f3f4; color: #5f6368; }
+
+    #auto-snapshot-viewer {
+      max-height: 300px;
+      overflow-y: auto;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 12px;
+      border-radius: 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      white-space: pre;
+      line-height: 1.4;
+    }
+
+    .auto-cmd-btn {
+      padding: 6px 12px;
+      background: #f1f3f4;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .auto-cmd-btn:hover {
+      background: #e8eaed;
+    }
+
+    .auto-cmd-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .snapshot-search-result {
+      padding: 8px;
+      background: #f8f9fa;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+
+    .snapshot-search-result .score {
+      color: #1e8e3e;
+      font-weight: 600;
+    }
+
+    /* Keyword chips */
+    .keyword-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 6px;
+    }
+
+    .keyword-chip {
+      display: inline-block;
+      padding: 2px 8px;
+      background: #e8f0fe;
+      color: #1967d2;
+      border-radius: 12px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    /* Structured results table */
+    .struct-results-container {
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .struct-results-summary {
+      font-size: 12px;
+      color: #5f6368;
+      margin-bottom: 12px;
+    }
+
+    .struct-results-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .struct-results-table th {
+      background: #f1f3f4;
+      padding: 8px 6px;
+      text-align: left;
+      font-weight: 600;
+      color: #202124;
+      border-bottom: 2px solid #e0e0e0;
+      white-space: nowrap;
+    }
+
+    .struct-results-table td {
+      padding: 6px;
+      border-bottom: 1px solid #e0e0e0;
+      color: #3c4043;
+    }
+
+    .struct-results-table tr:hover {
+      background: #f8f9fa;
+    }
+
+    .struct-source-link {
+      font-size: 11px;
+      color: #1a73e8;
+      cursor: pointer;
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
@@ -326,6 +494,7 @@
       <button id="mode-qa" class="mode-btn">💬 Q&A</button>
       <button id="mode-extract" class="mode-btn">🕷️ Extract</button>
       <button id="mode-agent" class="mode-btn">🤖 Agent</button>
+      <button id="mode-automation" class="mode-btn">🎮 Auto</button>
     </div>
 
     <div class="search-box">
@@ -345,6 +514,7 @@
     <button class="filter-chip" data-filter="specs">Specs</button>
     <button class="filter-chip" data-filter="docs">Docs</button>
     <button class="filter-chip" data-filter="dashboards">Dashboards</button>
+    <button class="filter-chip" data-filter="structured">Data Tables</button>
   </div>
 
   <main>
@@ -599,6 +769,61 @@
             <tbody id="xml-field-table-body"></tbody>
           </table>
         </div>
+      </div>
+    </div>
+
+    <!-- Automation Container (Auto Mode) -->
+    <div id="automation-container" style="display:none;">
+      <!-- Bridge Status -->
+      <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 12px;">
+        <div class="bridge-status">
+          <div id="bridge-dot" class="bridge-dot"></div>
+          <span id="bridge-status-text" style="font-size: 13px; color: #5f6368;">Disconnected</span>
+          <button id="bridge-connect-btn" style="margin-left: auto; padding: 6px 14px; background: #1a73e8; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer;">Connect</button>
+        </div>
+      </div>
+
+      <!-- Sessions -->
+      <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #202124;">Sessions</h3>
+          <button id="auto-new-session-btn" class="auto-cmd-btn" disabled>+ New</button>
+        </div>
+        <div id="auto-session-list" style="font-size: 12px; color: #5f6368;">No sessions</div>
+      </div>
+
+      <!-- Commands -->
+      <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 12px;">
+        <h3 style="font-size: 14px; font-weight: 600; color: #202124; margin-bottom: 12px;">Commands</h3>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;">
+          <button id="auto-snapshot-btn" class="auto-cmd-btn" disabled>Snapshot</button>
+          <button id="auto-navigate-btn" class="auto-cmd-btn" disabled>Navigate</button>
+          <button id="auto-click-btn" class="auto-cmd-btn" disabled>Click</button>
+          <button id="auto-fill-btn" class="auto-cmd-btn" disabled>Fill</button>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="auto-command-input" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" placeholder="Command or natural language..." disabled>
+          <button id="auto-send-btn" class="auto-cmd-btn" disabled>Send</button>
+        </div>
+      </div>
+
+      <!-- Snapshot Viewer -->
+      <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="font-size: 14px; font-weight: 600; color: #202124;">Snapshot</h3>
+          <span id="auto-snapshot-info" style="font-size: 11px; color: #5f6368;"></span>
+        </div>
+        <div id="auto-snapshot-viewer">No snapshot yet</div>
+      </div>
+
+      <!-- Page Knowledge (Snapshot Search) -->
+      <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px;">
+        <h3 style="font-size: 14px; font-weight: 600; color: #202124; margin-bottom: 12px;">Page Knowledge</h3>
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+          <input type="text" id="auto-knowledge-input" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" placeholder="Search cached snapshots...">
+          <button id="auto-knowledge-search-btn" class="auto-cmd-btn">Search</button>
+        </div>
+        <div id="auto-knowledge-results" style="font-size: 12px; color: #5f6368;">Search the snapshot vector store for cached page structure.</div>
       </div>
     </div>
 

@@ -9,21 +9,30 @@
  * Chunk content based on its type
  */
 export function chunkContent(content, contentType) {
+  let result;
   switch (contentType) {
     case 'api_reference':
     case 'spec':
-      return chunkByHeadings(content);
-
     case 'documentation':
-      return chunkByHeadings(content);
+      result = chunkByHeadings(content);
+      break;
 
     case 'dashboard':
-      return chunkByTables(content);
+      result = chunkByTables(content);
+      break;
 
     case 'general':
     default:
-      return chunkByTokens(content);
+      result = chunkByTokens(content);
+      break;
   }
+
+  // Attach keywords to every chunk
+  result.chunks.forEach(chunk => {
+    chunk.keywords = extractKeywords(chunk);
+  });
+
+  return result;
 }
 
 /**
@@ -74,7 +83,7 @@ function chunkByHeadings(html) {
     return chunkByTokens(doc.body.textContent);
   }
 
-  return chunks;
+  return { chunks, structuredRecords: [] };
 }
 
 /**
@@ -86,7 +95,9 @@ function chunkByTables(html) {
   const doc = parser.parseFromString(html, 'text/html');
 
   const chunks = [];
+  const structuredRecords = [];
   const tables = doc.querySelectorAll('table');
+  const MAX_RECORDS_PER_TABLE = 200;
 
   tables.forEach((table, index) => {
     // Get table caption or preceding heading
@@ -109,7 +120,7 @@ function chunkByTables(html) {
     const headers = Array.from(table.querySelectorAll('th'))
       .map(th => th.textContent.trim());
 
-    // Extract table rows
+    // Extract table rows (text representation for chunk)
     const rows = Array.from(table.querySelectorAll('tr'))
       .map(tr => {
         return Array.from(tr.querySelectorAll('td'))
@@ -128,8 +139,40 @@ function chunkByTables(html) {
       title: title,
       headers: headers,
       content: content,
-      text: `${title}\n${content}`
+      text: `${title}\n${content}`,
+      tableIndex: index
     });
+
+    // Extract structured records: zip headers with cell values per data row
+    if (headers.length > 0) {
+      const dataRows = Array.from(table.querySelectorAll('tbody tr, tr'))
+        .filter(tr => tr.querySelectorAll('td').length > 0);
+
+      let recordCount = 0;
+      for (const tr of dataRows) {
+        if (recordCount >= MAX_RECORDS_PER_TABLE) {
+          console.warn(`[Chunker] Table ${index + 1} truncated at ${MAX_RECORDS_PER_TABLE} records`);
+          break;
+        }
+
+        const cells = Array.from(tr.querySelectorAll('td')).map(td => td.textContent.trim());
+        const record = {};
+        headers.forEach((header, i) => {
+          if (i < cells.length) {
+            // Auto-cast numeric values
+            const raw = cells[i];
+            const cleaned = raw.replace(/[$,%]/g, '');
+            const num = parseFloat(cleaned);
+            record[header] = !isNaN(num) && raw.match(/^[\d$.,%-]+$/) ? num : raw;
+          }
+        });
+
+        if (Object.keys(record).length > 0) {
+          structuredRecords.push({ tableIndex: index, headers, fields: record });
+          recordCount++;
+        }
+      }
+    }
   });
 
   // If no tables found, fall back to token chunking
@@ -137,7 +180,7 @@ function chunkByTables(html) {
     return chunkByTokens(doc.body.textContent);
   }
 
-  return chunks;
+  return { chunks, structuredRecords };
 }
 
 /**
@@ -146,7 +189,7 @@ function chunkByTables(html) {
  */
 function chunkByTokens(text, chunkSize = 500, overlap = 50) {
   if (!text || text.length === 0) {
-    return [];
+    return { chunks: [], structuredRecords: [] };
   }
 
   const chunks = [];
@@ -154,11 +197,11 @@ function chunkByTokens(text, chunkSize = 500, overlap = 50) {
 
   // If text is short enough, return as single chunk
   if (words.length <= chunkSize) {
-    return [{
+    return { chunks: [{
       type: 'token',
       content: text,
       text: text
-    }];
+    }], structuredRecords: [] };
   }
 
   // Sliding window chunking
@@ -177,7 +220,75 @@ function chunkByTokens(text, chunkSize = 500, overlap = 50) {
     }
   }
 
-  return chunks;
+  return { chunks, structuredRecords: [] };
+}
+
+/**
+ * Extract keywords from a chunk using pure regex string processing.
+ * Identifies: table headers, heading words, title-case phrases,
+ * technical terms (camelCase, SCREAMING_CASE, dotted.paths),
+ * and numeric-with-units patterns.
+ * @param {object} chunk - A chunk object with text, title, headers, type fields
+ * @returns {string[]} Array of lowercase keywords, max 50
+ */
+export function extractKeywords(chunk) {
+  const keywords = new Set();
+
+  // 1. Table headers (from chunk.headers if present)
+  if (chunk.headers && Array.isArray(chunk.headers)) {
+    chunk.headers.forEach(h => {
+      const cleaned = h.trim().toLowerCase();
+      if (cleaned && cleaned.length > 1) {
+        keywords.add(cleaned);
+      }
+    });
+  }
+
+  // 2. Heading words (from chunk.title if present)
+  if (chunk.title) {
+    chunk.title.split(/\s+/).forEach(word => {
+      const cleaned = word.replace(/[^\w-]/g, '').toLowerCase();
+      if (cleaned && cleaned.length > 2) {
+        keywords.add(cleaned);
+      }
+    });
+  }
+
+  const text = chunk.text || chunk.content || '';
+
+  // 3. Title-case multi-word phrases (proper nouns, product names)
+  const titleCasePattern = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b/g;
+  let match;
+  while ((match = titleCasePattern.exec(text)) !== null) {
+    keywords.add(match[1].toLowerCase());
+  }
+
+  // 4. camelCase terms
+  const camelCasePattern = /\b([a-z]+[A-Z][a-zA-Z]*)\b/g;
+  while ((match = camelCasePattern.exec(text)) !== null) {
+    keywords.add(match[1].toLowerCase());
+  }
+
+  // 5. SCREAMING_CASE terms
+  const screamingPattern = /\b([A-Z][A-Z0-9_]{2,})\b/g;
+  while ((match = screamingPattern.exec(text)) !== null) {
+    keywords.add(match[1].toLowerCase());
+  }
+
+  // 6. dotted.path terms (e.g., console.log, req.body.name)
+  const dottedPattern = /\b([a-zA-Z]\w+(?:\.\w+)+)\b/g;
+  while ((match = dottedPattern.exec(text)) !== null) {
+    keywords.add(match[1].toLowerCase());
+  }
+
+  // 7. Numeric-with-units patterns ($42.99, 500ms, 10GB, 99.9%)
+  const numericPattern = /(\$[\d,.]+|\d+(?:\.\d+)?(?:ms|s|gb|mb|kb|tb|px|em|rem|hz|khz|%|fps))\b/gi;
+  while ((match = numericPattern.exec(text)) !== null) {
+    keywords.add(match[1].toLowerCase());
+  }
+
+  // Cap at 50 keywords
+  return Array.from(keywords).slice(0, 50);
 }
 
 /**
