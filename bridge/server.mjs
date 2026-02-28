@@ -56,6 +56,9 @@ function startServer() {
   // Pending relay messages: searchMsgId -> { ws, originalMsgId }
   const pendingRelays = new Map();
 
+  // Registered scripts: Map<scriptId, { ws, name, totalSteps, step, label, errors, state, metadata, startedAt }>
+  const scripts = new Map();
+
   const wss = new WebSocketServer({ port: PORT });
 
   console.log(`[Bridge] WebSocket server listening on ws://localhost:${PORT}`);
@@ -100,6 +103,19 @@ function startServer() {
       const info = clients.get(ws);
       console.log(`[Bridge] Disconnected: ${info?.id} (${info?.role || 'unknown'})`);
       clients.delete(ws);
+
+      // Clean up scripts owned by this connection
+      for (const [scriptId, script] of scripts) {
+        if (script.ws === ws) {
+          script.state = 'disconnected';
+          script.ws = null;
+          console.log(`[Bridge] Script disconnected: ${script.name} (${scriptId})`);
+          broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+            scriptId, name: script.name, state: 'disconnected',
+            step: script.step, total: script.totalSteps, errors: script.errors,
+          }));
+        }
+      }
     });
 
     ws.on('error', (err) => {
@@ -163,6 +179,7 @@ function startServer() {
           uptime: process.uptime(),
           clients: clients.size,
           sessions: sessions.size,
+          scripts: scripts.size,
         }));
         break;
       }
@@ -433,6 +450,152 @@ function startServer() {
         // Store pending relay: when extension replies, forward to original requester
         pendingRelays.set(searchMsg.id, { ws, originalMsgId: msg.id });
         sendTo(extClient, searchMsg);
+        break;
+      }
+
+      // ---- Script Integration (Phase 3) ----
+
+      case MSG.BRIDGE_SCRIPT_REGISTER: {
+        const { name, totalSteps, metadata } = msg.payload || {};
+        if (!name) {
+          sendTo(ws, buildError('Script name required', msg.id));
+          return;
+        }
+        const scriptId = `script_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        scripts.set(scriptId, {
+          ws, name, totalSteps: totalSteps || 0,
+          step: 0, label: '', errors: 0,
+          state: 'registered', metadata: metadata || {},
+          startedAt: Date.now(),
+        });
+        console.log(`[Bridge] Script registered: ${name} (${scriptId}, ${totalSteps} steps)`);
+        sendTo(ws, buildReply(msg, { success: true, scriptId, name }));
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+          scriptId, name, state: 'registered',
+          step: 0, total: totalSteps || 0, label: '', errors: 0,
+          metadata: metadata || {},
+        }));
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_PROGRESS: {
+        const { scriptId, step, total, label, errors } = msg.payload || {};
+        const script = scripts.get(scriptId);
+        if (!script) {
+          sendTo(ws, buildError('Script not found', msg.id));
+          return;
+        }
+        script.step = step ?? script.step;
+        script.totalSteps = total ?? script.totalSteps;
+        script.label = label ?? script.label;
+        script.errors = errors ?? script.errors;
+        script.state = 'running';
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+          scriptId, name: script.name, state: 'running',
+          step: script.step, total: script.totalSteps,
+          label: script.label, errors: script.errors,
+        }));
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_COMPLETE: {
+        const { scriptId, results, errors, duration } = msg.payload || {};
+        const script = scripts.get(scriptId);
+        if (!script) {
+          sendTo(ws, buildError('Script not found', msg.id));
+          return;
+        }
+        script.state = 'complete';
+        script.errors = errors ?? script.errors;
+        script.results = results;
+        script.duration = duration || (Date.now() - script.startedAt);
+        console.log(`[Bridge] Script complete: ${script.name} (${script.duration}ms, ${script.errors} errors)`);
+        sendTo(ws, buildReply(msg, { success: true, scriptId }));
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+          scriptId, name: script.name, state: 'complete',
+          step: script.totalSteps, total: script.totalSteps,
+          label: 'Complete', errors: script.errors,
+          results, duration: script.duration,
+        }));
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_PAUSE: {
+        const { scriptId, reason } = msg.payload || {};
+        const script = scripts.get(scriptId);
+        if (!script) {
+          sendTo(ws, buildError('Script not found', msg.id));
+          return;
+        }
+        script.state = 'paused';
+        console.log(`[Bridge] Script paused: ${script.name} (${reason || 'no reason'})`);
+        // Forward pause to the script's WebSocket connection
+        if (script.ws && script.ws.readyState === WebSocket.OPEN) {
+          sendTo(script.ws, buildMessage(MSG.BRIDGE_SCRIPT_PAUSE, { scriptId, reason }));
+        }
+        sendTo(ws, buildReply(msg, { success: true, scriptId, state: 'paused' }));
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+          scriptId, name: script.name, state: 'paused',
+          step: script.step, total: script.totalSteps,
+          label: script.label, errors: script.errors,
+        }));
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_RESUME: {
+        const { scriptId } = msg.payload || {};
+        const script = scripts.get(scriptId);
+        if (!script) {
+          sendTo(ws, buildError('Script not found', msg.id));
+          return;
+        }
+        script.state = 'running';
+        console.log(`[Bridge] Script resumed: ${script.name}`);
+        if (script.ws && script.ws.readyState === WebSocket.OPEN) {
+          sendTo(script.ws, buildMessage(MSG.BRIDGE_SCRIPT_RESUME, { scriptId }));
+        }
+        sendTo(ws, buildReply(msg, { success: true, scriptId, state: 'running' }));
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+          scriptId, name: script.name, state: 'running',
+          step: script.step, total: script.totalSteps,
+          label: script.label, errors: script.errors,
+        }));
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_CANCEL: {
+        const { scriptId, reason } = msg.payload || {};
+        const script = scripts.get(scriptId);
+        if (!script) {
+          sendTo(ws, buildError('Script not found', msg.id));
+          return;
+        }
+        script.state = 'cancelled';
+        console.log(`[Bridge] Script cancelled: ${script.name} (${reason || 'no reason'})`);
+        if (script.ws && script.ws.readyState === WebSocket.OPEN) {
+          sendTo(script.ws, buildMessage(MSG.BRIDGE_SCRIPT_CANCEL, { scriptId, reason }));
+        }
+        sendTo(ws, buildReply(msg, { success: true, scriptId, state: 'cancelled' }));
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+          scriptId, name: script.name, state: 'cancelled',
+          step: script.step, total: script.totalSteps,
+          label: `Cancelled: ${reason || ''}`, errors: script.errors,
+        }));
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_LIST: {
+        const scriptList = [];
+        for (const [scriptId, s] of scripts) {
+          scriptList.push({
+            scriptId, name: s.name, state: s.state,
+            step: s.step, total: s.totalSteps,
+            label: s.label, errors: s.errors,
+            metadata: s.metadata, startedAt: s.startedAt,
+            duration: s.duration || null,
+          });
+        }
+        sendTo(ws, buildReply(msg, { success: true, scripts: scriptList }));
         break;
       }
 

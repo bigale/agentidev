@@ -29,6 +29,7 @@ import { register as registerGrammar } from './lib/handlers/grammar-handlers.js'
 import { register as registerBridge, initBridgeCallbacks } from './lib/handlers/bridge-handlers.js';
 import { register as registerSnapshot, handleSnapshotStorage } from './lib/handlers/snapshot-handlers.js';
 import { register as registerAutomation } from './lib/handlers/automation-handlers.js';
+import { register as registerScript } from './lib/handlers/script-handlers.js';
 
 console.log('Contextual Recall: Background service worker started');
 console.log('[Background] Note: Extension reload = re-initialize (models are cached, not re-downloaded)');
@@ -132,6 +133,7 @@ registerGrammar(handlers);
 registerBridge(handlers);
 registerSnapshot(handlers);
 registerAutomation(handlers);
+registerScript(handlers);
 
 chrome.runtime.onMessage.addListener(createMessageRouter(handlers));
 

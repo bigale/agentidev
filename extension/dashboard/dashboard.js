@@ -73,13 +73,24 @@ function loadInitialState() {
   // Bridge status
   chrome.runtime.sendMessage({ type: 'BRIDGE_STATUS' }, (response) => {
     state.set('bridgeConnected', response?.connected || false);
-    if (response?.connected) loadSessions();
+    if (response?.connected) {
+      loadSessions();
+      loadScripts();
+    }
   });
 
   // Command log
   chrome.runtime.sendMessage({ type: 'GET_COMMAND_LOG' }, (response) => {
     if (response?.log) {
       state.set('commandFeed', response.log);
+    }
+  });
+}
+
+function loadScripts() {
+  chrome.runtime.sendMessage({ type: 'SCRIPT_LIST' }, (response) => {
+    if (response?.success && response.scripts) {
+      state.set('scripts', response.scripts);
     }
   });
 }
@@ -131,7 +142,21 @@ chrome.runtime.onMessage.addListener((message) => {
 
     case 'AUTO_BROADCAST_CONNECTION': {
       state.set('bridgeConnected', message.connected);
-      if (message.connected) loadSessions();
+      if (message.connected) {
+        loadSessions();
+        loadScripts();
+      }
+      break;
+    }
+
+    case 'AUTO_BROADCAST_SCRIPT': {
+      const scriptsList = state.get('scripts') || [];
+      const idx = scriptsList.findIndex(s => s.scriptId === message.scriptId);
+      if (idx >= 0) {
+        state.updateItem('scripts', s => s.scriptId === message.scriptId, (s) => ({ ...s, ...message }));
+      } else {
+        state.push('scripts', message, 100);
+      }
       break;
     }
   }

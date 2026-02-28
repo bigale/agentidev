@@ -425,6 +425,47 @@
       font-weight: 600;
     }
 
+    /* Script cards (Phase 3) */
+    .auto-scripts-list { max-height: 200px; overflow-y: auto; }
+    .auto-script-card {
+      padding: 8px 12px; border-bottom: 1px solid #f0f0f0;
+    }
+    .auto-script-header {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+    }
+    .auto-script-name { font-size: 12px; font-weight: 600; flex: 1; }
+    .auto-script-state {
+      font-size: 10px; padding: 1px 6px; border-radius: 8px;
+    }
+    .auto-script-state.running { background: #e6f4ea; color: #1e8e3e; }
+    .auto-script-state.paused { background: #fef7e0; color: #f9ab00; }
+    .auto-script-state.complete { background: #e8f0fe; color: #1967d2; }
+    .auto-script-state.cancelled { background: #fce8e6; color: #d93025; }
+    .auto-script-state.registered { background: #f1f3f4; color: #5f6368; }
+    .auto-script-state.disconnected { background: #fce8e6; color: #d93025; }
+    .auto-script-progress {
+      height: 4px; background: #e0e0e0; border-radius: 2px;
+      margin: 4px 0; overflow: hidden;
+    }
+    .auto-script-progress-fill {
+      height: 100%; background: #1a73e8; border-radius: 2px;
+      transition: width 0.3s;
+    }
+    .auto-script-progress-fill.complete { background: #1e8e3e; }
+    .auto-script-progress-fill.error { background: #d93025; }
+    .auto-script-detail {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 10px; color: #5f6368;
+    }
+    .auto-script-actions { display: flex; gap: 4px; }
+    .auto-script-actions button {
+      padding: 1px 6px; font-size: 9px; border: none; border-radius: 3px;
+      cursor: pointer; background: #e8eaed; color: #3c4043;
+    }
+    .auto-script-actions button:hover { background: #dadce0; }
+    .auto-script-actions button.danger { background: #fce8e6; color: #d93025; }
+    .auto-script-errors { color: #d93025; font-weight: 600; }
+
     /* Keyword chips */
     .keyword-chips {
       display: flex;
@@ -845,13 +886,13 @@
         <div id="auto-knowledge-results" style="padding: 0 12px 8px; font-size: 12px; color: #5f6368;">Search the snapshot vector store for cached page structure.</div>
       </div>
 
-      <!-- Script Status (Phase 3 skeleton) -->
-      <div id="auto-scripts-section" class="auto-section" style="display:none;">
+      <!-- Script Status (Phase 3) -->
+      <div id="auto-scripts-section" class="auto-section">
         <div class="auto-section-header" data-collapse="scripts">
           <span>Scripts</span>
           <span id="auto-scripts-count" class="auto-badge">0</span>
         </div>
-        <div id="auto-scripts-list"></div>
+        <div id="auto-scripts-list" class="auto-scripts-list"></div>
       </div>
     </div>
 

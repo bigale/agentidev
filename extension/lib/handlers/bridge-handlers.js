@@ -173,4 +173,9 @@ export function initBridgeCallbacks(snapshotStorageFn) {
     const { handleSnapshotSearch } = await import('./snapshot-handlers.js');
     return handleSnapshotSearch(query, options);
   });
+
+  bridgeClient.onScriptUpdate((data) => {
+    console.log(`[Background] Script update: ${data.name} state=${data.state} ${data.step}/${data.total}`);
+    chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_SCRIPT', ...data }).catch(() => {});
+  });
 }

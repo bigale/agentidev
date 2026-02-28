@@ -20,6 +20,7 @@ export class DashState extends EventTarget {
       diffSlotB: null,
       reasoningTraces: [],
       activeTraceIndex: -1,
+      scripts: [],
       ...initial,
     };
   }

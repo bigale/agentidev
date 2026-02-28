@@ -12,6 +12,7 @@ let commandFeed = [];
 let lastSnapshot = null;
 let collapsedSections = {};
 let broadcastListener = null;
+let scripts = new Map(); // scriptId -> script state
 
 // DOM refs (resolved once in init)
 let els = {};
@@ -34,6 +35,8 @@ export function init() {
     knowledgeInput: document.getElementById('auto-knowledge-input'),
     knowledgeSearchBtn: document.getElementById('auto-knowledge-search-btn'),
     knowledgeResults: document.getElementById('auto-knowledge-results'),
+    scriptsList: document.getElementById('auto-scripts-list'),
+    scriptsCount: document.getElementById('auto-scripts-count'),
   };
 
   // Bridge connect/disconnect
@@ -89,6 +92,8 @@ export function activate() {
       renderCommandFeed();
     }
   });
+  // Load active scripts
+  loadScripts();
 }
 
 export function deactivate() {
@@ -468,6 +473,10 @@ function startBroadcastListener() {
       updateBridgeUI();
       if (bridgeConnected) refreshSessions();
     }
+
+    if (message.type === 'AUTO_BROADCAST_SCRIPT') {
+      updateScript(message);
+    }
   };
 
   chrome.runtime.onMessage.addListener(broadcastListener);
@@ -478,6 +487,94 @@ function stopBroadcastListener() {
     chrome.runtime.onMessage.removeListener(broadcastListener);
     broadcastListener = null;
   }
+}
+
+// ---- Scripts ----
+
+function loadScripts() {
+  if (!bridgeConnected) {
+    renderScripts();
+    return;
+  }
+  chrome.runtime.sendMessage({ type: 'SCRIPT_LIST' }, (response) => {
+    if (response?.success && response.scripts) {
+      scripts.clear();
+      for (const s of response.scripts) {
+        scripts.set(s.scriptId, s);
+      }
+    }
+    renderScripts();
+  });
+}
+
+function updateScript(data) {
+  if (!data.scriptId) return;
+  scripts.set(data.scriptId, { ...scripts.get(data.scriptId), ...data });
+  renderScripts();
+}
+
+function renderScripts() {
+  if (!els.scriptsList) return;
+  els.scriptsCount.textContent = scripts.size;
+
+  if (scripts.size === 0) {
+    els.scriptsList.innerHTML = '<div style="padding: 8px 12px; color: #5f6368; font-size: 11px;">No scripts registered</div>';
+    return;
+  }
+
+  const entries = [...scripts.values()].sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+  els.scriptsList.innerHTML = entries.map(s => {
+    const pct = s.total > 0 ? Math.round((s.step / s.total) * 100) : 0;
+    const progressClass = s.state === 'complete' ? 'complete' : s.errors > 0 ? 'error' : '';
+    const isActive = s.state === 'running' || s.state === 'paused';
+
+    return `
+      <div class="auto-script-card" data-script-id="${s.scriptId}">
+        <div class="auto-script-header">
+          <span class="auto-script-name">${escapeHtml(s.name)}</span>
+          <span class="auto-script-state ${s.state}">${s.state}</span>
+        </div>
+        <div class="auto-script-progress">
+          <div class="auto-script-progress-fill ${progressClass}" style="width: ${pct}%"></div>
+        </div>
+        <div class="auto-script-detail">
+          <span>${s.step || 0}/${s.total || '?'} ${s.label ? '— ' + escapeHtml(s.label) : ''}</span>
+          ${s.errors > 0 ? `<span class="auto-script-errors">${s.errors} errors</span>` : ''}
+          <div class="auto-script-actions">
+            ${isActive && s.state === 'running' ? `<button data-action="pause" data-sid="${s.scriptId}">Pause</button>` : ''}
+            ${s.state === 'paused' ? `<button data-action="resume" data-sid="${s.scriptId}">Resume</button>` : ''}
+            ${isActive ? `<button class="danger" data-action="cancel" data-sid="${s.scriptId}">Cancel</button>` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Wire action buttons
+  els.scriptsList.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleScriptAction(btn.dataset.action, btn.dataset.sid);
+    });
+  });
+}
+
+function handleScriptAction(action, scriptId) {
+  const typeMap = { pause: 'SCRIPT_PAUSE', resume: 'SCRIPT_RESUME', cancel: 'SCRIPT_CANCEL' };
+  const type = typeMap[action];
+  if (!type) return;
+
+  chrome.runtime.sendMessage({
+    type, scriptId, reason: action === 'cancel' ? 'Cancelled from sidepanel' : undefined
+  }, (response) => {
+    if (!response?.success) {
+      console.warn(`[Auto] Script ${action} failed:`, response?.error);
+    }
+  });
+}
+
+function escapeHtml(text) {
+  return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // ---- Dashboard ----

@@ -27,6 +27,7 @@ const callbacks = {
   onError: [],
   onConnectionChange: [],
   onSearchRequest: [],
+  onScriptUpdate: [],
 };
 
 /**
@@ -231,6 +232,45 @@ export function evalInSession(sessionId, expr) {
   return _sendRequest('BRIDGE_EVAL', { sessionId, expr });
 }
 
+// --- Script Management ---
+
+/**
+ * List all registered scripts
+ * @returns {Promise<object>} { scripts: [...] }
+ */
+export function listScripts() {
+  return _sendRequest('BRIDGE_SCRIPT_LIST', {});
+}
+
+/**
+ * Pause a running script
+ * @param {string} scriptId
+ * @param {string} [reason]
+ * @returns {Promise<object>}
+ */
+export function pauseScript(scriptId, reason) {
+  return _sendRequest('BRIDGE_SCRIPT_PAUSE', { scriptId, reason });
+}
+
+/**
+ * Resume a paused script
+ * @param {string} scriptId
+ * @returns {Promise<object>}
+ */
+export function resumeScript(scriptId) {
+  return _sendRequest('BRIDGE_SCRIPT_RESUME', { scriptId });
+}
+
+/**
+ * Cancel a script
+ * @param {string} scriptId
+ * @param {string} [reason]
+ * @returns {Promise<object>}
+ */
+export function cancelScript(scriptId, reason) {
+  return _sendRequest('BRIDGE_SCRIPT_CANCEL', { scriptId, reason });
+}
+
 // --- Event Callbacks ---
 
 /**
@@ -263,6 +303,14 @@ export function onError(cb) {
  */
 export function onConnectionChange(cb) {
   callbacks.onConnectionChange.push(cb);
+}
+
+/**
+ * Register callback for script progress updates
+ * @param {function} cb - Callback({ scriptId, name, state, step, total, label, errors, ... })
+ */
+export function onScriptUpdate(cb) {
+  callbacks.onScriptUpdate.push(cb);
 }
 
 /**
@@ -324,6 +372,9 @@ function _handleBroadcast(msg) {
       break;
     case 'BRIDGE_ERROR':
       _fireCallbacks('onError', msg.payload);
+      break;
+    case 'BRIDGE_SCRIPT_PROGRESS':
+      _fireCallbacks('onScriptUpdate', msg.payload);
       break;
     case 'BRIDGE_SEARCH_SNAPSHOTS':
       _handleSearchRequest(msg);
