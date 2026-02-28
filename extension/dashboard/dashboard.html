@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Contextual Recall — Automation Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      overflow: hidden;
+    }
+
+    /* ---- Top Bar ---- */
+    .dash-topbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 16px;
+      background: #16213e;
+      border-bottom: 1px solid #2a2a4a;
+      flex-shrink: 0;
+      height: 44px;
+    }
+
+    .dash-topbar-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #d93025;
+      flex-shrink: 0;
+    }
+    .dash-topbar-dot.connected { background: #1e8e3e; }
+
+    .dash-topbar-status {
+      font-size: 13px;
+      color: #8f8faf;
+    }
+
+    .dash-topbar-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e0e0e0;
+      margin-left: auto;
+    }
+
+    .dash-topbar-btn {
+      padding: 4px 12px;
+      font-size: 12px;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .dash-topbar-btn:hover { background: #1557b0; }
+    .dash-topbar-btn.danger { background: #d93025; }
+    .dash-topbar-btn.danger:hover { background: #b71c1c; }
+
+    /* ---- Grid Layout ---- */
+    .dash-grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 1px;
+      background: #2a2a4a;
+      overflow: hidden;
+    }
+
+    .dash-panel {
+      background: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .dash-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #16213e;
+      border-bottom: 1px solid #2a2a4a;
+      flex-shrink: 0;
+      min-height: 36px;
+    }
+
+    .dash-panel-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #8f8faf;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .dash-panel-body {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .dash-badge {
+      font-size: 10px;
+      background: #2a2a4a;
+      color: #8f8faf;
+      padding: 2px 8px;
+      border-radius: 8px;
+    }
+
+    /* ---- Session Panel (top-left) ---- */
+    .dash-session-list {
+      padding: 4px 0;
+    }
+
+    .dash-session-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: background 0.15s;
+    }
+    .dash-session-item:hover { background: #16213e; }
+    .dash-session-item.active {
+      background: #16213e;
+      border-left-color: #1a73e8;
+    }
+
+    .dash-session-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dash-session-dot.READY { background: #1e8e3e; }
+    .dash-session-dot.ERROR { background: #d93025; }
+    .dash-session-dot.IDLE { background: #f9ab00; }
+    .dash-session-dot.NAVIGATING { background: #1967d2; }
+
+    .dash-session-name {
+      font-size: 13px;
+      color: #e0e0e0;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .dash-session-state {
+      font-size: 10px;
+      color: #8f8faf;
+      text-transform: uppercase;
+    }
+
+    .dash-session-actions {
+      display: flex;
+      gap: 6px;
+      padding: 8px 12px;
+      border-top: 1px solid #2a2a4a;
+    }
+
+    .dash-btn-sm {
+      padding: 4px 10px;
+      font-size: 11px;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .dash-btn-sm:disabled { background: #3a3a5a; color: #666; cursor: default; }
+    .dash-btn-sm:hover:not(:disabled) { background: #1557b0; }
+    .dash-btn-sm.danger { background: #d93025; }
+    .dash-btn-sm.danger:hover:not(:disabled) { background: #b71c1c; }
+
+    .dash-empty {
+      padding: 24px 12px;
+      text-align: center;
+      color: #5f5f7f;
+      font-size: 12px;
+    }
+
+    /* ---- Feed Panel (bottom-left) ---- */
+    .dash-filter-bar {
+      display: flex;
+      gap: 4px;
+      padding: 6px 8px;
+      flex-wrap: wrap;
+      background: #16213e;
+      border-bottom: 1px solid #2a2a4a;
+      flex-shrink: 0;
+    }
+
+    .dash-filter-select {
+      padding: 3px 6px;
+      font-size: 10px;
+      background: #2a2a4a;
+      color: #c0c0d0;
+      border: 1px solid #3a3a5a;
+      border-radius: 3px;
+    }
+
+    .dash-filter-input {
+      flex: 1;
+      min-width: 80px;
+      padding: 3px 6px;
+      font-size: 10px;
+      background: #2a2a4a;
+      color: #e0e0e0;
+      border: 1px solid #3a3a5a;
+      border-radius: 3px;
+    }
+    .dash-filter-input::placeholder { color: #5f5f7f; }
+
+    .dash-feed-list {
+      font-family: 'SF Mono', 'Consolas', monospace;
+    }
+
+    .dash-feed-entry {
+      display: flex;
+      gap: 8px;
+      padding: 4px 10px;
+      font-size: 11px;
+      border-bottom: 1px solid #222244;
+      align-items: center;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .dash-feed-entry:hover { background: #16213e; }
+
+    .dash-feed-time {
+      color: #5f5f7f;
+      min-width: 60px;
+      font-size: 10px;
+    }
+    .dash-feed-type {
+      font-weight: 600;
+      min-width: 55px;
+      color: #569cd6;
+    }
+    .dash-feed-summary {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #8f8faf;
+    }
+    .dash-feed-source {
+      color: #5f5f7f;
+      font-size: 10px;
+    }
+    .dash-feed-status { white-space: nowrap; font-size: 10px; }
+    .dash-feed-status.success { color: #1e8e3e; }
+    .dash-feed-status.error { color: #d93025; }
+    .dash-feed-status.running { color: #f9ab00; }
+
+    .dash-feed-detail {
+      padding: 6px 10px;
+      font-size: 10px;
+      color: #8f8faf;
+      white-space: pre-wrap;
+      word-break: break-all;
+      background: #111127;
+      border-bottom: 1px solid #2a2a4a;
+      font-family: 'SF Mono', 'Consolas', monospace;
+    }
+
+    /* ---- Snapshot Panel (top-right) ---- */
+    .dash-snap-toolbar {
+      display: flex;
+      gap: 4px;
+      padding: 6px 8px;
+      align-items: center;
+      background: #16213e;
+      border-bottom: 1px solid #2a2a4a;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    .dash-snap-viewer {
+      flex: 1;
+      overflow: auto;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-size: 11px;
+      line-height: 1.4;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 8px;
+      white-space: pre;
+    }
+
+    /* Diff view */
+    .dash-diff-container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+    .dash-diff-side {
+      flex: 1;
+      overflow: auto;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-size: 11px;
+      line-height: 1.4;
+      background: #1e1e1e;
+    }
+    .dash-diff-header {
+      padding: 4px 8px;
+      background: #2a2a4a;
+      color: #8f8faf;
+      font-size: 10px;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .dash-diff-line {
+      display: flex;
+      padding: 0 8px;
+      min-height: 18px;
+    }
+    .dash-diff-num {
+      color: #858585;
+      min-width: 4ch;
+      text-align: right;
+      margin-right: 8px;
+      user-select: none;
+    }
+    .dash-diff-text {
+      white-space: pre;
+      color: #d4d4d4;
+    }
+    .dash-diff-removed { background: #3a1e1e; }
+    .dash-diff-removed .dash-diff-text { color: #f4a0a0; }
+    .dash-diff-added { background: #1e3a1e; }
+    .dash-diff-added .dash-diff-text { color: #a0f4a0; }
+    .dash-diff-empty { background: #1a1a1a; }
+    .dash-diff-same { background: transparent; }
+
+    /* YAML collapsible sections */
+    .dash-yaml-section { /* block by default, hidden when collapsed */ }
+
+    /* ---- Reasoning Panel (bottom-right) ---- */
+    .dash-reason-input-bar {
+      display: flex;
+      gap: 6px;
+      padding: 6px 8px;
+      background: #16213e;
+      border-bottom: 1px solid #2a2a4a;
+      flex-shrink: 0;
+    }
+
+    .dash-reason-input {
+      flex: 1;
+      padding: 5px 8px;
+      font-size: 12px;
+      background: #2a2a4a;
+      color: #e0e0e0;
+      border: 1px solid #3a3a5a;
+      border-radius: 4px;
+    }
+    .dash-reason-input::placeholder { color: #5f5f7f; }
+
+    .dash-trace-list {
+      padding: 4px 0;
+    }
+
+    .dash-trace-card {
+      margin: 4px 8px;
+      background: #16213e;
+      border: 1px solid #2a2a4a;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .dash-trace-card.active {
+      border-color: #1a73e8;
+    }
+
+    .dash-trace-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .dash-trace-header:hover { background: #1a1a3e; }
+
+    .dash-trace-intent {
+      flex: 1;
+      color: #e0e0e0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .dash-trace-duration {
+      color: #5f5f7f;
+      font-size: 10px;
+    }
+    .dash-trace-status-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    .dash-trace-status-badge.success { background: #1e3a1e; color: #1e8e3e; }
+    .dash-trace-status-badge.error { background: #3a1e1e; color: #d93025; }
+    .dash-trace-status-badge.running { background: #3a3a1e; color: #f9ab00; }
+
+    .dash-trace-phases {
+      display: flex;
+      gap: 4px;
+      padding: 0 10px 8px;
+    }
+
+    .dash-phase-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #3a3a5a;
+    }
+    .dash-phase-dot.complete { background: #1e8e3e; }
+    .dash-phase-dot.active { background: #f9ab00; }
+    .dash-phase-dot.error { background: #d93025; }
+
+    .dash-phase-label {
+      font-size: 9px;
+      color: #5f5f7f;
+      text-align: center;
+    }
+
+    .dash-phase-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .dash-trace-detail {
+      padding: 8px 10px;
+      border-top: 1px solid #2a2a4a;
+      font-size: 11px;
+      color: #8f8faf;
+    }
+
+    .dash-trace-commands {
+      margin: 4px 0;
+      padding: 0;
+      list-style: none;
+    }
+    .dash-trace-commands li {
+      padding: 2px 0;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-size: 10px;
+    }
+    .dash-trace-commands .cmd-ok { color: #1e8e3e; }
+    .dash-trace-commands .cmd-fail { color: #d93025; }
+
+    .dash-token-bar {
+      height: 6px;
+      background: #2a2a4a;
+      border-radius: 3px;
+      margin: 4px 0;
+      overflow: hidden;
+    }
+    .dash-token-bar-fill {
+      height: 100%;
+      background: #1a73e8;
+      border-radius: 3px;
+      transition: width 0.3s;
+    }
+    .dash-token-bar-fill.warn { background: #f9ab00; }
+    .dash-token-bar-fill.danger { background: #d93025; }
+
+    .dash-trace-reasoning {
+      padding: 6px 8px;
+      background: #111127;
+      border-radius: 4px;
+      margin: 4px 0;
+      font-size: 11px;
+      color: #c0c0d0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .dash-trace-verification {
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-top: 4px;
+      font-size: 11px;
+    }
+    .dash-trace-verification.pass { background: #1e3a1e; color: #1e8e3e; }
+    .dash-trace-verification.fail { background: #3a1e1e; color: #d93025; }
+
+    /* ---- Scrollbar styling ---- */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #1a1a2e; }
+    ::-webkit-scrollbar-thumb { background: #3a3a5a; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #4a4a6a; }
+  </style>
+</head>
+<body>
+  <!-- Top Bar -->
+  <div class="dash-topbar">
+    <div id="dash-bridge-dot" class="dash-topbar-dot"></div>
+    <span id="dash-bridge-status" class="dash-topbar-status">Disconnected</span>
+    <button id="dash-connect-btn" class="dash-topbar-btn">Connect</button>
+    <span class="dash-topbar-title">Automation Dashboard</span>
+  </div>
+
+  <!-- 2x2 Grid -->
+  <div class="dash-grid">
+    <!-- Top-Left: Sessions -->
+    <div class="dash-panel" id="dash-session-panel">
+      <div class="dash-panel-header">
+        <span class="dash-panel-title">Sessions</span>
+        <span id="dash-session-count" class="dash-badge">0</span>
+      </div>
+      <div class="dash-panel-body" id="dash-session-body"></div>
+    </div>
+
+    <!-- Top-Right: Snapshots -->
+    <div class="dash-panel" id="dash-snapshot-panel">
+      <div class="dash-panel-header">
+        <span class="dash-panel-title">Snapshot</span>
+        <span id="dash-snap-info" class="dash-badge"></span>
+      </div>
+      <div id="dash-snap-toolbar" class="dash-snap-toolbar"></div>
+      <div class="dash-panel-body" id="dash-snapshot-body">
+        <div class="dash-snap-viewer" id="dash-snap-viewer" style="height:100%;">No snapshot</div>
+      </div>
+    </div>
+
+    <!-- Bottom-Left: Command Feed -->
+    <div class="dash-panel" id="dash-feed-panel">
+      <div class="dash-panel-header">
+        <span class="dash-panel-title">Command Feed</span>
+        <span id="dash-feed-count" class="dash-badge">0 / 0</span>
+      </div>
+      <div id="dash-feed-filters" class="dash-filter-bar"></div>
+      <div class="dash-panel-body" id="dash-feed-body"></div>
+    </div>
+
+    <!-- Bottom-Right: Reasoning -->
+    <div class="dash-panel" id="dash-reasoning-panel">
+      <div class="dash-panel-header">
+        <span class="dash-panel-title">AI Reasoning</span>
+        <span id="dash-trace-count" class="dash-badge">0</span>
+      </div>
+      <div id="dash-reason-input-bar" class="dash-reason-input-bar"></div>
+      <div class="dash-panel-body" id="dash-reasoning-body"></div>
+    </div>
+  </div>
+
+  <script type="module" src="dashboard.js"></script>
+</body>
+</html>

@@ -71,6 +71,12 @@ export function init() {
   els.knowledgeInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') searchPageKnowledge();
   });
+
+  // Dashboard button
+  const dashBtn = document.getElementById('auto-open-dashboard-btn');
+  if (dashBtn) {
+    dashBtn.addEventListener('click', openDashboard);
+  }
 }
 
 export function activate() {
@@ -472,6 +478,21 @@ function stopBroadcastListener() {
     chrome.runtime.onMessage.removeListener(broadcastListener);
     broadcastListener = null;
   }
+}
+
+// ---- Dashboard ----
+
+function openDashboard() {
+  const dashUrl = chrome.runtime.getURL('dashboard/dashboard.html');
+  chrome.tabs.query({}, (tabs) => {
+    const existing = tabs.find(t => t.url === dashUrl);
+    if (existing) {
+      chrome.tabs.update(existing.id, { active: true });
+      if (existing.windowId) chrome.windows.update(existing.windowId, { focused: true });
+    } else {
+      chrome.tabs.create({ url: dashUrl });
+    }
+  });
 }
 
 // ---- Page Knowledge ----
