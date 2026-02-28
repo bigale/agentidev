@@ -83,7 +83,7 @@ export class ScriptClient {
    * @param {string} [label] - Current step label
    */
   async progress(step, total, label) {
-    if (!this.scriptId) throw new Error('Not registered');
+    if (!this.scriptId) return; // not registered — no-op (bridge unavailable)
     this._send(buildMessage('BRIDGE_SCRIPT_PROGRESS', {
       scriptId: this.scriptId,
       step,
