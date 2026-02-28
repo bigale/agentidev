@@ -193,7 +193,14 @@ export async function initSession(options = {}) {
       ...options
     };
 
-    session = await LM.create(sessionOptions);
+    // Race against a timeout — if model isn't cached it can block indefinitely
+    const INIT_TIMEOUT_MS = 15000;
+    session = await Promise.race([
+      LM.create(sessionOptions),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Gemini Nano init timed out after ${INIT_TIMEOUT_MS / 1000}s (model may not be cached)`)), INIT_TIMEOUT_MS)
+      ),
+    ]);
 
     const elapsed = Date.now() - startTime;
     const cached = elapsed < 3000; // If < 3s, model was cached

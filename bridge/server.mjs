@@ -13,6 +13,7 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws';
+import { spawn } from 'child_process';
 import { MSG, buildMessage, buildReply, buildError, ROLES } from './protocol.mjs';
 import { PlaywrightSession, SESSION_STATE } from './playwright-session.mjs';
 
@@ -596,6 +597,35 @@ function startServer() {
           });
         }
         sendTo(ws, buildReply(msg, { success: true, scripts: scriptList }));
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_LAUNCH: {
+        const { path: scriptPath, args: scriptArgs = [] } = msg.payload || {};
+        if (!scriptPath) {
+          sendTo(ws, buildError('Script path required', msg.id));
+          break;
+        }
+        console.log(`[Bridge] Launching script: node ${scriptPath} ${scriptArgs.join(' ')}`);
+        const child = spawn('node', [scriptPath, ...scriptArgs], {
+          detached: false,
+          stdio: 'pipe',
+          env: { ...process.env },
+        });
+        const launchId = `launch_${Date.now()}`;
+        sendTo(ws, buildReply(msg, { success: true, launchId, pid: child.pid }));
+        child.stdout.on('data', d => console.log(`[Script:${launchId}] ${d.toString().trim()}`));
+        child.stderr.on('data', d => console.error(`[Script:${launchId}] ERR: ${d.toString().trim()}`));
+        child.on('error', err => {
+          console.error(`[Bridge] Script launch error: ${err.message}`);
+          broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+            scriptId: launchId, name: scriptPath, state: 'error',
+            label: err.message, step: 0, total: 0, errors: 1,
+          }));
+        });
+        child.on('exit', (code) => {
+          console.log(`[Bridge] Script exited: ${scriptPath} (code ${code})`);
+        });
         break;
       }
 

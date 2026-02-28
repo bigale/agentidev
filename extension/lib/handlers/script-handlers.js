@@ -28,4 +28,12 @@ export function register(handlers) {
     const result = await bridgeClient.cancelScript(msg.scriptId, msg.reason);
     return { success: true, ...result };
   };
+
+  handlers['SCRIPT_LAUNCH'] = async (msg) => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge' };
+    }
+    const result = await bridgeClient.launchScript(msg.path, msg.args || []);
+    return { success: true, ...result };
+  };
 }

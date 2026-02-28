@@ -891,6 +891,14 @@
         <div class="auto-section-header" data-collapse="scripts">
           <span>Scripts</span>
           <span id="auto-scripts-count" class="auto-badge">0</span>
+          <button id="auto-script-launch-btn" class="auto-btn-sm" style="margin-left:auto;" title="Launch a script">Launch</button>
+        </div>
+        <div id="auto-script-launch-form" style="display:none; padding: 6px 12px; border-bottom: 1px solid #f0f0f0;">
+          <input type="text" id="auto-script-path-input" placeholder="/path/to/script.mjs" class="auto-input-sm" style="width:100%; margin-bottom:4px;">
+          <div style="display:flex; gap:4px;">
+            <input type="text" id="auto-script-args-input" placeholder="--args (optional)" class="auto-input-sm" style="flex:1;">
+            <button id="auto-script-run-btn" class="auto-btn-sm">Run</button>
+          </div>
         </div>
         <div id="auto-scripts-list" class="auto-scripts-list"></div>
       </div>

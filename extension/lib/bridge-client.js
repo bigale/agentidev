@@ -243,6 +243,15 @@ export function listScripts() {
 }
 
 /**
+ * Launch a script by path (bridge spawns node <path>)
+ * @param {string} scriptPath - Absolute path to .mjs or .js script
+ * @param {string[]} [args] - Optional CLI args
+ */
+export function launchScript(scriptPath, args = []) {
+  return _sendRequest('BRIDGE_SCRIPT_LAUNCH', { path: scriptPath, args });
+}
+
+/**
  * Pause a running script
  * @param {string} scriptId
  * @param {string} [reason]

@@ -37,6 +37,11 @@ export function init() {
     knowledgeResults: document.getElementById('auto-knowledge-results'),
     scriptsList: document.getElementById('auto-scripts-list'),
     scriptsCount: document.getElementById('auto-scripts-count'),
+    scriptLaunchBtn: document.getElementById('auto-script-launch-btn'),
+    scriptLaunchForm: document.getElementById('auto-script-launch-form'),
+    scriptPathInput: document.getElementById('auto-script-path-input'),
+    scriptArgsInput: document.getElementById('auto-script-args-input'),
+    scriptRunBtn: document.getElementById('auto-script-run-btn'),
   };
 
   // Bridge connect/disconnect
@@ -80,6 +85,19 @@ export function init() {
   if (dashBtn) {
     dashBtn.addEventListener('click', openDashboard);
   }
+
+  // Script launch form toggle
+  els.scriptLaunchBtn.addEventListener('click', () => {
+    const hidden = els.scriptLaunchForm.style.display === 'none';
+    els.scriptLaunchForm.style.display = hidden ? 'block' : 'none';
+    if (hidden) els.scriptPathInput.focus();
+  });
+
+  // Script run
+  els.scriptRunBtn.addEventListener('click', launchScript);
+  els.scriptPathInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') launchScript();
+  });
 }
 
 export function activate() {
@@ -490,6 +508,28 @@ function stopBroadcastListener() {
 }
 
 // ---- Scripts ----
+
+function launchScript() {
+  const path = els.scriptPathInput.value.trim();
+  if (!path) return;
+  const argsRaw = els.scriptArgsInput.value.trim();
+  const args = argsRaw ? argsRaw.split(/\s+/) : [];
+
+  els.scriptRunBtn.textContent = 'Running…';
+  els.scriptRunBtn.disabled = true;
+
+  chrome.runtime.sendMessage({ type: 'SCRIPT_LAUNCH', path, args }, (response) => {
+    els.scriptRunBtn.textContent = 'Run';
+    els.scriptRunBtn.disabled = false;
+    if (response?.success) {
+      els.scriptLaunchForm.style.display = 'none';
+      els.scriptPathInput.value = '';
+      els.scriptArgsInput.value = '';
+    } else {
+      alert(`Launch failed: ${response?.error || 'Unknown error'}`);
+    }
+  });
+}
 
 function loadScripts() {
   if (!bridgeConnected) {
