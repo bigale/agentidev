@@ -315,92 +315,101 @@
     }
 
     /* Automation Mode Styles */
-    .bridge-status {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      background: #f8f9fa;
-      border-radius: 6px;
-      margin-bottom: 12px;
-    }
-
     .bridge-dot {
       width: 10px;
       height: 10px;
       border-radius: 50%;
       background: #d93025;
+      flex-shrink: 0;
     }
+    .bridge-dot.connected { background: #1e8e3e; }
 
-    .bridge-dot.connected {
-      background: #1e8e3e;
+    .auto-status-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; background: #f8f9fa; border-bottom: 1px solid #e0e0e0;
+      position: sticky; top: 0; z-index: 10;
     }
+    .auto-status-bar span { font-size: 12px; color: #5f6368; }
 
-    .session-item {
-      padding: 8px 12px;
-      background: #f8f9fa;
-      border: 1px solid #e0e0e0;
-      border-radius: 6px;
-      margin-bottom: 8px;
-      font-size: 12px;
+    .auto-session-bar {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 12px; overflow-x: auto; white-space: nowrap;
+      border-bottom: 1px solid #e0e0e0; background: white;
     }
-
-    .session-item .session-name {
-      font-weight: 600;
-      color: #202124;
-    }
-
-    .session-item .session-url {
-      color: #5f6368;
-      font-size: 11px;
+    .auto-session-tabs { display: flex; gap: 6px; }
+    .auto-session-tab {
+      padding: 4px 10px; border-radius: 12px; font-size: 11px;
+      background: #e8eaed; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    }
+    .auto-session-tab.active { background: #1a73e8; color: white; }
+    .auto-session-tab .state-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+    }
+    .auto-session-tab .state-dot.READY { background: #1e8e3e; }
+    .auto-session-tab .state-dot.ERROR { background: #d93025; }
+    .auto-session-tab .state-dot.IDLE { background: #f9ab00; }
+    .auto-session-tab .state-dot.NAVIGATING { background: #1967d2; }
+
+    .auto-command-bar {
+      display: flex; gap: 6px; padding: 8px 12px;
+      position: sticky; top: 40px; background: white; z-index: 10;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .auto-command-bar input {
+      flex: 1; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;
     }
 
-    .session-state {
-      display: inline-block;
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 10px;
-      font-weight: 500;
+    .auto-quick-actions {
+      display: flex; gap: 4px; padding: 4px 12px; background: #f8f9fa;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .auto-action-btn {
+      padding: 2px 8px; font-size: 10px; background: #e8eaed; border: none;
+      border-radius: 3px; cursor: pointer;
+    }
+    .auto-action-btn:disabled { opacity: 0.5; cursor: default; }
+    .auto-action-btn:hover:not(:disabled) { background: #dadce0; }
+
+    .auto-section { border-bottom: 1px solid #e0e0e0; }
+    .auto-section-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+      background: #fafafa; user-select: none;
+    }
+    .auto-section-header:hover { background: #f1f3f4; }
+    .auto-badge {
+      font-size: 10px; background: #e8eaed; padding: 1px 6px; border-radius: 8px;
     }
 
-    .session-state.ready { background: #e6f4ea; color: #1e8e3e; }
-    .session-state.navigating { background: #e8f0fe; color: #1967d2; }
-    .session-state.error { background: #fce8e6; color: #d93025; }
-    .session-state.idle { background: #f1f3f4; color: #5f6368; }
+    .auto-feed-list { max-height: 200px; overflow-y: auto; }
+    .auto-feed-entry {
+      display: flex; gap: 8px; padding: 4px 12px; font-size: 11px;
+      border-bottom: 1px solid #f0f0f0; align-items: center; cursor: pointer;
+    }
+    .auto-feed-entry:hover { background: #f8f9fa; }
+    .auto-feed-entry .cmd-type { font-weight: 600; min-width: 50px; }
+    .auto-feed-entry .cmd-status { margin-left: auto; white-space: nowrap; }
+    .auto-feed-entry .cmd-status.success { color: #1e8e3e; }
+    .auto-feed-entry .cmd-status.error { color: #d93025; }
+    .auto-feed-entry .cmd-status.running { color: #f9ab00; }
+    .auto-feed-entry .cmd-source { color: #5f6368; font-size: 10px; }
 
-    #auto-snapshot-viewer {
-      max-height: 300px;
-      overflow-y: auto;
-      background: #1e1e1e;
-      color: #d4d4d4;
-      padding: 12px;
-      border-radius: 6px;
-      font-family: 'Courier New', monospace;
-      font-size: 11px;
-      white-space: pre;
-      line-height: 1.4;
+    .auto-snapshot-viewer {
+      max-height: 300px; overflow: auto; font-size: 11px; font-family: monospace;
+      background: #1e1e1e; color: #d4d4d4; padding: 8px; margin: 0;
+      white-space: pre; line-height: 1.4;
     }
 
-    .auto-cmd-btn {
-      padding: 6px 12px;
-      background: #f1f3f4;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 12px;
-      cursor: pointer;
-      transition: background 0.2s;
+    .auto-btn-sm {
+      padding: 4px 10px; font-size: 11px; background: #1a73e8; color: white;
+      border: none; border-radius: 4px; cursor: pointer; white-space: nowrap;
     }
+    .auto-btn-sm:disabled { background: #c4c7cc; cursor: default; }
+    .auto-btn-sm:hover:not(:disabled) { background: #1557b0; }
 
-    .auto-cmd-btn:hover {
-      background: #e8eaed;
-    }
-
-    .auto-cmd-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+    .auto-input-sm {
+      padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 11px;
     }
 
     .snapshot-search-result {
@@ -411,7 +420,6 @@
       margin-bottom: 6px;
       font-size: 12px;
     }
-
     .snapshot-search-result .score {
       color: #1e8e3e;
       font-weight: 600;
@@ -774,56 +782,74 @@
 
     <!-- Automation Container (Auto Mode) -->
     <div id="automation-container" style="display:none;">
-      <!-- Bridge Status -->
-      <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 12px;">
-        <div class="bridge-status">
-          <div id="bridge-dot" class="bridge-dot"></div>
-          <span id="bridge-status-text" style="font-size: 13px; color: #5f6368;">Disconnected</span>
-          <button id="bridge-connect-btn" style="margin-left: auto; padding: 6px 14px; background: #1a73e8; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer;">Connect</button>
-        </div>
+      <!-- Bridge Status Bar (sticky) -->
+      <div id="auto-status-bar" class="auto-status-bar">
+        <div id="bridge-dot" class="bridge-dot"></div>
+        <span id="bridge-status-text">Disconnected</span>
+        <button id="bridge-connect-btn" class="auto-btn-sm">Connect</button>
       </div>
 
-      <!-- Sessions -->
-      <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 12px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <h3 style="font-size: 14px; font-weight: 600; color: #202124;">Sessions</h3>
-          <button id="auto-new-session-btn" class="auto-cmd-btn" disabled>+ New</button>
-        </div>
-        <div id="auto-session-list" style="font-size: 12px; color: #5f6368;">No sessions</div>
+      <!-- Session Tabs (horizontal scroll) -->
+      <div id="auto-session-bar" class="auto-session-bar">
+        <div id="auto-session-tabs" class="auto-session-tabs"></div>
+        <button id="auto-new-session-btn" class="auto-btn-sm" disabled>+</button>
       </div>
 
-      <!-- Commands -->
-      <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 12px;">
-        <h3 style="font-size: 14px; font-weight: 600; color: #202124; margin-bottom: 12px;">Commands</h3>
-        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;">
-          <button id="auto-snapshot-btn" class="auto-cmd-btn" disabled>Snapshot</button>
-          <button id="auto-navigate-btn" class="auto-cmd-btn" disabled>Navigate</button>
-          <button id="auto-click-btn" class="auto-cmd-btn" disabled>Click</button>
-          <button id="auto-fill-btn" class="auto-cmd-btn" disabled>Fill</button>
+      <!-- Command Bar (sticky) -->
+      <div id="auto-command-bar" class="auto-command-bar">
+        <input type="text" id="auto-command-input" placeholder="Command or natural language..." disabled>
+        <button id="auto-send-btn" class="auto-btn-sm" disabled>Send</button>
+        <button id="auto-snapshot-btn" class="auto-btn-sm" disabled title="Take snapshot">Snap</button>
+      </div>
+
+      <!-- Quick Actions -->
+      <div id="auto-quick-actions" class="auto-quick-actions">
+        <button class="auto-action-btn" data-action="dismiss" title="Dismiss dialog" disabled>Dismiss</button>
+        <button class="auto-action-btn" data-action="refresh" title="Refresh page" disabled>Refresh</button>
+        <button class="auto-action-btn" data-action="back" title="Go back" disabled>Back</button>
+        <button class="auto-action-btn" data-action="scroll" title="Scroll down" disabled>Scroll</button>
+      </div>
+
+      <!-- Command Feed (live, scrollable) -->
+      <div id="auto-command-feed" class="auto-section">
+        <div class="auto-section-header" data-collapse="command-feed">
+          <span>Command Feed</span>
+          <span id="auto-feed-count" class="auto-badge">0</span>
         </div>
-        <div style="display: flex; gap: 8px;">
-          <input type="text" id="auto-command-input" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" placeholder="Command or natural language..." disabled>
-          <button id="auto-send-btn" class="auto-cmd-btn" disabled>Send</button>
-        </div>
+        <div id="auto-feed-list" class="auto-feed-list"></div>
       </div>
 
       <!-- Snapshot Viewer -->
-      <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 12px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-          <h3 style="font-size: 14px; font-weight: 600; color: #202124;">Snapshot</h3>
-          <span id="auto-snapshot-info" style="font-size: 11px; color: #5f6368;"></span>
+      <div id="auto-snapshot-section" class="auto-section">
+        <div class="auto-section-header" data-collapse="snapshot">
+          <span>Snapshot</span>
+          <span id="auto-snapshot-info" class="auto-badge"></span>
         </div>
-        <div id="auto-snapshot-viewer">No snapshot yet</div>
+        <div id="auto-snapshot-search" style="display:none; padding: 4px 12px;">
+          <input type="text" id="auto-snap-filter" placeholder="Filter snapshot..." class="auto-input-sm" style="width:100%;">
+        </div>
+        <pre id="auto-snapshot-viewer" class="auto-snapshot-viewer">No snapshot yet</pre>
       </div>
 
-      <!-- Page Knowledge (Snapshot Search) -->
-      <div style="background: white; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px;">
-        <h3 style="font-size: 14px; font-weight: 600; color: #202124; margin-bottom: 12px;">Page Knowledge</h3>
-        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-          <input type="text" id="auto-knowledge-input" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;" placeholder="Search cached snapshots...">
-          <button id="auto-knowledge-search-btn" class="auto-cmd-btn">Search</button>
+      <!-- Page Knowledge -->
+      <div id="auto-knowledge-section" class="auto-section">
+        <div class="auto-section-header" data-collapse="knowledge">
+          <span>Page Knowledge</span>
         </div>
-        <div id="auto-knowledge-results" style="font-size: 12px; color: #5f6368;">Search the snapshot vector store for cached page structure.</div>
+        <div style="display: flex; gap: 6px; padding: 4px 12px 8px;">
+          <input type="text" id="auto-knowledge-input" placeholder="Search cached snapshots..." class="auto-input-sm" style="flex:1;">
+          <button id="auto-knowledge-search-btn" class="auto-btn-sm">Search</button>
+        </div>
+        <div id="auto-knowledge-results" style="padding: 0 12px 8px; font-size: 12px; color: #5f6368;">Search the snapshot vector store for cached page structure.</div>
+      </div>
+
+      <!-- Script Status (Phase 3 skeleton) -->
+      <div id="auto-scripts-section" class="auto-section" style="display:none;">
+        <div class="auto-section-header" data-collapse="scripts">
+          <span>Scripts</span>
+          <span id="auto-scripts-count" class="auto-badge">0</span>
+        </div>
+        <div id="auto-scripts-list"></div>
       </div>
     </div>
 
@@ -848,6 +874,6 @@
     </div>
   </footer>
 
-  <script src="sidepanel.js"></script>
+  <script type="module" src="sidepanel.js"></script>
 </body>
 </html>
