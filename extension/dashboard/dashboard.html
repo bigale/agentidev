@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <title>Contextual Recall — Automation Dashboard</title>
+
+  <!-- Monaco CSS (must load before JS) -->
+  <link rel="stylesheet" href="lib/monaco/vs/editor/editor.main.css">
+
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -22,487 +26,355 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 8px 16px;
+      padding: 0 16px;
       background: #16213e;
       border-bottom: 1px solid #2a2a4a;
       flex-shrink: 0;
       height: 44px;
     }
-
     .dash-topbar-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #d93025;
-      flex-shrink: 0;
+      width: 9px; height: 9px;
+      border-radius: 50%; background: #d93025; flex-shrink: 0;
     }
     .dash-topbar-dot.connected { background: #1e8e3e; }
+    .dash-topbar-status { font-size: 12px; color: #8f8faf; }
+    .dash-topbar-title {
+      font-size: 13px; font-weight: 600; color: #e0e0e0;
+    }
+    .dash-topbar-sep { flex: 1; }
 
-    .dash-topbar-status {
-      font-size: 13px;
+    /* Open Script modal */
+    .dash-modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.65); z-index: 1000;
+      align-items: flex-start; justify-content: center;
+      padding-top: 80px;
+    }
+    .dash-modal-overlay.open { display: flex; }
+    .dash-modal {
+      background: #16213e; border: 1px solid #3a3a5a;
+      border-radius: 8px; width: 560px; max-width: 90vw;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+      overflow: hidden;
+    }
+    .dash-modal-hdr {
+      display: flex; align-items: center;
+      padding: 12px 16px 10px;
+      border-bottom: 1px solid #2a2a4a;
+    }
+    .dash-modal-title {
+      font-size: 13px; font-weight: 600; color: #e0e0e0; flex: 1;
+    }
+    .dash-modal-close {
+      background: none; border: none; color: #5f5f7f;
+      font-size: 16px; cursor: pointer; line-height: 1; padding: 0 4px;
+    }
+    .dash-modal-close:hover { color: #e0e0e0; }
+    .dash-modal-body { padding: 14px 16px; }
+    .dash-modal-label {
+      font-size: 10px; font-weight: 600; color: #5f5f7f;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 5px;
+    }
+    .dash-modal-input {
+      width: 100%; padding: 7px 10px; font-size: 12px;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      background: #0d1117; color: #e0e0e0;
+      border: 1px solid #3a3a5a; border-radius: 4px;
+      margin-bottom: 12px;
+    }
+    .dash-modal-input:focus { outline: none; border-color: #1a73e8; }
+    .dash-modal-input::placeholder { color: #3a3a5a; }
+    .dash-recent-label {
+      font-size: 10px; font-weight: 600; color: #5f5f7f;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .dash-recent-list { margin-bottom: 14px; }
+    .dash-recent-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 8px; border-radius: 4px; cursor: pointer;
+      font-size: 11px; font-family: 'SF Mono', 'Consolas', monospace;
       color: #8f8faf;
     }
-
-    .dash-topbar-title {
-      font-size: 14px;
-      font-weight: 600;
-      color: #e0e0e0;
-      margin-left: auto;
+    .dash-recent-item:hover { background: #1c2a50; color: #e0e0e0; }
+    .dash-recent-item-icon { color: #3a3a5a; font-size: 12px; }
+    .dash-recent-item:hover .dash-recent-item-icon { color: #5b8dee; }
+    .dash-recent-empty { font-size: 11px; color: #3a3a5a; padding: 4px 8px; }
+    .dash-modal-footer {
+      display: flex; gap: 8px; justify-content: flex-end;
+      padding: 10px 16px;
+      border-top: 1px solid #2a2a4a;
     }
 
-    .dash-topbar-btn {
-      padding: 4px 12px;
-      font-size: 12px;
-      background: #1a73e8;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
+    .dash-btn {
+      padding: 4px 10px; font-size: 11px;
+      border: none; border-radius: 4px; cursor: pointer;
+      white-space: nowrap; font-weight: 500;
     }
-    .dash-topbar-btn:hover { background: #1557b0; }
-    .dash-topbar-btn.danger { background: #d93025; }
-    .dash-topbar-btn.danger:hover { background: #b71c1c; }
+    .dash-btn.primary { background: #1a73e8; color: #fff; }
+    .dash-btn.primary:hover { background: #1557b0; }
+    .dash-btn.danger { background: #d93025; color: #fff; }
+    .dash-btn.danger:hover { background: #b71c1c; }
+    .dash-btn.secondary { background: #2a2a4a; color: #c0c0d0; border: 1px solid #3a3a5a; }
+    .dash-btn.secondary:hover { background: #3a3a5a; }
+    .dash-btn:disabled { opacity: 0.5; cursor: default; }
 
-    /* ---- Grid Layout ---- */
+    /* ---- 3-Column Layout ---- */
     .dash-grid {
       flex: 1;
       display: grid;
-      grid-template-columns: 340px 1fr;
-      grid-template-rows: 1fr 1fr;
-      gap: 1px;
-      background: #2a2a4a;
+      grid-template-columns: 300px 1fr 280px;
       overflow: hidden;
     }
 
-    .dash-panel {
-      background: #1a1a2e;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
+    .dash-col {
+      display: flex; flex-direction: column; overflow: hidden;
+      border-right: 1px solid #2a2a4a;
     }
+    .dash-col:last-child { border-right: none; }
 
-    .dash-panel-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 8px 12px;
+    /* ---- Section headers ---- */
+    .dash-section-hdr {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 12px;
       background: #16213e;
       border-bottom: 1px solid #2a2a4a;
-      flex-shrink: 0;
-      min-height: 36px;
+      flex-shrink: 0; min-height: 34px;
+      cursor: default; user-select: none;
     }
-
-    .dash-panel-title {
-      font-size: 12px;
-      font-weight: 600;
-      color: #8f8faf;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+    .dash-section-hdr.clickable { cursor: pointer; }
+    .dash-section-hdr.clickable:hover { background: #1c2a50; }
+    .dash-section-title {
+      font-size: 11px; font-weight: 600; color: #8f8faf;
+      text-transform: uppercase; letter-spacing: 0.5px; flex: 1;
     }
-
-    .dash-panel-body {
-      flex: 1;
-      overflow-y: auto;
-      overflow-x: hidden;
-    }
-
     .dash-badge {
-      font-size: 10px;
-      background: #2a2a4a;
-      color: #8f8faf;
-      padding: 2px 8px;
-      border-radius: 8px;
+      font-size: 10px; background: #2a2a4a; color: #8f8faf;
+      padding: 1px 7px; border-radius: 8px;
     }
+    .dash-collapse-arrow { color: #5f5f7f; font-size: 10px; transition: transform 0.2s; }
+    .dash-collapse-arrow.open { transform: rotate(90deg); }
 
-    /* ---- Session Panel (top-left) ---- */
-    .dash-session-list {
-      padding: 4px 0;
+    /* ---- Left Col: Scripts ---- */
+    .dash-scripts-list {
+      flex: 1; overflow-y: auto; min-height: 0;
     }
-
-    .dash-session-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
+    .dash-script-card {
+      padding: 10px 12px;
+      border-bottom: 1px solid #222244;
       cursor: pointer;
+      transition: background 0.1s;
       border-left: 3px solid transparent;
-      transition: background 0.15s;
+    }
+    .dash-script-card:hover { background: #16213e; }
+    .dash-script-card.selected { background: #16213e; border-left-color: #1a73e8; }
+    .dash-script-card.checkpoint-active { border-left-color: #f9ab00; }
+
+    .dash-sc-header {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 5px;
+    }
+    .dash-sc-name { font-size: 12px; font-weight: 600; flex: 1; color: #e0e0e0; }
+    .dash-sc-state {
+      font-size: 9px; padding: 1px 6px; border-radius: 8px; font-weight: 600;
+    }
+    .dash-sc-state.running { background: #1e3a1e; color: #4caf50; }
+    .dash-sc-state.paused { background: #3a3a1e; color: #f9ab00; }
+    .dash-sc-state.checkpoint { background: #3a2e1e; color: #f9ab00; }
+    .dash-sc-state.complete { background: #1e2a4a; color: #5b8dee; }
+    .dash-sc-state.cancelled { background: #3a1e1e; color: #f44336; }
+    .dash-sc-state.killed { background: #3a1e1e; color: #f44336; }
+    .dash-sc-state.registered { background: #2a2a3a; color: #8f8faf; }
+    .dash-sc-state.disconnected { background: #3a1e1e; color: #8f8faf; }
+    .dash-sc-state.error { background: #3a1e1e; color: #f44336; }
+
+    .dash-sc-progress {
+      height: 3px; background: #2a2a4a; border-radius: 2px;
+      margin: 0 0 5px; overflow: hidden;
+    }
+    .dash-sc-progress-fill {
+      height: 100%; background: #1a73e8; border-radius: 2px;
+      transition: width 0.4s;
+    }
+    .dash-sc-progress-fill.complete { background: #1e8e3e; }
+    .dash-sc-progress-fill.error { background: #d93025; }
+
+    .dash-sc-step {
+      font-size: 10px; color: #8f8faf; margin-bottom: 3px;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .dash-sc-errors { color: #f44336; font-size: 9px; font-weight: 600; }
+    .dash-sc-activity {
+      font-size: 10px; color: #5b8dee; font-style: italic;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      margin-bottom: 5px;
+    }
+
+    /* Breakpoint dots */
+    .dash-sc-bps {
+      display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 5px;
+    }
+    .dash-sc-bp {
+      display: flex; align-items: center; gap: 2px;
+      font-size: 9px; cursor: pointer; padding: 1px 4px;
+      border-radius: 3px; background: #2a2a3a; color: #5f5f7f;
+      transition: background 0.1s, color 0.1s;
+    }
+    .dash-sc-bp:hover { background: #3a2a1e; color: #f9ab00; }
+    .dash-sc-bp.active { background: #3a2a1e; color: #f9ab00; }
+    .dash-sc-bp.hit { background: #4a3a1e; color: #ffcc02; font-weight: 600; }
+    .dash-sc-bp-dot { font-size: 10px; line-height: 1; }
+
+    /* Script action buttons */
+    .dash-sc-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+    .dash-sc-btn {
+      padding: 2px 7px; font-size: 9px; border: none; border-radius: 3px;
+      cursor: pointer; font-weight: 500;
+    }
+    .dash-sc-btn.normal { background: #2a3a4a; color: #a0c0e0; }
+    .dash-sc-btn.normal:hover { background: #3a4a5a; }
+    .dash-sc-btn.danger { background: #4a1e1e; color: #f44336; }
+    .dash-sc-btn.danger:hover { background: #5a2e2e; }
+    .dash-sc-btn.warn { background: #3a2a1e; color: #f9ab00; }
+    .dash-sc-btn.warn:hover { background: #4a3a1e; }
+
+    /* Sessions sub-section */
+    .dash-sessions-body {
+      overflow-y: auto; flex-shrink: 0; max-height: 160px;
+    }
+    .dash-session-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 12px; border-bottom: 1px solid #222244;
+      cursor: pointer; font-size: 12px;
     }
     .dash-session-item:hover { background: #16213e; }
-    .dash-session-item.active {
-      background: #16213e;
-      border-left-color: #1a73e8;
-    }
-
+    .dash-session-item.active { background: #1c2a50; }
     .dash-session-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
     }
     .dash-session-dot.READY { background: #1e8e3e; }
     .dash-session-dot.ERROR { background: #d93025; }
     .dash-session-dot.IDLE { background: #f9ab00; }
     .dash-session-dot.NAVIGATING { background: #1967d2; }
+    .dash-session-name { flex: 1; color: #c0c0d0; }
+    .dash-session-state { font-size: 10px; color: #5f5f7f; text-transform: uppercase; }
 
-    .dash-session-name {
-      font-size: 13px;
-      color: #e0e0e0;
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+    /* ---- Center Col: Monaco Source ---- */
+    .dash-center { position: relative; }
+    .dash-source-toolbar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 10px;
+      background: #16213e; border-bottom: 1px solid #2a2a4a;
+      flex-shrink: 0; min-height: 34px;
     }
-
-    .dash-session-state {
-      font-size: 10px;
-      color: #8f8faf;
-      text-transform: uppercase;
+    .dash-source-file {
+      font-size: 11px; color: #8f8faf; flex: 1;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-
-    .dash-session-actions {
-      display: flex;
-      gap: 6px;
-      padding: 8px 12px;
-      border-top: 1px solid #2a2a4a;
+    .dash-source-toggle {
+      display: flex; gap: 2px;
     }
-
-    .dash-btn-sm {
-      padding: 4px 10px;
-      font-size: 11px;
-      background: #1a73e8;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      white-space: nowrap;
+    .dash-source-toggle-btn {
+      padding: 2px 8px; font-size: 10px; border: 1px solid #3a3a5a;
+      background: transparent; color: #8f8faf; cursor: pointer; border-radius: 3px;
     }
-    .dash-btn-sm:disabled { background: #3a3a5a; color: #666; cursor: default; }
-    .dash-btn-sm:hover:not(:disabled) { background: #1557b0; }
-    .dash-btn-sm.danger { background: #d93025; }
-    .dash-btn-sm.danger:hover:not(:disabled) { background: #b71c1c; }
+    .dash-source-toggle-btn.active { background: #2a3a5a; color: #e0e0e0; border-color: #1a73e8; }
 
-    .dash-empty {
-      padding: 24px 12px;
-      text-align: center;
-      color: #5f5f7f;
-      font-size: 12px;
+    #monaco-container { flex: 1; overflow: hidden; min-height: 0; }
+
+    /* Snapshot fallback view */
+    #snapshot-view {
+      flex: 1; overflow: auto;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-size: 11px; line-height: 1.4;
+      background: #1e1e1e; color: #d4d4d4;
+      padding: 8px; white-space: pre;
+      display: none;
     }
-
-    /* ---- Feed Panel (bottom-left) ---- */
-    .dash-filter-bar {
-      display: flex;
-      gap: 4px;
-      padding: 6px 8px;
-      flex-wrap: wrap;
-      background: #16213e;
-      border-bottom: 1px solid #2a2a4a;
-      flex-shrink: 0;
+    .dash-snap-filter {
+      display: flex; gap: 6px; align-items: center;
+      padding: 4px 8px; background: #111127;
+      border-top: 1px solid #2a2a4a; flex-shrink: 0;
     }
-
-    .dash-filter-select {
-      padding: 3px 6px;
-      font-size: 10px;
-      background: #2a2a4a;
-      color: #c0c0d0;
-      border: 1px solid #3a3a5a;
+    .dash-snap-filter input {
+      flex: 1; padding: 3px 6px; font-size: 10px;
+      background: #2a2a4a; color: #e0e0e0; border: 1px solid #3a3a5a;
       border-radius: 3px;
     }
+    .dash-snap-filter input::placeholder { color: #5f5f7f; }
+    .dash-snap-info { font-size: 10px; color: #5f5f7f; }
 
-    .dash-filter-input {
-      flex: 1;
-      min-width: 80px;
-      padding: 3px 6px;
-      font-size: 10px;
-      background: #2a2a4a;
-      color: #e0e0e0;
-      border: 1px solid #3a3a5a;
-      border-radius: 3px;
-    }
-    .dash-filter-input::placeholder { color: #5f5f7f; }
+    /* Monaco glyph margin decorations */
+    .monaco-bp-active { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14'%3E%3Ccircle cx='7' cy='7' r='5' fill='%23e05252'/%3E%3C/svg%3E") center/12px no-repeat; }
+    .monaco-bp-inactive { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14'%3E%3Ccircle cx='7' cy='7' r='5' fill='none' stroke='%23555' stroke-width='1.5'/%3E%3C/svg%3E") center/12px no-repeat; }
+    .monaco-bp-current { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14'%3E%3Cpolygon points='2,3 12,7 2,11' fill='%23f9ab00'/%3E%3C/svg%3E") center/12px no-repeat; }
+    .monaco-line-current { background: rgba(249, 171, 0, 0.12) !important; }
+    .monaco-line-current-border { border-left: 2px solid #f9ab00; }
 
-    .dash-feed-list {
-      font-family: 'SF Mono', 'Consolas', monospace;
-    }
+    /* ---- Right Col: Debug State ---- */
+    .dash-debug-body { flex: 1; overflow-y: auto; min-height: 0; }
 
-    .dash-feed-entry {
-      display: flex;
-      gap: 8px;
-      padding: 4px 10px;
-      font-size: 11px;
-      border-bottom: 1px solid #222244;
-      align-items: center;
-      cursor: pointer;
-      transition: background 0.1s;
-    }
-    .dash-feed-entry:hover { background: #16213e; }
-
-    .dash-feed-time {
-      color: #5f5f7f;
-      min-width: 60px;
-      font-size: 10px;
-    }
-    .dash-feed-type {
-      font-weight: 600;
-      min-width: 55px;
-      color: #569cd6;
-    }
-    .dash-feed-summary {
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      color: #8f8faf;
-    }
-    .dash-feed-source {
-      color: #5f5f7f;
-      font-size: 10px;
-    }
-    .dash-feed-status { white-space: nowrap; font-size: 10px; }
-    .dash-feed-status.success { color: #1e8e3e; }
-    .dash-feed-status.error { color: #d93025; }
-    .dash-feed-status.running { color: #f9ab00; }
-
-    .dash-feed-detail {
-      padding: 6px 10px;
-      font-size: 10px;
-      color: #8f8faf;
-      white-space: pre-wrap;
-      word-break: break-all;
-      background: #111127;
-      border-bottom: 1px solid #2a2a4a;
-      font-family: 'SF Mono', 'Consolas', monospace;
-    }
-
-    /* ---- Snapshot Panel (top-right) ---- */
-    .dash-snap-toolbar {
-      display: flex;
-      gap: 4px;
-      padding: 6px 8px;
-      align-items: center;
-      background: #16213e;
-      border-bottom: 1px solid #2a2a4a;
-      flex-shrink: 0;
-      flex-wrap: wrap;
-    }
-
-    .dash-snap-viewer {
-      flex: 1;
-      overflow: auto;
-      font-family: 'SF Mono', 'Consolas', monospace;
-      font-size: 11px;
-      line-height: 1.4;
-      background: #1e1e1e;
-      color: #d4d4d4;
-      padding: 8px;
-      white-space: pre;
-    }
-
-    /* Diff view */
-    .dash-diff-container {
-      display: flex;
-      flex: 1;
-      overflow: hidden;
-    }
-    .dash-diff-side {
-      flex: 1;
-      overflow: auto;
-      font-family: 'SF Mono', 'Consolas', monospace;
-      font-size: 11px;
-      line-height: 1.4;
-      background: #1e1e1e;
-    }
-    .dash-diff-header {
-      padding: 4px 8px;
-      background: #2a2a4a;
-      color: #8f8faf;
-      font-size: 10px;
-      font-weight: 600;
-      position: sticky;
-      top: 0;
-      z-index: 1;
-    }
-    .dash-diff-line {
-      display: flex;
-      padding: 0 8px;
-      min-height: 18px;
-    }
-    .dash-diff-num {
-      color: #858585;
-      min-width: 4ch;
-      text-align: right;
-      margin-right: 8px;
-      user-select: none;
-    }
-    .dash-diff-text {
-      white-space: pre;
-      color: #d4d4d4;
-    }
-    .dash-diff-removed { background: #3a1e1e; }
-    .dash-diff-removed .dash-diff-text { color: #f4a0a0; }
-    .dash-diff-added { background: #1e3a1e; }
-    .dash-diff-added .dash-diff-text { color: #a0f4a0; }
-    .dash-diff-empty { background: #1a1a1a; }
-    .dash-diff-same { background: transparent; }
-
-    /* YAML collapsible sections */
-    .dash-yaml-section { /* block by default, hidden when collapsed */ }
-
-    /* ---- Reasoning Panel (bottom-right) ---- */
-    .dash-reason-input-bar {
-      display: flex;
-      gap: 6px;
-      padding: 6px 8px;
-      background: #16213e;
-      border-bottom: 1px solid #2a2a4a;
-      flex-shrink: 0;
-    }
-
-    .dash-reason-input {
-      flex: 1;
-      padding: 5px 8px;
-      font-size: 12px;
-      background: #2a2a4a;
-      color: #e0e0e0;
-      border: 1px solid #3a3a5a;
-      border-radius: 4px;
-    }
-    .dash-reason-input::placeholder { color: #5f5f7f; }
-
-    .dash-trace-list {
-      padding: 4px 0;
-    }
-
-    .dash-trace-card {
-      margin: 4px 8px;
-      background: #16213e;
-      border: 1px solid #2a2a4a;
+    /* Checkpoint panel */
+    .dash-checkpoint-panel {
+      margin: 10px; padding: 12px;
+      background: #221e0e; border: 1px solid #f9ab00;
       border-radius: 6px;
-      overflow: hidden;
     }
-    .dash-trace-card.active {
-      border-color: #1a73e8;
+    .dash-checkpoint-name {
+      font-size: 12px; font-weight: 700; color: #f9ab00;
+      margin-bottom: 8px;
     }
-
-    .dash-trace-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 10px;
-      cursor: pointer;
-      font-size: 12px;
-    }
-    .dash-trace-header:hover { background: #1a1a3e; }
-
-    .dash-trace-intent {
-      flex: 1;
-      color: #e0e0e0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .dash-trace-duration {
-      color: #5f5f7f;
-      font-size: 10px;
-    }
-    .dash-trace-status-badge {
-      font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 3px;
-    }
-    .dash-trace-status-badge.success { background: #1e3a1e; color: #1e8e3e; }
-    .dash-trace-status-badge.error { background: #3a1e1e; color: #d93025; }
-    .dash-trace-status-badge.running { background: #3a3a1e; color: #f9ab00; }
-
-    .dash-trace-phases {
-      display: flex;
-      gap: 4px;
-      padding: 0 10px 8px;
-    }
-
-    .dash-phase-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #3a3a5a;
-    }
-    .dash-phase-dot.complete { background: #1e8e3e; }
-    .dash-phase-dot.active { background: #f9ab00; }
-    .dash-phase-dot.error { background: #d93025; }
-
-    .dash-phase-label {
-      font-size: 9px;
-      color: #5f5f7f;
-      text-align: center;
-    }
-
-    .dash-phase-step {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 2px;
-    }
-
-    .dash-trace-detail {
-      padding: 8px 10px;
-      border-top: 1px solid #2a2a4a;
-      font-size: 11px;
-      color: #8f8faf;
-    }
-
-    .dash-trace-commands {
-      margin: 4px 0;
-      padding: 0;
-      list-style: none;
-    }
-    .dash-trace-commands li {
-      padding: 2px 0;
+    .dash-checkpoint-ctx {
       font-family: 'SF Mono', 'Consolas', monospace;
-      font-size: 10px;
+      font-size: 11px; color: #c0c0a0; margin-bottom: 10px;
     }
-    .dash-trace-commands .cmd-ok { color: #1e8e3e; }
-    .dash-trace-commands .cmd-fail { color: #d93025; }
+    .dash-ctx-row { display: flex; gap: 6px; margin: 2px 0; }
+    .dash-ctx-key { color: #e0d090; font-weight: 600; min-width: 80px; }
+    .dash-ctx-val { color: #c0c0a0; }
+    .dash-checkpoint-btns { display: flex; gap: 6px; }
+    .dash-dbg-btn {
+      flex: 1; padding: 5px 0; font-size: 11px; font-weight: 600;
+      border: none; border-radius: 4px; cursor: pointer; text-align: center;
+    }
+    .dash-dbg-btn.step { background: #1e3a5a; color: #5b8dee; }
+    .dash-dbg-btn.step:hover { background: #2a4a6a; }
+    .dash-dbg-btn.continue { background: #1e3a1e; color: #4caf50; }
+    .dash-dbg-btn.continue:hover { background: #2a4a2a; }
+    .dash-dbg-btn.cancel { background: #3a1e1e; color: #f44336; }
+    .dash-dbg-btn.cancel:hover { background: #4a2e2e; }
 
-    .dash-token-bar {
-      height: 6px;
-      background: #2a2a4a;
-      border-radius: 3px;
-      margin: 4px 0;
-      overflow: hidden;
+    /* Stats when running */
+    .dash-script-stats {
+      padding: 10px 12px; border-bottom: 1px solid #2a2a4a;
+      font-size: 11px; color: #8f8faf;
     }
-    .dash-token-bar-fill {
-      height: 100%;
-      background: #1a73e8;
-      border-radius: 3px;
-      transition: width 0.3s;
-    }
-    .dash-token-bar-fill.warn { background: #f9ab00; }
-    .dash-token-bar-fill.danger { background: #d93025; }
+    .dash-stat-row { display: flex; justify-content: space-between; margin: 3px 0; }
+    .dash-stat-label { color: #5f5f7f; }
+    .dash-stat-val { color: #c0c0d0; font-family: 'SF Mono', 'Consolas', monospace; }
 
-    .dash-trace-reasoning {
-      padding: 6px 8px;
-      background: #111127;
-      border-radius: 4px;
-      margin: 4px 0;
-      font-size: 11px;
-      color: #c0c0d0;
-      white-space: pre-wrap;
-      word-break: break-word;
+    /* Activity feed */
+    .dash-activity-list { padding: 4px 0; }
+    .dash-activity-item {
+      padding: 5px 12px;
+      font-size: 10px; color: #8f8faf;
+      border-bottom: 1px solid #1a1a2e;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      line-height: 1.4;
+    }
+    .dash-activity-item:first-child { color: #5b8dee; }
+    .dash-activity-time { color: #5f5f7f; margin-right: 6px; }
+
+    /* Empty states */
+    .dash-empty {
+      padding: 24px 12px; text-align: center;
+      color: #3a3a5a; font-size: 12px;
     }
 
-    .dash-trace-verification {
-      padding: 4px 8px;
-      border-radius: 4px;
-      margin-top: 4px;
-      font-size: 11px;
-    }
-    .dash-trace-verification.pass { background: #1e3a1e; color: #1e8e3e; }
-    .dash-trace-verification.fail { background: #3a1e1e; color: #d93025; }
-
-    /* ---- Scrollbar styling ---- */
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: #1a1a2e; }
-    ::-webkit-scrollbar-thumb { background: #3a3a5a; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: #3a3a5a; border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: #4a4a6a; }
   </style>
 </head>
@@ -511,54 +383,121 @@
   <div class="dash-topbar">
     <div id="dash-bridge-dot" class="dash-topbar-dot"></div>
     <span id="dash-bridge-status" class="dash-topbar-status">Disconnected</span>
-    <button id="dash-connect-btn" class="dash-topbar-btn">Connect</button>
+    <button id="dash-connect-btn" class="dash-btn secondary">Connect</button>
+    <span style="color:#3a3a5a;">|</span>
     <span class="dash-topbar-title">Automation Dashboard</span>
+    <div class="dash-topbar-sep"></div>
+    <button id="dash-open-btn" class="dash-btn primary" disabled>Open Script...</button>
   </div>
 
-  <!-- 2x2 Grid -->
+  <!-- Open Script Modal -->
+  <div class="dash-modal-overlay" id="dash-modal-overlay">
+    <div class="dash-modal">
+      <div class="dash-modal-hdr">
+        <span class="dash-modal-title">Open Script</span>
+        <button class="dash-modal-close" id="dash-modal-close">✕</button>
+      </div>
+      <div class="dash-modal-body">
+        <div class="dash-modal-label">Script path</div>
+        <input type="text" id="dash-launch-path" class="dash-modal-input"
+               placeholder="/home/user/scripts/my-script.mjs" spellcheck="false" autocomplete="off">
+        <div class="dash-modal-label">Arguments <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#3a3a5a;">(optional)</span></div>
+        <input type="text" id="dash-launch-args" class="dash-modal-input"
+               placeholder="--flag value" spellcheck="false" autocomplete="off">
+        <div class="dash-recent-label">Recent</div>
+        <div class="dash-recent-list" id="dash-recent-list">
+          <div class="dash-recent-empty">No recent scripts</div>
+        </div>
+      </div>
+      <div class="dash-modal-footer">
+        <button class="dash-btn secondary" id="dash-modal-cancel">Cancel</button>
+        <button class="dash-btn primary" id="dash-launch-btn">Launch ▶</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3-Column Grid -->
   <div class="dash-grid">
-    <!-- Top-Left: Sessions -->
-    <div class="dash-panel" id="dash-session-panel">
-      <div class="dash-panel-header">
-        <span class="dash-panel-title">Sessions</span>
-        <span id="dash-session-count" class="dash-badge">0</span>
+
+    <!-- LEFT: Scripts + Sessions -->
+    <div class="dash-col" id="left-col">
+      <!-- Scripts header -->
+      <div class="dash-section-hdr">
+        <span class="dash-section-title">Scripts</span>
+        <span id="scripts-count" class="dash-badge">0</span>
       </div>
-      <div class="dash-panel-body" id="dash-session-body"></div>
+      <!-- Scripts list -->
+      <div id="scripts-list" class="dash-scripts-list"></div>
+      <!-- Sessions header (collapsible) -->
+      <div class="dash-section-hdr clickable" id="sessions-toggle">
+        <span class="dash-section-title">Sessions</span>
+        <span id="sessions-count" class="dash-badge">0</span>
+        <span class="dash-collapse-arrow open" id="sessions-arrow">▶</span>
+      </div>
+      <div id="sessions-body" class="dash-sessions-body"></div>
+      <!-- New session -->
+      <div style="padding: 6px 12px; border-top: 1px solid #2a2a4a; display:flex; gap:6px; flex-shrink:0;">
+        <button id="dash-new-session-btn" class="dash-btn secondary" disabled style="flex:1;">+ Session</button>
+        <button id="dash-destroy-session-btn" class="dash-btn danger" disabled>Destroy</button>
+      </div>
     </div>
 
-    <!-- Top-Right: Snapshots -->
-    <div class="dash-panel" id="dash-snapshot-panel">
-      <div class="dash-panel-header">
-        <span class="dash-panel-title">Snapshot</span>
-        <span id="dash-snap-info" class="dash-badge"></span>
+    <!-- CENTER: Monaco Source / Snapshot -->
+    <div class="dash-col dash-center" id="center-col">
+      <div class="dash-source-toolbar">
+        <span id="source-file-label" class="dash-source-file">No script selected</span>
+        <div class="dash-source-toggle">
+          <button class="dash-source-toggle-btn active" id="view-source-btn">Source</button>
+          <button class="dash-source-toggle-btn" id="view-snap-btn">Snapshot</button>
+        </div>
       </div>
-      <div id="dash-snap-toolbar" class="dash-snap-toolbar"></div>
-      <div class="dash-panel-body" id="dash-snapshot-body">
-        <div class="dash-snap-viewer" id="dash-snap-viewer" style="height:100%;">No snapshot</div>
+      <div id="monaco-container"></div>
+      <div id="snapshot-view">No snapshot yet</div>
+      <div class="dash-snap-filter" id="snap-filter-bar" style="display:none;">
+        <input type="text" id="snap-filter-input" placeholder="Filter lines...">
+        <span class="dash-snap-info" id="snap-filter-info"></span>
       </div>
     </div>
 
-    <!-- Bottom-Left: Command Feed -->
-    <div class="dash-panel" id="dash-feed-panel">
-      <div class="dash-panel-header">
-        <span class="dash-panel-title">Command Feed</span>
-        <span id="dash-feed-count" class="dash-badge">0 / 0</span>
+    <!-- RIGHT: Debug State + Activity -->
+    <div class="dash-col" id="right-col">
+      <div class="dash-section-hdr">
+        <span class="dash-section-title" id="debug-panel-title">Debug State</span>
       </div>
-      <div id="dash-feed-filters" class="dash-filter-bar"></div>
-      <div class="dash-panel-body" id="dash-feed-body"></div>
+      <div class="dash-debug-body" id="debug-body">
+        <div class="dash-empty" id="debug-empty">Select a running script</div>
+      </div>
+      <div class="dash-section-hdr clickable" id="activity-toggle">
+        <span class="dash-section-title">Activity</span>
+        <span class="dash-collapse-arrow open" id="activity-arrow">▶</span>
+      </div>
+      <div id="activity-body" style="overflow-y:auto; max-height:200px; flex-shrink:0;">
+        <div class="dash-activity-list" id="activity-list"></div>
+      </div>
     </div>
 
-    <!-- Bottom-Right: Reasoning -->
-    <div class="dash-panel" id="dash-reasoning-panel">
-      <div class="dash-panel-header">
-        <span class="dash-panel-title">AI Reasoning</span>
-        <span id="dash-trace-count" class="dash-badge">0</span>
-      </div>
-      <div id="dash-reason-input-bar" class="dash-reason-input-bar"></div>
-      <div class="dash-panel-body" id="dash-reasoning-body"></div>
-    </div>
   </div>
 
+  <!-- Monaco AMD loader setup: configure worker URL before loader.js runs -->
+  <script>
+    window.MonacoEnvironment = {
+      getWorkerUrl: function() {
+        return chrome.runtime.getURL('dashboard/lib/monaco/vs/base/worker/workerMain.js');
+      }
+    };
+  </script>
+  <script src="lib/monaco/vs/loader.js"></script>
+  <script>
+    require.config({
+      paths: { vs: chrome.runtime.getURL('dashboard/lib/monaco/vs') }
+    });
+    require(['vs/editor/editor.main'], function() {
+      window._monacoReady = true;
+      window.dispatchEvent(new CustomEvent('monaco-ready'));
+    });
+  </script>
+
+  <!-- Dashboard module loads after Monaco signals ready -->
   <script type="module" src="dashboard.js"></script>
 </body>
 </html>

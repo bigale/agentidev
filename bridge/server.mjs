@@ -14,6 +14,7 @@
 
 import { WebSocketServer, WebSocket } from 'ws';
 import { spawn } from 'child_process';
+import { readFile } from 'fs/promises';
 import { MSG, buildMessage, buildReply, buildError, ROLES } from './protocol.mjs';
 import { PlaywrightSession, SESSION_STATE } from './playwright-session.mjs';
 
@@ -110,10 +111,18 @@ function startServer() {
         if (script.ws === ws) {
           script.state = 'disconnected';
           script.ws = null;
+          // Unblock any checkpoint wait so the async handler can exit cleanly
+          if (script.pendingStep) {
+            script._cancelledDuringStep = true;
+            const resolve = script.pendingStep;
+            script.pendingStep = null;
+            resolve();
+          }
           console.log(`[Bridge] Script disconnected: ${script.name} (${scriptId})`);
           broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
             scriptId, name: script.name, state: 'disconnected',
             step: script.step, total: script.totalSteps, errors: script.errors,
+            checkpoints: script.checkpoints, activeBreakpoints: [], activity: '',
           }));
         }
       }
@@ -457,7 +466,7 @@ function startServer() {
       // ---- Script Integration (Phase 3) ----
 
       case MSG.BRIDGE_SCRIPT_REGISTER: {
-        const { name, totalSteps, metadata } = msg.payload || {};
+        const { name, totalSteps, metadata, pid, checkpoints } = msg.payload || {};
         if (!name) {
           sendTo(ws, buildError('Script name required', msg.id));
           return;
@@ -465,22 +474,30 @@ function startServer() {
         const scriptId = `script_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
         scripts.set(scriptId, {
           ws, name, totalSteps: totalSteps || 0,
-          step: 0, label: '', errors: 0,
+          step: 0, label: '', errors: 0, activity: '',
           state: 'registered', metadata: metadata || {},
           startedAt: Date.now(),
+          pid: pid || null,
+          checkpoints: checkpoints || [],     // available checkpoint names (for UI display)
+          breakpoints: new Set(),             // active breakpoints (user-toggled)
+          pendingStep: null,                  // resolve fn when paused at checkpoint
+          currentCheckpoint: null,
         });
-        console.log(`[Bridge] Script registered: ${name} (${scriptId}, ${totalSteps} steps)`);
+        console.log(`[Bridge] Script registered: ${name} (${scriptId}, ${totalSteps} steps, pid=${pid || 'unknown'})`);
         sendTo(ws, buildReply(msg, { success: true, scriptId, name }));
         broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
           scriptId, name, state: 'registered',
           step: 0, total: totalSteps || 0, label: '', errors: 0,
           metadata: metadata || {},
+          checkpoints: checkpoints || [],
+          activeBreakpoints: [],
+          activity: '',
         }));
         break;
       }
 
       case MSG.BRIDGE_SCRIPT_PROGRESS: {
-        const { scriptId, step, total, label, errors } = msg.payload || {};
+        const { scriptId, step, total, label, errors, activity } = msg.payload || {};
         const script = scripts.get(scriptId);
         if (!script) {
           sendTo(ws, buildError('Script not found', msg.id));
@@ -490,11 +507,15 @@ function startServer() {
         script.totalSteps = total ?? script.totalSteps;
         script.label = label ?? script.label;
         script.errors = errors ?? script.errors;
+        script.activity = activity ?? script.activity;
         script.state = 'running';
         broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
           scriptId, name: script.name, state: 'running',
           step: script.step, total: script.totalSteps,
           label: script.label, errors: script.errors,
+          activity: script.activity,
+          checkpoints: script.checkpoints,
+          activeBreakpoints: Array.from(script.breakpoints),
         }));
         break;
       }
@@ -509,6 +530,7 @@ function startServer() {
         script.state = 'complete';
         script.errors = errors ?? script.errors;
         script.results = results;
+        script.pid = null; // process has exited
         script.duration = duration || (Date.now() - script.startedAt);
         console.log(`[Bridge] Script complete: ${script.name} (${script.duration}ms, ${script.errors} errors)`);
         sendTo(ws, buildReply(msg, { success: true, scriptId }));
@@ -517,6 +539,9 @@ function startServer() {
           step: script.totalSteps, total: script.totalSteps,
           label: 'Complete', errors: script.errors,
           results, duration: script.duration,
+          checkpoints: script.checkpoints,
+          activeBreakpoints: [],
+          activity: '',
         }));
         break;
       }
@@ -539,6 +564,9 @@ function startServer() {
           scriptId, name: script.name, state: 'paused',
           step: script.step, total: script.totalSteps,
           label: script.label, errors: script.errors,
+          activity: script.activity,
+          checkpoints: script.checkpoints,
+          activeBreakpoints: Array.from(script.breakpoints),
         }));
         break;
       }
@@ -560,17 +588,50 @@ function startServer() {
           scriptId, name: script.name, state: 'running',
           step: script.step, total: script.totalSteps,
           label: script.label, errors: script.errors,
+          activity: script.activity,
+          checkpoints: script.checkpoints,
+          activeBreakpoints: Array.from(script.breakpoints),
         }));
         break;
       }
 
       case MSG.BRIDGE_SCRIPT_CANCEL: {
-        const { scriptId, reason } = msg.payload || {};
+        const { scriptId, reason, force } = msg.payload || {};
         const script = scripts.get(scriptId);
         if (!script) {
           sendTo(ws, buildError('Script not found', msg.id));
           return;
         }
+
+        // Unblock checkpoint if script is paused there
+        if (script.pendingStep) {
+          script._cancelledDuringStep = true;
+          const resolve = script.pendingStep;
+          script.pendingStep = null;
+          resolve();
+        }
+
+        if (force && script.pid) {
+          // Force-kill: SIGTERM now, SIGKILL after 2s
+          console.log(`[Bridge] Force-killing script: ${script.name} (pid=${script.pid})`);
+          try { process.kill(script.pid, 'SIGTERM'); } catch { /* already dead */ }
+          const pidToKill = script.pid;
+          setTimeout(() => {
+            try { process.kill(pidToKill, 'SIGKILL'); } catch { /* already dead */ }
+          }, 2000);
+          script.state = 'killed';
+          script.pid = null;
+          sendTo(ws, buildReply(msg, { success: true, scriptId, state: 'killed' }));
+          broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+            scriptId, name: script.name, state: 'killed',
+            step: script.step, total: script.totalSteps,
+            label: 'Force killed', errors: script.errors,
+            checkpoints: script.checkpoints, activeBreakpoints: [], activity: '',
+          }));
+          return;
+        }
+
+        // Cooperative cancel
         script.state = 'cancelled';
         console.log(`[Bridge] Script cancelled: ${script.name} (${reason || 'no reason'})`);
         if (script.ws && script.ws.readyState === WebSocket.OPEN) {
@@ -581,6 +642,9 @@ function startServer() {
           scriptId, name: script.name, state: 'cancelled',
           step: script.step, total: script.totalSteps,
           label: `Cancelled: ${reason || ''}`, errors: script.errors,
+          checkpoints: script.checkpoints,
+          activeBreakpoints: Array.from(script.breakpoints),
+          activity: '',
         }));
         break;
       }
@@ -594,9 +658,165 @@ function startServer() {
             label: s.label, errors: s.errors,
             metadata: s.metadata, startedAt: s.startedAt,
             duration: s.duration || null,
+            activity: s.activity || '',
+            checkpoints: s.checkpoints || [],
+            activeBreakpoints: Array.from(s.breakpoints),
+            checkpoint: s.currentCheckpoint ? {
+              name: s.currentCheckpoint.name,
+              context: s.currentCheckpoint.context,
+            } : null,
           });
         }
         sendTo(ws, buildReply(msg, { success: true, scripts: scriptList }));
+        break;
+      }
+
+      // ---- Script Debugger (micro-management) ----
+
+      case MSG.BRIDGE_SCRIPT_VERIFY_SESSION: {
+        const { scriptId, sessionId, checks } = msg.payload || {};
+        const session = getSession(sessionId);
+        if (!session) {
+          sendTo(ws, buildReply(msg, { ok: false, reason: `Session not found: ${sessionId}` }));
+          return;
+        }
+        const { urlContains, snapshotContains } = checks || {};
+
+        if (urlContains && session.currentUrl && !session.currentUrl.includes(urlContains)) {
+          sendTo(ws, buildReply(msg, {
+            ok: false,
+            reason: `URL check failed: expected "${urlContains}" in "${session.currentUrl || 'none'}"`,
+          }));
+          return;
+        }
+
+        if (snapshotContains && snapshotContains.length > 0) {
+          try {
+            const snap = await session.snapshot();
+            const snapLower = snap.toLowerCase();
+            const found = snapshotContains.some(s => snapLower.includes(s.toLowerCase()));
+            if (!found) {
+              sendTo(ws, buildReply(msg, {
+                ok: false,
+                reason: `Session snapshot missing auth indicator (checked: ${snapshotContains.join(', ')})`,
+              }));
+              return;
+            }
+          } catch (err) {
+            sendTo(ws, buildReply(msg, { ok: false, reason: `Snapshot failed: ${err.message}` }));
+            return;
+          }
+        }
+
+        sendTo(ws, buildReply(msg, { ok: true }));
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_CHECKPOINT: {
+        const { scriptId, name, context } = msg.payload || {};
+        const script = scripts.get(scriptId);
+        if (!script) {
+          sendTo(ws, buildError('Script not found', msg.id));
+          return;
+        }
+
+        // Zero-cost fast path: breakpoint not active
+        if (!script.breakpoints.has(name)) {
+          sendTo(ws, buildReply(msg, { proceed: true, name, active: false }));
+          return;
+        }
+
+        // Breakpoint active — pause script, wait for Step or Cancel
+        script.state = 'checkpoint';
+        script.currentCheckpoint = { name, context, timestamp: Date.now() };
+        console.log(`[Bridge] Script paused at checkpoint "${name}": ${script.name}`);
+
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+          scriptId, name: script.name, state: 'checkpoint',
+          step: script.step, total: script.totalSteps,
+          label: script.label, errors: script.errors,
+          checkpoint: { name, context },
+          checkpoints: script.checkpoints,
+          activeBreakpoints: Array.from(script.breakpoints),
+          activity: script.activity,
+        }));
+
+        // Block until user clicks Step/Continue or script is cancelled
+        await new Promise((resolve) => { script.pendingStep = resolve; });
+
+        if (script._cancelledDuringStep) {
+          delete script._cancelledDuringStep;
+          sendTo(ws, buildReply(msg, { proceed: false, cancelled: true, name }));
+          return;
+        }
+
+        script.state = 'running';
+        script.currentCheckpoint = null;
+
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+          scriptId, name: script.name, state: 'running',
+          step: script.step, total: script.totalSteps,
+          label: script.label, errors: script.errors,
+          checkpoints: script.checkpoints,
+          activeBreakpoints: Array.from(script.breakpoints),
+          activity: script.activity,
+        }));
+
+        sendTo(ws, buildReply(msg, { proceed: true, name }));
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_STEP: {
+        const { scriptId, clearAll } = msg.payload || {};
+        const script = scripts.get(scriptId);
+        if (!script) {
+          sendTo(ws, buildError('Script not found', msg.id));
+          return;
+        }
+        if (!script.pendingStep) {
+          sendTo(ws, buildError('Script is not paused at a checkpoint', msg.id));
+          return;
+        }
+        if (clearAll) {
+          script.breakpoints.clear();
+          console.log(`[Bridge] All breakpoints cleared (continue): ${script.name}`);
+        }
+        const resolve = script.pendingStep;
+        script.pendingStep = null;
+        resolve();
+        sendTo(ws, buildReply(msg, { success: true, scriptId }));
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_SET_BREAKPOINT: {
+        const { scriptId, name, active } = msg.payload || {};
+        const script = scripts.get(scriptId);
+        if (!script) {
+          sendTo(ws, buildError('Script not found', msg.id));
+          return;
+        }
+        if (active) {
+          script.breakpoints.add(name);
+        } else {
+          script.breakpoints.delete(name);
+        }
+        console.log(`[Bridge] Breakpoint ${active ? 'set' : 'cleared'}: ${script.name} @ ${name}`);
+        sendTo(ws, buildReply(msg, {
+          success: true, scriptId, name, active,
+          activeBreakpoints: Array.from(script.breakpoints),
+        }));
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+          scriptId, name: script.name, state: script.state,
+          step: script.step, total: script.totalSteps,
+          label: script.label, errors: script.errors,
+          checkpoints: script.checkpoints,
+          activeBreakpoints: Array.from(script.breakpoints),
+          checkpoint: script.currentCheckpoint ? {
+            name: script.currentCheckpoint.name,
+            context: script.currentCheckpoint.context,
+          } : null,
+          activity: script.activity,
+        }));
         break;
       }
 
@@ -626,6 +846,21 @@ function startServer() {
         child.on('exit', (code) => {
           console.log(`[Bridge] Script exited: ${scriptPath} (code ${code})`);
         });
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_SOURCE: {
+        const { scriptPath } = msg.payload || {};
+        if (!scriptPath) {
+          sendTo(ws, buildError('scriptPath required', msg.id));
+          return;
+        }
+        try {
+          const source = await readFile(scriptPath, 'utf-8');
+          sendTo(ws, buildReply(msg, { success: true, source, path: scriptPath }));
+        } catch (err) {
+          sendTo(ws, buildError(`Cannot read file: ${err.message}`, msg.id));
+        }
         break;
       }
 

@@ -8,13 +8,17 @@
  * Usage:
  *   import { ScriptClient } from './script-client.mjs';
  *
- *   const client = new ScriptClient('my_scraper', { totalSteps: 100 });
+ *   const client = new ScriptClient('my_scraper', {
+ *     totalSteps: 100,
+ *     checkpoints: ['race_start', 'after_navigate'],
+ *   });
  *   await client.connect();
  *
  *   for (let i = 0; i < items.length; i++) {
- *     await client.checkPause();  // blocks if paused, throws if cancelled
+ *     await client.checkpoint('loop_start', { step: i, total: items.length });
  *     await client.progress(i + 1, items.length, `Processing item ${i + 1}`);
  *     // ... do work ...
+ *     await client.sleep(2000);  // interruptible sleep
  *   }
  *
  *   await client.complete({ itemsProcessed: items.length });
@@ -43,23 +47,27 @@ export class ScriptClient {
    * @param {number} [options.totalSteps] - Total expected steps
    * @param {number} [options.port] - Bridge server port (default 9876)
    * @param {object} [options.metadata] - Arbitrary metadata
+   * @param {string[]} [options.checkpoints] - Named checkpoint identifiers for debugger UI
    */
   constructor(name, options = {}) {
     this.name = name;
     this.totalSteps = options.totalSteps || 0;
     this.port = options.port || DEFAULT_PORT;
     this.metadata = options.metadata || {};
+    this._checkpointNames = options.checkpoints || [];
 
     this.scriptId = null;
     this.ws = null;
     this.connected = false;
     this.errors = 0;
+    this.label = '';
 
     // Pause/cancel state
     this._paused = false;
     this._cancelled = false;
     this._cancelReason = null;
     this._pauseResolve = null; // resolve() to unblock checkPause
+    this._sleepReject = null;  // reject() to interrupt sleep on cancel
 
     // Request/response pending
     this._pending = new Map();
@@ -84,6 +92,7 @@ export class ScriptClient {
    */
   async progress(step, total, label) {
     if (!this.scriptId) return; // not registered — no-op (bridge unavailable)
+    this.label = label || this.label;
     this._send(buildMessage('BRIDGE_SCRIPT_PROGRESS', {
       scriptId: this.scriptId,
       step,
@@ -131,6 +140,107 @@ export class ScriptClient {
         throw new ScriptCancelledError(this._cancelReason);
       }
     }
+  }
+
+  /**
+   * Named breakpoint. Zero-cost if breakpoint not toggled active in UI.
+   * Blocks if user toggled it on — shows context in debugger panel.
+   * Throws ScriptCancelledError if cancelled while blocked.
+   *
+   * @param {string} name - Checkpoint name (e.g. 'race_start', 'after_navigate')
+   * @param {object} [context] - Context shown in UI when paused { key: value }
+   * @returns {Promise<void>}
+   * @throws {ScriptCancelledError} If cancelled at checkpoint
+   */
+  async checkpoint(name, context = {}) {
+    if (this._cancelled) throw new ScriptCancelledError(this._cancelReason);
+    if (!this.scriptId) {
+      // Bridge not available — just check cancelled, no blocking
+      return;
+    }
+    // Server replies immediately if breakpoint not active; blocks if active.
+    // Timeout is 10 minutes — long enough for debugging sessions.
+    const result = await this._sendRequest('BRIDGE_SCRIPT_CHECKPOINT', {
+      scriptId: this.scriptId,
+      name,
+      context,
+      timestamp: Date.now(),
+    }, 600000);
+
+    if (result.cancelled) {
+      throw new ScriptCancelledError('Cancelled at checkpoint');
+    }
+  }
+
+  /**
+   * Async sleep — interruptible by cancel (throws ScriptCancelledError).
+   * Replaces execSync(`sleep N`) throughout automation scripts.
+   *
+   * @param {number} ms - Milliseconds to sleep
+   * @returns {Promise<void>}
+   * @throws {ScriptCancelledError} If cancelled during sleep
+   */
+  async sleep(ms) {
+    if (this._cancelled) throw new ScriptCancelledError(this._cancelReason);
+
+    await new Promise((resolve, reject) => {
+      let done = false;
+      const timer = setTimeout(() => {
+        done = true;
+        this._sleepReject = null;
+        resolve();
+      }, ms);
+
+      this._sleepReject = (err) => {
+        if (!done) {
+          done = true;
+          clearTimeout(timer);
+          this._sleepReject = null;
+          reject(err);
+        }
+      };
+    });
+
+    if (this._cancelled) throw new ScriptCancelledError(this._cancelReason);
+  }
+
+  /**
+   * Real-time activity label — shown in UI while script is running.
+   * Fire-and-forget (no response expected).
+   *
+   * @param {string} label - Current activity description
+   */
+  setActivity(label) {
+    if (!this.scriptId) return;
+    this._send(buildMessage('BRIDGE_SCRIPT_PROGRESS', {
+      scriptId: this.scriptId,
+      step: undefined,
+      total: this.totalSteps,
+      label: this.label,
+      errors: this.errors,
+      activity: label,
+    }));
+  }
+
+  /**
+   * Auth pre-flight — verify a Playwright session is logged in before work starts.
+   * Prevents running 1000+ steps against an unauthenticated session.
+   *
+   * @param {string} sessionId - PlaywrightSession ID or name
+   * @param {object} checks
+   * @param {string} [checks.urlContains] - Current URL must contain this string
+   * @param {string[]} [checks.snapshotContains] - Snapshot must contain at least one of these strings
+   * @returns {Promise<{ ok: boolean, reason?: string }>}
+   */
+  async verifySession(sessionId, checks = {}) {
+    if (!this.scriptId) {
+      return { ok: true, reason: 'Bridge not available (skipped)' };
+    }
+    return this._sendRequest('BRIDGE_SCRIPT_VERIFY_SESSION', {
+      scriptId: this.scriptId,
+      sessionId,
+      checks,
+    }, 30000);
   }
 
   /**
@@ -194,6 +304,8 @@ export class ScriptClient {
       name: this.name,
       totalSteps: this.totalSteps,
       metadata: this.metadata,
+      pid: process.pid,
+      checkpoints: this._checkpointNames,
     });
   }
 
@@ -230,6 +342,8 @@ export class ScriptClient {
         console.log(`[Script:${this.name}] Cancelled: ${this._cancelReason}`);
         // Unblock checkPause if waiting
         if (this._pauseResolve) this._pauseResolve();
+        // Interrupt sleep if sleeping
+        if (this._sleepReject) this._sleepReject(new ScriptCancelledError(this._cancelReason));
         break;
     }
   }

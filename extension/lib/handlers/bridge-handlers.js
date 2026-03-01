@@ -137,6 +137,15 @@ export function register(handlers) {
   handlers['GET_COMMAND_LOG'] = async () => {
     return { log: commandLog };
   };
+
+  // Script source file loading (for Monaco dashboard)
+  handlers['SCRIPT_GET_SOURCE'] = async (msg) => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge' };
+    }
+    const result = await bridgeClient.getScriptSource(msg.path);
+    return { success: true, ...result };
+  };
 }
 
 /**

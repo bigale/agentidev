@@ -1,6 +1,6 @@
 /**
- * Script integration handlers (Phase 3).
- * Forwards pause/resume/cancel to bridge, provides script list.
+ * Script integration handlers (Phase 3 + micro-management).
+ * Forwards pause/resume/cancel/step/breakpoint to bridge, provides script list.
  * Script progress broadcasts arrive via bridge-client callbacks.
  */
 import * as bridgeClient from '../bridge-client.js';
@@ -25,7 +25,7 @@ export function register(handlers) {
   };
 
   handlers['SCRIPT_CANCEL'] = async (msg) => {
-    const result = await bridgeClient.cancelScript(msg.scriptId, msg.reason);
+    const result = await bridgeClient.cancelScript(msg.scriptId, msg.reason, msg.force || false);
     return { success: true, ...result };
   };
 
@@ -34,6 +34,24 @@ export function register(handlers) {
       return { success: false, error: 'Not connected to bridge' };
     }
     const result = await bridgeClient.launchScript(msg.path, msg.args || []);
+    return { success: true, ...result };
+  };
+
+  // ---- Debugger actions ----
+
+  handlers['SCRIPT_STEP'] = async (msg) => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge' };
+    }
+    const result = await bridgeClient.stepScript(msg.scriptId, msg.clearAll || false);
+    return { success: true, ...result };
+  };
+
+  handlers['SCRIPT_SET_BREAKPOINT'] = async (msg) => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge' };
+    }
+    const result = await bridgeClient.setBreakpoint(msg.scriptId, msg.name, msg.active);
     return { success: true, ...result };
   };
 }

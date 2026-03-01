@@ -553,6 +553,16 @@ function updateScript(data) {
   renderScripts();
 }
 
+function renderContext(context) {
+  if (!context || typeof context !== 'object') return '';
+  const entries = Object.entries(context);
+  if (entries.length === 0) return '';
+  return entries.map(([k, v]) => {
+    const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    return `<div class="checkpoint-context-row"><span class="checkpoint-context-key">${escapeHtml(k)}:</span> ${escapeHtml(val)}</div>`;
+  }).join('');
+}
+
 function renderScripts() {
   if (!els.scriptsList) return;
   els.scriptsCount.textContent = scripts.size;
@@ -566,26 +576,67 @@ function renderScripts() {
   els.scriptsList.innerHTML = entries.map(s => {
     const pct = s.total > 0 ? Math.round((s.step / s.total) * 100) : 0;
     const progressClass = s.state === 'complete' ? 'complete' : s.errors > 0 ? 'error' : '';
-    const isActive = s.state === 'running' || s.state === 'paused';
+    const isActive = s.state === 'running' || s.state === 'paused' || s.state === 'checkpoint';
+    const isAtCheckpoint = s.state === 'checkpoint';
+    const activeBreakpoints = s.activeBreakpoints || [];
+    const availableCheckpoints = s.checkpoints || [];
+
+    // Breakpoint dots row (only for active scripts with declared checkpoints)
+    const bpRow = isActive && availableCheckpoints.length > 0 ? `
+      <div class="auto-script-breakpoints">
+        <span class="bp-label">Breakpoints:</span>
+        ${availableCheckpoints.map(bp => {
+          const isOn = activeBreakpoints.includes(bp);
+          const isHit = isAtCheckpoint && s.checkpoint?.name === bp;
+          return `<span class="bp-group">
+            <span class="bp-dot ${isOn ? 'active' : ''} ${isHit ? 'hit' : ''}"
+                  data-bp="${bp}" data-sid="${s.scriptId}"
+                  title="${bp} (click to toggle)">●</span>
+            <span class="bp-dot-label" title="${bp}">${bp}</span>
+          </span>`;
+        }).join('')}
+      </div>
+    ` : '';
+
+    // Checkpoint panel (shown when paused at a named breakpoint)
+    const checkpointPanel = isAtCheckpoint && s.checkpoint ? `
+      <div class="auto-script-checkpoint-panel">
+        <div class="checkpoint-name">⏸ Paused at ${escapeHtml(s.checkpoint.name)}</div>
+        <div class="checkpoint-context">${renderContext(s.checkpoint.context)}</div>
+        <div class="checkpoint-actions">
+          <button class="step" data-action="step" data-sid="${s.scriptId}">Step →</button>
+          <button class="continue" data-action="continue" data-sid="${s.scriptId}">Continue ▶</button>
+          <button class="danger" data-action="cancel" data-sid="${s.scriptId}">Cancel ✕</button>
+        </div>
+      </div>
+    ` : '';
 
     return `
-      <div class="auto-script-card" data-script-id="${s.scriptId}">
+      <div class="auto-script-card ${isAtCheckpoint ? 'checkpoint-active' : ''}" data-script-id="${s.scriptId}">
         <div class="auto-script-header">
           <span class="auto-script-name">${escapeHtml(s.name)}</span>
-          <span class="auto-script-state ${s.state}">${s.state}</span>
+          <div class="auto-script-header-right">
+            <span class="auto-script-state ${s.state}">${isAtCheckpoint ? '⏸ ' + escapeHtml(s.checkpoint?.name || 'checkpoint') : s.state}</span>
+            ${isActive ? `<button class="danger" style="padding:1px 5px;font-size:9px;border:none;border-radius:3px;cursor:pointer;background:#fce8e6;color:#d93025;" data-action="kill" data-sid="${s.scriptId}" title="Force kill (SIGKILL)">Kill</button>` : ''}
+          </div>
         </div>
+        ${!isAtCheckpoint ? `
         <div class="auto-script-progress">
           <div class="auto-script-progress-fill ${progressClass}" style="width: ${pct}%"></div>
         </div>
         <div class="auto-script-detail">
           <span>${s.step || 0}/${s.total || '?'} ${s.label ? '— ' + escapeHtml(s.label) : ''}</span>
           ${s.errors > 0 ? `<span class="auto-script-errors">${s.errors} errors</span>` : ''}
-          <div class="auto-script-actions">
-            ${isActive && s.state === 'running' ? `<button data-action="pause" data-sid="${s.scriptId}">Pause</button>` : ''}
-            ${s.state === 'paused' ? `<button data-action="resume" data-sid="${s.scriptId}">Resume</button>` : ''}
-            ${isActive ? `<button class="danger" data-action="cancel" data-sid="${s.scriptId}">Cancel</button>` : ''}
-          </div>
         </div>
+        ${s.activity ? `<div class="auto-script-activity">${escapeHtml(s.activity)}</div>` : ''}
+        <div class="auto-script-actions">
+          ${s.state === 'running' ? `<button data-action="pause" data-sid="${s.scriptId}">Pause</button>` : ''}
+          ${s.state === 'paused' ? `<button class="primary" data-action="resume" data-sid="${s.scriptId}">Resume</button>` : ''}
+          ${isActive ? `<button class="danger" data-action="cancel" data-sid="${s.scriptId}">Cancel</button>` : ''}
+        </div>
+        ` : ''}
+        ${checkpointPanel}
+        ${bpRow}
       </div>
     `;
   }).join('');
@@ -597,16 +648,48 @@ function renderScripts() {
       handleScriptAction(btn.dataset.action, btn.dataset.sid);
     });
   });
+
+  // Wire breakpoint dot toggles
+  els.scriptsList.querySelectorAll('.bp-dot[data-bp]').forEach(dot => {
+    dot.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const scriptId = dot.dataset.sid;
+      const name = dot.dataset.bp;
+      const isActive = dot.classList.contains('active');
+      chrome.runtime.sendMessage({
+        type: 'SCRIPT_SET_BREAKPOINT', scriptId, name, active: !isActive,
+      });
+    });
+  });
 }
 
 function handleScriptAction(action, scriptId) {
-  const typeMap = { pause: 'SCRIPT_PAUSE', resume: 'SCRIPT_RESUME', cancel: 'SCRIPT_CANCEL' };
-  const type = typeMap[action];
-  if (!type) return;
+  let msg;
 
-  chrome.runtime.sendMessage({
-    type, scriptId, reason: action === 'cancel' ? 'Cancelled from sidepanel' : undefined
-  }, (response) => {
+  switch (action) {
+    case 'pause':
+      msg = { type: 'SCRIPT_PAUSE', scriptId };
+      break;
+    case 'resume':
+      msg = { type: 'SCRIPT_RESUME', scriptId };
+      break;
+    case 'cancel':
+      msg = { type: 'SCRIPT_CANCEL', scriptId, reason: 'Cancelled from sidepanel' };
+      break;
+    case 'kill':
+      msg = { type: 'SCRIPT_CANCEL', scriptId, reason: 'Force killed from sidepanel', force: true };
+      break;
+    case 'step':
+      msg = { type: 'SCRIPT_STEP', scriptId, clearAll: false };
+      break;
+    case 'continue':
+      msg = { type: 'SCRIPT_STEP', scriptId, clearAll: true };
+      break;
+    default:
+      return;
+  }
+
+  chrome.runtime.sendMessage(msg, (response) => {
     if (!response?.success) {
       console.warn(`[Auto] Script ${action} failed:`, response?.error);
     }

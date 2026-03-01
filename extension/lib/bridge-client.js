@@ -274,10 +274,41 @@ export function resumeScript(scriptId) {
  * Cancel a script
  * @param {string} scriptId
  * @param {string} [reason]
+ * @param {boolean} [force] - If true, sends SIGTERM then SIGKILL (PID-based, instant)
  * @returns {Promise<object>}
  */
-export function cancelScript(scriptId, reason) {
-  return _sendRequest('BRIDGE_SCRIPT_CANCEL', { scriptId, reason });
+export function cancelScript(scriptId, reason, force = false) {
+  return _sendRequest('BRIDGE_SCRIPT_CANCEL', { scriptId, reason, force });
+}
+
+/**
+ * Step past a named checkpoint (unblock script paused at debugger).
+ * @param {string} scriptId
+ * @param {boolean} [clearAll] - If true, clears all breakpoints before stepping (Continue mode)
+ * @returns {Promise<object>}
+ */
+export function stepScript(scriptId, clearAll = false) {
+  return _sendRequest('BRIDGE_SCRIPT_STEP', { scriptId, clearAll });
+}
+
+/**
+ * Toggle a named breakpoint on a script.
+ * @param {string} scriptId
+ * @param {string} name - Checkpoint name
+ * @param {boolean} active - True to activate, false to deactivate
+ * @returns {Promise<object>}
+ */
+export function setBreakpoint(scriptId, name, active) {
+  return _sendRequest('BRIDGE_SCRIPT_SET_BREAKPOINT', { scriptId, name, active });
+}
+
+/**
+ * Load a script's source file via the bridge server.
+ * @param {string} scriptPath - Absolute path to the script file
+ * @returns {Promise<{ source: string, path: string }>}
+ */
+export function getScriptSource(scriptPath) {
+  return _sendRequest('BRIDGE_SCRIPT_SOURCE', { scriptPath });
 }
 
 // --- Event Callbacks ---

@@ -47,6 +47,13 @@ export const MSG = {
   BRIDGE_SCRIPT_CANCEL: 'BRIDGE_SCRIPT_CANCEL',
   BRIDGE_SCRIPT_LIST: 'BRIDGE_SCRIPT_LIST',
   BRIDGE_SCRIPT_LAUNCH: 'BRIDGE_SCRIPT_LAUNCH',
+
+  // Script micro-management (debugger + force-kill)
+  BRIDGE_SCRIPT_CHECKPOINT: 'BRIDGE_SCRIPT_CHECKPOINT',      // script hits named breakpoint
+  BRIDGE_SCRIPT_STEP: 'BRIDGE_SCRIPT_STEP',                  // extension: advance past checkpoint
+  BRIDGE_SCRIPT_SET_BREAKPOINT: 'BRIDGE_SCRIPT_SET_BREAKPOINT', // extension: toggle breakpoint
+  BRIDGE_SCRIPT_VERIFY_SESSION: 'BRIDGE_SCRIPT_VERIFY_SESSION', // script: auth pre-flight
+  BRIDGE_SCRIPT_SOURCE: 'BRIDGE_SCRIPT_SOURCE',              // dashboard: load script source file
 };
 
 /**
