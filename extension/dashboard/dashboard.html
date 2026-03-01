@@ -478,24 +478,10 @@
 
   </div>
 
-  <!-- Monaco AMD loader setup: configure worker URL before loader.js runs -->
-  <script>
-    window.MonacoEnvironment = {
-      getWorkerUrl: function() {
-        return chrome.runtime.getURL('dashboard/lib/monaco/vs/base/worker/workerMain.js');
-      }
-    };
-  </script>
+  <!-- Monaco setup (external files to satisfy CSP 'self' requirement) -->
+  <script src="monaco-env.js"></script>
   <script src="lib/monaco/vs/loader.js"></script>
-  <script>
-    require.config({
-      paths: { vs: chrome.runtime.getURL('dashboard/lib/monaco/vs') }
-    });
-    require(['vs/editor/editor.main'], function() {
-      window._monacoReady = true;
-      window.dispatchEvent(new CustomEvent('monaco-ready'));
-    });
-  </script>
+  <script src="monaco-require.js"></script>
 
   <!-- Dashboard module loads after Monaco signals ready -->
   <script type="module" src="dashboard.js"></script>
