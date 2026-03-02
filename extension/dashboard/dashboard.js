@@ -580,13 +580,18 @@ function renderSessions() {
     html += state.processes.map(p => {
       const isOrphan = !p.ownerScriptId;
       const dotClass = isOrphan ? 'orphan' : 'owned';
-      const label = isOrphan ? 'orphan' : escHtml(p.ownerScriptName);
+      const typeLabel = p.type === 'debug-profile' ? 'chrome' : 'playwright';
+      const label = isOrphan ? `${typeLabel}` : escHtml(p.ownerScriptName);
+      const isSelf = p.isSelf;
+      const killBtn = isSelf
+        ? '<span style="font-size:9px;color:#5f5f7f;" title="This is the browser running the dashboard">self</span>'
+        : `<button class="dash-process-kill" data-kill-pid="${p.pid}">Kill</button>`;
       return `<div class="dash-process-item" data-pid="${p.pid}">
         <div class="dash-process-dot ${dotClass}"></div>
         <span class="dash-process-pid">${p.pid}</span>
         <span class="dash-process-info">${label}</span>
         <span class="dash-process-elapsed">${formatElapsed(p.elapsedSeconds)}</span>
-        <button class="dash-process-kill" data-kill-pid="${p.pid}">Kill</button>
+        ${killBtn}
       </div>`;
     }).join('');
   }
@@ -611,11 +616,10 @@ function renderSessions() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const pid = parseInt(btn.dataset.killPid, 10);
-      if (!confirm(`Kill browser process ${pid}?`)) return;
+      // No confirm() — auto-dismissed in Playwright Chromium
       btn.disabled = true;
-      btn.textContent = '...';
+      btn.textContent = 'Killing...';
       chrome.runtime.sendMessage({ type: 'KILL_PROCESS', pid }, () => {
-        // Auto-refresh after kill
         setTimeout(() => loadProcesses(), 1500);
       });
     });
@@ -625,7 +629,13 @@ function renderSessions() {
 function loadProcesses() {
   if (!state.connected) { state.processes = []; renderSessions(); return; }
   chrome.runtime.sendMessage({ type: 'SYSTEM_PROCESSES' }, (response) => {
-    state.processes = response?.processes || [];
+    const extPath = chrome.runtime.getURL('').replace('chrome-extension://', '').replace(/\/$/, '');
+    state.processes = (response?.processes || []).map(p => ({
+      ...p,
+      // Tag "self" if this browser loaded our extension
+      isSelf: p.loadExtension && chrome.runtime.getURL('').includes(chrome.runtime.id) &&
+              p.loadExtension.includes('contextual-recall/extension')
+    }));
     renderSessions();
   });
 }
@@ -639,9 +649,28 @@ function formatElapsed(seconds) {
   return `${h}h ${m}m`;
 }
 
-newSessionBtn.addEventListener('click', () => {
-  const name = prompt('Session name:', `session_${state.sessions.length + 1}`);
+// Session create — inline name input (prompt() is auto-dismissed in Playwright automation Chromium)
+const sessionActions  = document.getElementById('session-actions');
+const sessionNameRow  = document.getElementById('session-name-input');
+const sessionNameField = document.getElementById('session-name-field');
+const sessionNameOk   = document.getElementById('session-name-ok');
+const sessionNameCancel = document.getElementById('session-name-cancel');
+
+function showSessionNameInput() {
+  sessionNameField.value = `session_${state.sessions.length + 1}`;
+  sessionActions.style.display = 'none';
+  sessionNameRow.style.display = 'flex';
+  sessionNameField.focus();
+  sessionNameField.select();
+}
+function hideSessionNameInput() {
+  sessionNameRow.style.display = 'none';
+  sessionActions.style.display = 'flex';
+}
+function createSessionWithName() {
+  const name = sessionNameField.value.trim();
   if (!name) return;
+  hideSessionNameInput();
   newSessionBtn.disabled = true;
   chrome.runtime.sendMessage({ type: 'BRIDGE_CREATE_SESSION', name, options: {} }, (response) => {
     newSessionBtn.disabled = false;
@@ -650,11 +679,20 @@ newSessionBtn.addEventListener('click', () => {
       loadSessions();
     }
   });
+}
+
+newSessionBtn.addEventListener('click', showSessionNameInput);
+sessionNameOk.addEventListener('click', createSessionWithName);
+sessionNameCancel.addEventListener('click', hideSessionNameInput);
+sessionNameField.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') createSessionWithName();
+  if (e.key === 'Escape') hideSessionNameInput();
 });
 
+// Session destroy — no confirm() (auto-dismissed in Playwright Chromium)
 destroySessionBtn.addEventListener('click', () => {
   if (!state.activeSessionId) return;
-  if (!confirm('Destroy this session?')) return;
+  destroySessionBtn.disabled = true;
   chrome.runtime.sendMessage({ type: 'BRIDGE_DESTROY_SESSION', sessionId: state.activeSessionId }, () => {
     state.activeSessionId = null;
     loadSessions();

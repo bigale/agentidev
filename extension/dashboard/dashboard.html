@@ -616,9 +616,14 @@
       </div>
       <div id="sessions-body" class="dash-sessions-body"></div>
       <!-- New session -->
-      <div style="padding: 6px 12px; border-top: 1px solid #2a2a4a; display:flex; gap:6px; flex-shrink:0;">
+      <div id="session-actions" style="padding: 6px 12px; border-top: 1px solid #2a2a4a; display:flex; gap:6px; flex-shrink:0;">
         <button id="dash-new-session-btn" class="dash-btn secondary" disabled style="flex:1;">+ Session</button>
         <button id="dash-destroy-session-btn" class="dash-btn danger" disabled>Destroy</button>
+      </div>
+      <div id="session-name-input" style="padding: 6px 12px; border-top: 1px solid #2a2a4a; display:none; gap:6px; flex-shrink:0;">
+        <input id="session-name-field" type="text" style="flex:1; background:#1a1a2e; color:#e0e0f0; border:1px solid #3a3a5a; border-radius:3px; padding:2px 6px; font-size:11px;" placeholder="Session name">
+        <button id="session-name-ok" class="dash-btn secondary" style="padding:1px 8px;">OK</button>
+        <button id="session-name-cancel" class="dash-btn" style="padding:1px 8px;">Cancel</button>
       </div>
     </div>
 

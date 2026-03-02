@@ -54,12 +54,14 @@ if (args.includes('--stop')) {
 }
 
 /**
- * Discover running Playwright Chromium browser processes via `ps`.
- * Filters for processes whose args contain 'playwright' or 'ms-playwright'.
- * Excludes sub-processes (renderer, gpu, utility, zygote).
+ * Discover running browser processes managed by this system.
+ * Matches:
+ *  - Playwright-launched Chromium (args contain 'playwright' or 'ms-playwright')
+ *  - Our debug profile Chrome (args contain 'chrome-debug-profile' or 'contextual-recall/browser-profile')
+ * Excludes sub-processes (renderer, gpu, utility, zygote, crashpad).
  * Correlates ppid against known script PIDs to identify owner.
  * @param {Map} scripts - Active scripts map
- * @returns {Promise<Array<{ pid, ppid, elapsedSeconds, ownerScriptId, ownerScriptName }>>}
+ * @returns {Promise<Array<{ pid, ppid, elapsedSeconds, ownerScriptId, ownerScriptName, type }>>}
  */
 function discoverBrowserProcesses(scripts) {
   return new Promise((resolve) => {
@@ -85,12 +87,16 @@ function discoverBrowserProcesses(scripts) {
         const match = trimmed.match(/^(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/);
         if (!match) continue;
         const [, pidStr, ppidStr, etimeStr, args] = match;
-        // Must contain playwright or ms-playwright in args
-        if (!args.includes('playwright') && !args.includes('ms-playwright')) continue;
+
+        // Must look like a chrome/chromium binary (not a sub-process)
+        if (!args.includes('chromium') && !args.includes('chrome') && !args.includes('Chromium')) continue;
         // Exclude sub-processes
         if (subProcessTypes.some(t => args.includes(t))) continue;
-        // Must look like a chromium/chrome binary
-        if (!args.includes('chromium') && !args.includes('chrome') && !args.includes('Chromium')) continue;
+
+        // Classify: what kind of browser is this?
+        const isPlaywright = args.includes('playwright') || args.includes('ms-playwright');
+        const isDebugProfile = args.includes('chrome-debug-profile') || args.includes('contextual-recall/browser-profile');
+        if (!isPlaywright && !isDebugProfile) continue;
 
         const pid = parseInt(pidStr, 10);
         const ppid = parseInt(ppidStr, 10);
@@ -99,12 +105,17 @@ function discoverBrowserProcesses(scripts) {
         // Check if ppid matches a known script
         const owner = scriptPidMap.get(ppid);
 
+        // Extract --load-extension path for self-detection by dashboard
+        const extMatch = args.match(/--load-extension=(\S+)/);
+
         processes.push({
           pid,
           ppid,
           elapsedSeconds,
           ownerScriptId: owner?.scriptId || null,
           ownerScriptName: owner?.name || null,
+          type: isPlaywright ? 'playwright' : 'debug-profile',
+          loadExtension: extMatch ? extMatch[1] : null,
         });
       }
       resolve(processes);
