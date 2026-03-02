@@ -341,6 +341,34 @@
     .dash-dbg-tb-btn.kill { color: #f44336; border-color: #3a1e1e; }
     .dash-dbg-tb-btn.kill:hover:not(:disabled) { background: #4a1e1e; }
     .dash-dbg-tb-btn.unload { color: #8f8faf; }
+    .dash-dbg-tb-btn.auth { color: #26c6da; border-color: #1a3a4a; }
+    .dash-dbg-tb-btn.auth:hover:not(:disabled) { background: #1a3a4a; }
+    .dash-dbg-tb-btn.auth.has-auth { color: #00e5ff; border-color: #26c6da; background: #0e2a30; }
+
+    /* Auth capture bar */
+    .dash-auth-capture-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 10px;
+      background: #0e2a30; border-bottom: 1px solid #26c6da;
+      font-size: 11px; color: #80deea;
+      flex-shrink: 0;
+    }
+    .dash-auth-capture-bar span { flex: 1; }
+
+    /* Auth URL input row */
+    .dash-auth-url-row {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 10px;
+      background: #0e2a30; border-bottom: 1px solid #26c6da;
+      flex-shrink: 0;
+    }
+    .dash-auth-url-row input {
+      flex: 1; padding: 4px 8px; font-size: 11px;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      background: #0d1117; color: #e0e0e0;
+      border: 1px solid #3a3a5a; border-radius: 3px;
+    }
+    .dash-auth-url-row input:focus { outline: none; border-color: #26c6da; }
     .dash-dbg-tb-sep {
       width: 1px; height: 16px; background: #2a2a4a; margin: 0 2px;
     }
@@ -641,6 +669,7 @@
       <div class="dash-debug-toolbar" id="debug-toolbar">
         <button class="dash-dbg-tb-btn run" id="tb-run" disabled title="Launch script (no debugger)">Run</button>
         <button class="dash-dbg-tb-btn debug" id="tb-debug" disabled title="Launch with V8 inspector">Debug</button>
+        <button class="dash-dbg-tb-btn auth" id="tb-auth" disabled title="Capture auth state">Auth</button>
         <button class="dash-dbg-tb-btn pause" id="tb-pause" disabled title="Pause script">Pause</button>
         <button class="dash-dbg-tb-btn resume" id="tb-resume" disabled title="Resume script" style="display:none;">Resume</button>
         <button class="dash-dbg-tb-btn stop" id="tb-stop" disabled title="Cancel script">Stop</button>
@@ -653,6 +682,19 @@
         <button class="dash-dbg-tb-btn kill" id="tb-kill" disabled title="Force kill (SIGKILL)">Kill</button>
         <div style="flex:1;"></div>
         <button class="dash-dbg-tb-btn unload" id="tb-unload" disabled title="Unload script from editor">Unload</button>
+      </div>
+      <!-- Auth capture bar (hidden by default) -->
+      <div id="auth-capture-bar" class="dash-auth-capture-bar" style="display:none;">
+        <span>Auth capture active &mdash; log in, then click Save</span>
+        <button class="dash-btn primary" id="auth-save-btn">Save &amp; Close</button>
+        <button class="dash-btn secondary" id="auth-cancel-btn">Cancel</button>
+      </div>
+      <!-- Auth URL input (hidden by default, shown when URL can't be extracted) -->
+      <div id="auth-url-input" class="dash-auth-url-row" style="display:none;">
+        <span style="font-size:11px;color:#80deea;">Login URL:</span>
+        <input id="auth-url-field" type="text" placeholder="https://example.com/login" spellcheck="false" autocomplete="off">
+        <button class="dash-btn primary" id="auth-url-ok">Go</button>
+        <button class="dash-btn secondary" id="auth-url-cancel">Cancel</button>
       </div>
       <!-- Snippet palette overlay (hidden by default) -->
       <div id="snippet-palette" class="dash-snippet-palette" style="display:none;">

@@ -107,6 +107,26 @@ export function register(handlers) {
     return { success: true, ...(await bridgeClient.dbgRestartFrame(msg.scriptId, msg.pid, msg.callFrameId)) };
   };
 
+  // ---- Auth capture ----
+
+  handlers['AUTH_CAPTURE_START'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
+    const result = await bridgeClient.startAuthCapture(msg.scriptName, msg.url);
+    return { success: true, ...result };
+  };
+
+  handlers['AUTH_CAPTURE_SAVE'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
+    const result = await bridgeClient.saveAuthState(msg.sessionId, msg.scriptName);
+    return { success: true, ...result };
+  };
+
+  handlers['AUTH_CHECK'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
+    const result = await bridgeClient.checkAuthState(msg.scriptName);
+    return { success: true, ...result };
+  };
+
   // ---- Script Library (chrome.storage.local) ----
 
   handlers['SCRIPT_IMPORT'] = async (msg) => {

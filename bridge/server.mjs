@@ -28,6 +28,7 @@ const HEALTH_INTERVAL = 30000; // 30s ping/pong
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SHIM_PATH = pathResolve(__dirname, 'playwright-shim.mjs');
 const SCRIPTS_DIR = pathResolve(homedir(), '.contextual-recall', 'scripts');
+const AUTH_DIR = pathResolve(homedir(), '.contextual-recall', 'auth');
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -1044,11 +1045,21 @@ function startServer() {
         const useV8Debug = debug || (Array.isArray(lineBreakpoints) && lineBreakpoints.length > 0);
         const nodeArgs = useV8Debug ? ['--inspect-brk=0', scriptPath, ...scriptArgs] : [scriptPath, ...scriptArgs];
 
+        // Check for saved auth state and inject as env var
+        const launchEnv = { ...process.env };
+        try {
+          const scriptBaseName = scriptPath.split('/').pop().replace(/\.(mjs|js)$/, '');
+          const authFilePath = pathResolve(AUTH_DIR, `${scriptBaseName}.json`);
+          await stat(authFilePath);
+          launchEnv.PLAYWRIGHT_AUTH_STATE = authFilePath;
+          console.log(`[Bridge] Auth state found: ${authFilePath}`);
+        } catch { /* no auth file — that's fine */ }
+
         console.log(`[Bridge] Launching script: node ${nodeArgs.join(' ')}${useV8Debug ? ' [V8 DEBUG]' : ''}`);
         const child = spawn('node', nodeArgs, {
           detached: false,
           stdio: 'pipe',
-          env: { ...process.env },
+          env: launchEnv,
         });
         const launchId = `launch_${Date.now()}`;
 
@@ -1331,6 +1342,79 @@ function startServer() {
           sendTo(ws, buildReply(msg, { success: true }));
         } catch (err) {
           sendTo(ws, buildError(`Restart frame failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      // ---- Auth capture ----
+
+      case MSG.BRIDGE_AUTH_CAPTURE: {
+        const { scriptName, url } = msg.payload || {};
+        if (!scriptName || !url) {
+          sendTo(ws, buildError('scriptName and url required', msg.id));
+          break;
+        }
+        try {
+          await mkdir(AUTH_DIR, { recursive: true });
+
+          // Destroy any existing auth session for this script (prevent duplicates)
+          const authSessionName = `auth_${scriptName}`;
+          for (const [id, session] of sessions) {
+            if (session.name === authSessionName) {
+              try { await session.destroy(); } catch { /* ignore */ }
+              sessions.delete(id);
+            }
+          }
+
+          const session = new PlaywrightSession(authSessionName);
+          sessions.set(session.id, session);
+          await session.spawn();
+          await session.navigate(url);
+
+          console.log(`[Bridge] Auth capture started: ${authSessionName} → ${url}`);
+          sendTo(ws, buildReply(msg, { sessionId: session.id, sessionName: authSessionName }));
+        } catch (err) {
+          sendTo(ws, buildError(`Auth capture failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_AUTH_SAVE: {
+        const { sessionId, scriptName } = msg.payload || {};
+        if (!sessionId || !scriptName) {
+          sendTo(ws, buildError('sessionId and scriptName required', msg.id));
+          break;
+        }
+        const session = getSession(sessionId);
+        if (!session) {
+          sendTo(ws, buildError('Session not found', msg.id));
+          break;
+        }
+        try {
+          const authFilePath = pathResolve(AUTH_DIR, `${scriptName}.json`);
+          await session.sendCommand('state-save', [authFilePath]);
+          console.log(`[Bridge] Auth state saved: ${authFilePath}`);
+          await session.destroy();
+          sessions.delete(sessionId);
+          sendTo(ws, buildReply(msg, { success: true, path: authFilePath }));
+        } catch (err) {
+          sendTo(ws, buildError(`Auth save failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_AUTH_CHECK: {
+        const { scriptName } = msg.payload || {};
+        if (!scriptName) {
+          sendTo(ws, buildError('scriptName required', msg.id));
+          break;
+        }
+        try {
+          const authFilePath = pathResolve(AUTH_DIR, `${scriptName}.json`);
+          await stat(authFilePath);
+          sendTo(ws, buildReply(msg, { exists: true, path: authFilePath }));
+        } catch {
+          sendTo(ws, buildReply(msg, { exists: false, path: null }));
         }
         break;
       }

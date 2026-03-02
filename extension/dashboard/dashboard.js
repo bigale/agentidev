@@ -49,10 +49,15 @@ const tbStop     = document.getElementById('tb-stop');
 const tbStep     = document.getElementById('tb-step');
 const tbContinue = document.getElementById('tb-continue');
 const tbKill     = document.getElementById('tb-kill');
+const tbAuth     = document.getElementById('tb-auth');
 const tbUnload   = document.getElementById('tb-unload');
 
 // Editor-local breakpoints (toggled via gutter clicks, persisted until script unloaded)
 let editorBreakpoints = []; // checkpoint names toggled on in the editor
+
+// Auth capture state
+let authCaptureSessionId = null;  // active auth session, null when not capturing
+let authCaptureScriptName = null; // script name for the active capture
 
 // ---- Initialize panels ----
 const scriptPanel = new ScriptPanel(
@@ -211,6 +216,24 @@ function updateToolbar() {
   // Kill
   tbKill.disabled = !isActive;
 
+  // Auth: enabled when script loaded, connected, not running, not already capturing
+  tbAuth.disabled = !hasLoaded || !state.connected || isActive || !!authCaptureSessionId;
+
+  // Check if auth state exists for the loaded script (async, non-blocking UI update)
+  if (hasLoaded && state.connected) {
+    chrome.runtime.sendMessage({ type: 'AUTH_CHECK', scriptName: loadedName }, (response) => {
+      if (response?.exists) {
+        tbAuth.classList.add('has-auth');
+        tbAuth.title = 'Auth state saved — click to recapture';
+      } else {
+        tbAuth.classList.remove('has-auth');
+        tbAuth.title = 'Capture auth state';
+      }
+    });
+  } else {
+    tbAuth.classList.remove('has-auth');
+  }
+
   // Unload: when anything is loaded
   tbUnload.disabled = !hasLoaded;
 }
@@ -359,6 +382,14 @@ tbUnload.addEventListener('click', () => {
   v8Pid = null;
   v8PausedLine = null;
   v8PausedCallFrames = [];
+  // Cancel any active auth capture
+  if (authCaptureSessionId) {
+    chrome.runtime.sendMessage({ type: 'BRIDGE_DESTROY_SESSION', sessionId: authCaptureSessionId });
+    authCaptureSessionId = null;
+    authCaptureScriptName = null;
+    document.getElementById('auth-capture-bar').style.display = 'none';
+    document.getElementById('auth-url-input').style.display = 'none';
+  }
   scriptPanel.render(state.scripts, null);
   debugPanel.update(null);
   updateToolbar();
@@ -377,6 +408,123 @@ function findRunningScriptForEditor() {
   }
   return null;
 }
+
+// ---- Auth capture ----
+
+/**
+ * Extract the first page.goto('url') from script source.
+ * Returns the URL string or null if not found (e.g. URL is a variable).
+ */
+function findFirstGotoUrl(source) {
+  const m = source.match(/page\.goto\(\s*['"]([^'"]+)['"]\s*[,)]/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Start auth capture: open browser to URL, let user log in.
+ */
+function startAuthCapture(scriptName, url) {
+  const captureBar = document.getElementById('auth-capture-bar');
+  const urlInput = document.getElementById('auth-url-input');
+
+  authCaptureScriptName = scriptName;
+  bridgeStatus.textContent = `Auth: opening browser for ${scriptName}...`;
+
+  chrome.runtime.sendMessage({ type: 'AUTH_CAPTURE_START', scriptName, url }, (response) => {
+    if (response?.success || response?.sessionId) {
+      authCaptureSessionId = response.sessionId;
+      captureBar.style.display = 'flex';
+      urlInput.style.display = 'none';
+      bridgeStatus.textContent = `Auth: log in at ${url}, then click Save`;
+      updateToolbar();
+    } else {
+      bridgeStatus.textContent = `Auth capture failed: ${response?.error || 'Unknown error'}`;
+      authCaptureSessionId = null;
+      authCaptureScriptName = null;
+    }
+  });
+}
+
+// Auth button click
+tbAuth.addEventListener('click', () => {
+  const name = sourcePanel.getScriptName();
+  if (!name || !state.connected) return;
+
+  // Save dirty editor first
+  if (sourcePanel.isDirty()) {
+    const source = sourcePanel.getSource();
+    chrome.runtime.sendMessage({ type: 'SCRIPT_LIBRARY_SAVE', name, source });
+  }
+
+  // Try to extract URL from source
+  const source = sourcePanel.getSource();
+  const url = findFirstGotoUrl(source);
+
+  if (url) {
+    startAuthCapture(name, url);
+  } else {
+    // Show URL input prompt
+    const urlInput = document.getElementById('auth-url-input');
+    const urlField = document.getElementById('auth-url-field');
+    urlInput.style.display = 'flex';
+    urlField.value = '';
+    urlField.focus();
+    authCaptureScriptName = name;
+  }
+});
+
+// Auth URL input — Go button
+document.getElementById('auth-url-ok').addEventListener('click', () => {
+  const urlField = document.getElementById('auth-url-field');
+  const url = urlField.value.trim();
+  if (!url || !authCaptureScriptName) return;
+  startAuthCapture(authCaptureScriptName, url);
+});
+document.getElementById('auth-url-field').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('auth-url-ok').click();
+});
+
+// Auth URL input — Cancel
+document.getElementById('auth-url-cancel').addEventListener('click', () => {
+  document.getElementById('auth-url-input').style.display = 'none';
+  authCaptureScriptName = null;
+});
+
+// Auth capture — Save & Close
+document.getElementById('auth-save-btn').addEventListener('click', () => {
+  if (!authCaptureSessionId || !authCaptureScriptName) return;
+
+  bridgeStatus.textContent = 'Auth: saving state...';
+  chrome.runtime.sendMessage({
+    type: 'AUTH_CAPTURE_SAVE',
+    sessionId: authCaptureSessionId,
+    scriptName: authCaptureScriptName,
+  }, (response) => {
+    document.getElementById('auth-capture-bar').style.display = 'none';
+    if (response?.success || response?.path) {
+      bridgeStatus.textContent = `Auth state saved for ${authCaptureScriptName}`;
+      pushActivity(`Auth state saved: ${authCaptureScriptName}`);
+    } else {
+      bridgeStatus.textContent = `Auth save failed: ${response?.error || 'Unknown error'}`;
+    }
+    authCaptureSessionId = null;
+    authCaptureScriptName = null;
+    updateToolbar();
+  });
+});
+
+// Auth capture — Cancel
+document.getElementById('auth-cancel-btn').addEventListener('click', () => {
+  if (authCaptureSessionId) {
+    // Destroy the session without saving
+    chrome.runtime.sendMessage({ type: 'BRIDGE_DESTROY_SESSION', sessionId: authCaptureSessionId });
+  }
+  document.getElementById('auth-capture-bar').style.display = 'none';
+  bridgeStatus.textContent = 'Auth capture cancelled';
+  authCaptureSessionId = null;
+  authCaptureScriptName = null;
+  updateToolbar();
+});
 
 // ---- Snippet palette toggle ----
 document.getElementById('view-snippets-btn').addEventListener('click', () => {

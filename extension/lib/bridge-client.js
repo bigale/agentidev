@@ -357,6 +357,37 @@ export function dbgRestartFrame(scriptId, pid, callFrameId) {
   return _sendRequest('BRIDGE_DBG_RESTART_FRAME', { scriptId, pid, callFrameId });
 }
 
+// ---- Auth capture ----
+
+/**
+ * Start an auth capture session: opens a browser to the given URL for manual login.
+ * @param {string} scriptName - Script name (used to key the auth file)
+ * @param {string} url - URL to navigate to for login
+ * @returns {Promise<{ sessionId: string, sessionName: string }>}
+ */
+export function startAuthCapture(scriptName, url) {
+  return _sendRequest('BRIDGE_AUTH_CAPTURE', { scriptName, url });
+}
+
+/**
+ * Save auth state from the capture session and close it.
+ * @param {string} sessionId - The auth session to save from
+ * @param {string} scriptName - Script name (determines output file name)
+ * @returns {Promise<{ success: boolean, path: string }>}
+ */
+export function saveAuthState(sessionId, scriptName) {
+  return _sendRequest('BRIDGE_AUTH_SAVE', { sessionId, scriptName });
+}
+
+/**
+ * Check if auth state file exists for a script.
+ * @param {string} scriptName - Script name to check
+ * @returns {Promise<{ exists: boolean, path: string }>}
+ */
+export function checkAuthState(scriptName) {
+  return _sendRequest('BRIDGE_AUTH_CHECK', { scriptName });
+}
+
 // ---- System process management ----
 
 export function getSystemProcesses() {

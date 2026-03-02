@@ -97,6 +97,12 @@ for (const [cat, methods] of Object.entries(INTERCEPT_CATEGORIES)) {
   for (const m of methods) METHOD_CATEGORY[m] = cat;
 }
 
+// ---- Auth state auto-load (from PLAYWRIGHT_AUTH_STATE env) ----
+const _authStatePath = process.env.PLAYWRIGHT_AUTH_STATE || null;
+if (_authStatePath) {
+  console.log(`[playwright-shim] Auth state will be injected: ${_authStatePath}`);
+}
+
 let _pageCounter = 0;
 
 // ---- Wrap a Page instance ----
@@ -179,13 +185,19 @@ function wrapBrowser(browser) {
   const origNewPage = browser.newPage.bind(browser);
   const origNewContext = browser.newContext.bind(browser);
 
-  browser.newPage = async (...args) => {
-    const page = await origNewPage(...args);
+  browser.newPage = async (opts = {}) => {
+    if (_authStatePath && !opts.storageState) {
+      opts = { ...opts, storageState: _authStatePath };
+    }
+    const page = await origNewPage(opts);
     return wrapPage(page);
   };
 
-  browser.newContext = async (...args) => {
-    const context = await origNewContext(...args);
+  browser.newContext = async (opts = {}) => {
+    if (_authStatePath && !opts.storageState) {
+      opts = { ...opts, storageState: _authStatePath };
+    }
+    const context = await origNewContext(opts);
     return wrapContext(context);
   };
 
@@ -204,8 +216,11 @@ function wrapBrowserType(browserType) {
         };
       }
       if (prop === 'launchPersistentContext') {
-        return async (...args) => {
-          const context = await target.launchPersistentContext(...args);
+        return async (userDataDir, opts = {}) => {
+          if (_authStatePath && !opts.storageState) {
+            opts = { ...opts, storageState: _authStatePath };
+          }
+          const context = await target.launchPersistentContext(userDataDir, opts);
           return wrapContext(context);
         };
       }

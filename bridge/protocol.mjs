@@ -71,6 +71,11 @@ export const MSG = {
   BRIDGE_DBG_PAUSED: 'BRIDGE_DBG_PAUSED',                    // broadcast: script paused (V8)
   BRIDGE_DBG_RESUMED: 'BRIDGE_DBG_RESUMED',                  // broadcast: script resumed (V8)
 
+  // Auth capture (save/load login state for scripts)
+  BRIDGE_AUTH_CAPTURE: 'BRIDGE_AUTH_CAPTURE',                // start auth capture session (open browser, navigate)
+  BRIDGE_AUTH_SAVE: 'BRIDGE_AUTH_SAVE',                      // save auth state from session and close it
+  BRIDGE_AUTH_CHECK: 'BRIDGE_AUTH_CHECK',                    // check if auth state file exists for a script
+
   // System process management
   BRIDGE_SYSTEM_PROCESSES: 'BRIDGE_SYSTEM_PROCESSES',        // discover running Playwright browser processes
   BRIDGE_KILL_PROCESS: 'BRIDGE_KILL_PROCESS',                // kill a process by PID
