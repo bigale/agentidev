@@ -46,7 +46,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["lib/*.js", "lib/*.wasm", "lib/transformers/*.js", "pkg/*.js", "pkg/*.wasm"],
+      "resources": ["lib/*.js", "lib/*.wasm", "lib/transformers/*.js", "pkg/*.js", "pkg/*.wasm", "examples/*.mjs"],
       "matches": ["<all_urls>"]
     }
   ]

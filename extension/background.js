@@ -36,6 +36,52 @@ console.log('Contextual Recall: Background service worker started');
 console.log('[Background] Note: Extension reload = re-initialize (models are cached, not re-downloaded)');
 
 // ============================================================
+// Example scripts — upsert bundled examples into library on each startup
+// ============================================================
+
+const EXAMPLE_SCRIPTS = [
+  { name: 'duck_search', file: 'examples/duck_search.mjs' },
+];
+
+async function ensureExampleScripts() {
+  try {
+    const stored = await chrome.storage.local.get('bridge-scripts');
+    const lib = stored['bridge-scripts'] || {};
+    let changed = false;
+    for (const ex of EXAMPLE_SCRIPTS) {
+      if (lib[ex.name]) continue; // User has it (possibly edited) — don't overwrite
+      const resp = await fetch(chrome.runtime.getURL(ex.file));
+      if (!resp.ok) { console.warn(`[Background] Example ${ex.file} not found`); continue; }
+      const source = await resp.text();
+      lib[ex.name] = {
+        name: ex.name,
+        source,
+        originalPath: ex.file,
+        importedAt: Date.now(),
+        modifiedAt: Date.now(),
+        size: source.length,
+      };
+      changed = true;
+    }
+    if (changed) {
+      await chrome.storage.local.set({ 'bridge-scripts': lib });
+      console.log('[Background] ✓ Example scripts loaded into library');
+      // Sync new examples to disk if bridge is already connected
+      if (bridgeClient.isConnected()) {
+        for (const ex of EXAMPLE_SCRIPTS) {
+          if (lib[ex.name]) {
+            try { await bridgeClient.saveScript(ex.name, lib[ex.name].source); } catch {}
+          }
+        }
+        console.log('[Background] ✓ Example scripts synced to disk');
+      }
+    }
+  } catch (err) {
+    console.warn('[Background] Example scripts load failed:', err.message);
+  }
+}
+
+// ============================================================
 // Initialization
 // ============================================================
 
@@ -44,6 +90,9 @@ console.log('[Background] Note: Extension reload = re-initialize (models are cac
     console.log('[Background] ========================================');
     console.log('[Background] Starting initialization...');
     console.log('[Background] ========================================');
+
+    // Ensure bundled example scripts are in the library
+    await ensureExampleScripts();
 
     // Initialize databases first (fast)
     await vectorDB.init();
