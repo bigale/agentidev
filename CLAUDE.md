@@ -38,6 +38,22 @@ npm run lint
 npm run format
 ```
 
+### Bridge Server (WebSocket, port 9876)
+```bash
+# Start the bridge server
+npm run bridge
+
+# Stop the bridge server (graceful shutdown via WebSocket)
+npm run bridge:stop
+
+# Restart (required after any change to bridge/server.mjs)
+npm run bridge:restart
+```
+
+**IMPORTANT**: `bridge/server.mjs` is a persistent Node.js process. It does **not** hot-reload.
+After any code change to `server.mjs`, you must restart it or the old code stays in memory.
+Symptom of stale server: `Error: Unknown message type: BRIDGE_XYZ` even though the case exists in source.
+
 ### Loading Extension in Chrome
 1. Build the extension: `npm run build`
 2. Navigate to `chrome://extensions/`

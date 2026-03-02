@@ -16,6 +16,8 @@ let port = DEFAULT_PORT;
 let reconnectDelay = INITIAL_RECONNECT_DELAY;
 let reconnectTimer = null;
 let intentionalClose = false;
+let bridgeShimPath = null;
+let bridgeScriptsDir = null;
 
 // Pending request/response map: id -> { resolve, reject, timer }
 const pending = new Map();
@@ -28,6 +30,7 @@ const callbacks = {
   onConnectionChange: [],
   onSearchRequest: [],
   onScriptUpdate: [],
+  onFileChanged: [],
 };
 
 /**
@@ -311,6 +314,32 @@ export function getScriptSource(scriptPath) {
   return _sendRequest('BRIDGE_SCRIPT_SOURCE', { scriptPath });
 }
 
+/**
+ * Save a script's source to disk via the bridge server.
+ * @param {string} name - Script name (without extension)
+ * @param {string} source - Full script source code
+ * @returns {Promise<{ success: boolean, path: string }>}
+ */
+export function saveScript(name, source) {
+  return _sendRequest('BRIDGE_SCRIPT_SAVE', { name, source });
+}
+
+/**
+ * Get the shim path provided by the bridge server at connect time.
+ * @returns {string|null}
+ */
+export function getShimPath() {
+  return bridgeShimPath;
+}
+
+/**
+ * Get the scripts directory path provided by the bridge server.
+ * @returns {string|null}
+ */
+export function getScriptsDir() {
+  return bridgeScriptsDir;
+}
+
 // --- Event Callbacks ---
 
 /**
@@ -351,6 +380,14 @@ export function onConnectionChange(cb) {
  */
 export function onScriptUpdate(cb) {
   callbacks.onScriptUpdate.push(cb);
+}
+
+/**
+ * Register callback for file changes on disk (reverse sync from bridge file watcher).
+ * @param {function} cb - Callback({ name, source, path, size, modifiedAt, deleted })
+ */
+export function onFileChanged(cb) {
+  callbacks.onFileChanged.push(cb);
 }
 
 /**
@@ -404,6 +441,11 @@ function _sendRequest(type, payload, timeout = 30000) {
 
 function _handleBroadcast(msg) {
   switch (msg.type) {
+    case 'BRIDGE_IDENTIFY':
+      // Capture server-provided paths from identify reply
+      if (msg.payload?.shimPath) bridgeShimPath = msg.payload.shimPath;
+      if (msg.payload?.scriptsDir) bridgeScriptsDir = msg.payload.scriptsDir;
+      break;
     case 'BRIDGE_SNAPSHOT_RESULT':
       _fireCallbacks('onSnapshotReceived', msg.payload);
       break;
@@ -415,6 +457,9 @@ function _handleBroadcast(msg) {
       break;
     case 'BRIDGE_SCRIPT_PROGRESS':
       _fireCallbacks('onScriptUpdate', msg.payload);
+      break;
+    case 'BRIDGE_SCRIPT_FILE_CHANGED':
+      _fireCallbacks('onFileChanged', msg.payload);
       break;
     case 'BRIDGE_SEARCH_SNAPSHOTS':
       _handleSearchRequest(msg);

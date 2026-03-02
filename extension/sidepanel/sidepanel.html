@@ -331,6 +331,35 @@
     }
     .auto-status-bar span { font-size: 12px; color: #5f6368; }
 
+    /* Active script summary */
+    .auto-active-script {
+      padding: 7px 12px; font-size: 11px; color: #5f6368;
+      border-bottom: 1px solid #e0e0e0; display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
+    }
+    .auto-active-script .script-name { font-weight: 600; color: #202124; }
+
+    /* Page intercept toggles */
+    .auto-page-intercepts { padding: 4px 12px 8px; }
+    .auto-page-row {
+      display: flex; align-items: center; gap: 8px; padding: 4px 0;
+      border-bottom: 1px solid #f5f5f5; font-size: 11px;
+    }
+    .auto-page-row:last-child { border-bottom: none; }
+    .auto-page-id { font-family: monospace; font-size: 10px; color: #9aa0a6; min-width: 20px; flex-shrink: 0; }
+    .auto-page-url {
+      flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: #5f6368; font-size: 10px;
+    }
+    .auto-ic-dots { display: flex; gap: 4px; flex-shrink: 0; }
+    .auto-ic-dot {
+      cursor: pointer; font-size: 9px; padding: 1px 4px; border-radius: 3px;
+      background: #e8eaed; color: #5f6368; user-select: none;
+      transition: background 0.15s; font-weight: 500;
+    }
+    .auto-ic-dot:hover { background: #dadce0; }
+    .auto-ic-dot.active { background: #fff3cd; color: #e37400; font-weight: 700; }
+    .auto-ic-dot.hit { background: #f9ab00; color: white; font-weight: 700; }
+
     .auto-session-bar {
       display: flex; align-items: center; gap: 6px;
       padding: 6px 12px; overflow-x: auto; white-space: nowrap;
@@ -884,78 +913,21 @@
         <span id="bridge-status-text">Disconnected</span>
         <button id="bridge-connect-btn" class="auto-btn-sm">Connect</button>
         <button id="auto-open-dashboard-btn" class="auto-btn-sm"
-          style="margin-left:auto;" title="Open full dashboard">Dashboard</button>
+          style="margin-left:auto;" title="Open full dashboard">Dashboard ↗</button>
       </div>
 
-      <!-- Session Tabs (horizontal scroll) -->
-      <div id="auto-session-bar" class="auto-session-bar">
-        <div id="auto-session-tabs" class="auto-session-tabs"></div>
-        <button id="auto-new-session-btn" class="auto-btn-sm" disabled>+</button>
+      <!-- Active Script Summary -->
+      <div id="auto-active-script" class="auto-active-script">
+        <span style="color:#9aa0a6;">No active script — launch from Dashboard</span>
       </div>
 
-      <!-- Command Bar (sticky) -->
-      <div id="auto-command-bar" class="auto-command-bar">
-        <input type="text" id="auto-command-input" placeholder="Command or natural language..." disabled>
-        <button id="auto-send-btn" class="auto-btn-sm" disabled>Send</button>
-        <button id="auto-snapshot-btn" class="auto-btn-sm" disabled title="Take snapshot">Snap</button>
-      </div>
-
-      <!-- Quick Actions -->
-      <div id="auto-quick-actions" class="auto-quick-actions">
-        <button class="auto-action-btn" data-action="dismiss" title="Dismiss dialog" disabled>Dismiss</button>
-        <button class="auto-action-btn" data-action="refresh" title="Refresh page" disabled>Refresh</button>
-        <button class="auto-action-btn" data-action="back" title="Go back" disabled>Back</button>
-        <button class="auto-action-btn" data-action="scroll" title="Scroll down" disabled>Scroll</button>
-      </div>
-
-      <!-- Command Feed (live, scrollable) -->
-      <div id="auto-command-feed" class="auto-section">
-        <div class="auto-section-header" data-collapse="command-feed">
-          <span>Command Feed</span>
-          <span id="auto-feed-count" class="auto-badge">0</span>
+      <!-- Page Intercept Toggles (shown when a shim script is running) -->
+      <div id="auto-page-intercepts-section" class="auto-section" style="display:none;">
+        <div class="auto-section-header" style="cursor:default;">
+          <span>Page Intercepts</span>
+          <span style="font-size:10px; color:#9aa0a6; font-weight:normal;">click to pause before operation</span>
         </div>
-        <div id="auto-feed-list" class="auto-feed-list"></div>
-      </div>
-
-      <!-- Snapshot Viewer -->
-      <div id="auto-snapshot-section" class="auto-section">
-        <div class="auto-section-header" data-collapse="snapshot">
-          <span>Snapshot</span>
-          <span id="auto-snapshot-info" class="auto-badge"></span>
-        </div>
-        <div id="auto-snapshot-search" style="display:none; padding: 4px 12px;">
-          <input type="text" id="auto-snap-filter" placeholder="Filter snapshot..." class="auto-input-sm" style="width:100%;">
-        </div>
-        <pre id="auto-snapshot-viewer" class="auto-snapshot-viewer">No snapshot yet</pre>
-      </div>
-
-      <!-- Page Knowledge -->
-      <div id="auto-knowledge-section" class="auto-section">
-        <div class="auto-section-header" data-collapse="knowledge">
-          <span>Page Knowledge</span>
-        </div>
-        <div style="display: flex; gap: 6px; padding: 4px 12px 8px;">
-          <input type="text" id="auto-knowledge-input" placeholder="Search cached snapshots..." class="auto-input-sm" style="flex:1;">
-          <button id="auto-knowledge-search-btn" class="auto-btn-sm">Search</button>
-        </div>
-        <div id="auto-knowledge-results" style="padding: 0 12px 8px; font-size: 12px; color: #5f6368;">Search the snapshot vector store for cached page structure.</div>
-      </div>
-
-      <!-- Script Status (Phase 3) -->
-      <div id="auto-scripts-section" class="auto-section">
-        <div class="auto-section-header" data-collapse="scripts">
-          <span>Scripts</span>
-          <span id="auto-scripts-count" class="auto-badge">0</span>
-          <button id="auto-script-launch-btn" class="auto-btn-sm" style="margin-left:auto;" title="Launch a script">Launch</button>
-        </div>
-        <div id="auto-script-launch-form" style="display:none; padding: 6px 12px; border-bottom: 1px solid #f0f0f0;">
-          <input type="text" id="auto-script-path-input" placeholder="/path/to/script.mjs" class="auto-input-sm" style="width:100%; margin-bottom:4px;">
-          <div style="display:flex; gap:4px;">
-            <input type="text" id="auto-script-args-input" placeholder="--args (optional)" class="auto-input-sm" style="flex:1;">
-            <button id="auto-script-run-btn" class="auto-btn-sm">Run</button>
-          </div>
-        </div>
-        <div id="auto-scripts-list" class="auto-scripts-list"></div>
+        <div id="auto-page-intercepts" class="auto-page-intercepts"></div>
       </div>
     </div>
 

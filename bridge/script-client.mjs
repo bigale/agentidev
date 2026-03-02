@@ -244,6 +244,77 @@ export class ScriptClient {
   }
 
   /**
+   * Dynamically declare a checkpoint after registration.
+   * Used by playwright-shim when new pages are created (page IDs aren't known at registration time).
+   * The bridge appends to script.checkpoints and broadcasts the update so UIs show the new toggle.
+   *
+   * @param {string} name - Checkpoint name (e.g. 'p1:navigate')
+   * @returns {Promise<void>}
+   */
+  async declareCheckpoint(name) {
+    if (!this.scriptId) return;
+    await this._sendRequest('BRIDGE_SCRIPT_DECLARE_CHECKPOINT', {
+      scriptId: this.scriptId,
+      name,
+    });
+  }
+
+  /**
+   * Report a page's current URL and title so the UI can label intercept toggles.
+   * Fire-and-forget (no response expected).
+   *
+   * @param {string} pageId - Page identifier (e.g. 'p1', 'p2')
+   * @param {string} url - Current page URL
+   * @param {string} [title] - Page title (optional)
+   */
+  reportPage(pageId, url, title = '') {
+    if (!this.scriptId) return;
+    this._send(buildMessage('BRIDGE_SCRIPT_PAGE_STATUS', {
+      scriptId: this.scriptId,
+      pageId,
+      url,
+      title,
+    }));
+  }
+
+  /**
+   * Auth pre-flight guard — verify session is logged in, report error and exit if not.
+   * Replaces ~17 lines of boilerplate in every script that needs auth checks.
+   *
+   * @param {string} sessionId - PlaywrightSession ID or name
+   * @param {object} checks
+   * @param {string} [checks.urlContains] - Current URL must contain this string
+   * @param {string[]} [checks.snapshotContains] - Snapshot must contain at least one
+   * @param {object} [options]
+   * @param {function} [options.onFail] - Cleanup callback on auth failure (e.g. close DB)
+   * @param {string} [options.activity] - Activity label while checking (default: 'Verifying session...')
+   * @returns {Promise<void>} Resolves if auth passed; calls complete+disconnect+exit on failure
+   */
+  async authGuard(sessionId, checks, options = {}) {
+    const activity = options.activity || 'Verifying session...';
+    this.setActivity(activity);
+
+    const result = await this.verifySession(sessionId, checks);
+    if (result.ok) {
+      this.setActivity('');
+      return;
+    }
+
+    // Auth failed — report error, clean up, and exit
+    const reason = result.reason || 'Session verification failed';
+    console.error(`[Script:${this.name}] Auth guard failed: ${reason}`);
+    await this.reportError(reason);
+
+    if (options.onFail) {
+      try { await options.onFail(); } catch { /* best-effort cleanup */ }
+    }
+
+    await this.complete({ error: reason, authFailed: true });
+    this.disconnect();
+    process.exit(1);
+  }
+
+  /**
    * Mark script as complete.
    * @param {object} [results] - Final results to report
    * @returns {Promise<void>}

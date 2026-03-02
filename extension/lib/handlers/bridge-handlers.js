@@ -4,6 +4,7 @@
  * Enhanced with command logging and broadcast forwarding (Phase 1).
  */
 import * as bridgeClient from '../bridge-client.js';
+import { upsertShimImport } from '../shim-utils.js';
 import { state } from '../init-state.js';
 
 // Command log: circular buffer for tracking all bridge commands
@@ -138,6 +139,16 @@ export function register(handlers) {
     return { log: commandLog };
   };
 
+  // Bridge info (scripts dir, shim path)
+  handlers['BRIDGE_GET_INFO'] = async () => {
+    return {
+      success: true,
+      shimPath: bridgeClient.getShimPath(),
+      scriptsDir: bridgeClient.getScriptsDir(),
+      connected: bridgeClient.isConnected(),
+    };
+  };
+
   // Script source file loading (for Monaco dashboard)
   handlers['SCRIPT_GET_SOURCE'] = async (msg) => {
     if (!bridgeClient.isConnected()) {
@@ -172,9 +183,31 @@ export function initBridgeCallbacks(snapshotStorageFn) {
     chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_STATUS', ...data }).catch(() => {});
   });
 
-  bridgeClient.onConnectionChange((data) => {
+  bridgeClient.onConnectionChange(async (data) => {
     console.log(`[Background] Bridge connection: ${data.connected ? 'connected' : 'disconnected'}`);
     chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_CONNECTION', ...data }).catch(() => {});
+
+    // Auto-sync all library scripts to disk on bridge connect
+    if (data.connected) {
+      try {
+        const stored = await chrome.storage.local.get('bridge-scripts');
+        const lib = stored['bridge-scripts'] || {};
+        const names = Object.keys(lib);
+        if (names.length > 0) {
+          console.log(`[Background] Auto-syncing ${names.length} library scripts to bridge...`);
+          for (const name of names) {
+            try {
+              await bridgeClient.saveScript(name, lib[name].source);
+            } catch (err) {
+              console.warn(`[Background] Failed to sync ${name}:`, err.message);
+            }
+          }
+          console.log(`[Background] Library sync complete`);
+        }
+      } catch (err) {
+        console.warn('[Background] Library sync failed:', err.message);
+      }
+    }
   });
 
   bridgeClient.onSearchRequest(async (query, options) => {
@@ -186,5 +219,41 @@ export function initBridgeCallbacks(snapshotStorageFn) {
   bridgeClient.onScriptUpdate((data) => {
     console.log(`[Background] Script update: ${data.name} state=${data.state} ${data.step}/${data.total}`);
     chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_SCRIPT', ...data }).catch(() => {});
+  });
+
+  bridgeClient.onFileChanged(async (data) => {
+    const { name, source, path, size, modifiedAt, deleted } = data;
+    console.log(`[Background] File changed on disk: ${name} ${deleted ? '(deleted)' : `(${size} bytes)`}`);
+
+    const STORAGE_KEY = 'bridge-scripts';
+    const stored = await chrome.storage.local.get(STORAGE_KEY);
+    const lib = stored[STORAGE_KEY] || {};
+
+    if (deleted) {
+      // Remove from library if it exists
+      if (lib[name]) {
+        delete lib[name];
+        await chrome.storage.local.set({ [STORAGE_KEY]: lib });
+      }
+    } else {
+      // Upsert into library with shim import
+      const shimPath = bridgeClient.getShimPath();
+      const shimmedSource = upsertShimImport(source, shimPath);
+      lib[name] = {
+        name,
+        source: shimmedSource,
+        originalPath: path,
+        importedAt: lib[name]?.importedAt || Date.now(),
+        modifiedAt: modifiedAt || Date.now(),
+        size: shimmedSource.length,
+      };
+      await chrome.storage.local.set({ [STORAGE_KEY]: lib });
+    }
+
+    // Broadcast to dashboard/sidepanel UIs
+    chrome.runtime.sendMessage({
+      type: 'AUTO_BROADCAST_FILE_CHANGED',
+      name, source, path, size, modifiedAt, deleted,
+    }).catch(() => {});
   });
 }

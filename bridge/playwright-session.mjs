@@ -9,7 +9,11 @@
 
 import { execFile } from 'child_process';
 import { readFile } from 'fs/promises';
-import { resolve as pathResolve } from 'path';
+import { resolve as pathResolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const AUTOMATION_CONFIG = pathResolve(__dirname, 'playwright-automation.config.json');
 
 // Session states
 export const SESSION_STATE = {
@@ -67,7 +71,7 @@ export class PlaywrightSession {
    * Build the base args array for playwright-cli
    */
   _baseArgs() {
-    const args = [];
+    const args = [`--config=${AUTOMATION_CONFIG}`];
     if (this.name) args.push(`-s=${this.name}`);
     return args;
   }
@@ -107,7 +111,9 @@ export class PlaywrightSession {
    * @returns {Promise<boolean>} True if opened successfully
    */
   async spawn() {
-    const openArgs = ['--headed', '--browser=chrome'];
+    // Use Playwright bundled Chromium — Google Chrome blocks --load-extension
+    // in automation mode (~Chrome 130+) and crashes in WSL2 GPU-less environments
+    const openArgs = ['--headed', '--persistent'];
     if (this.authPath) {
       openArgs.push(`--profile=${this.authPath}`);
     }

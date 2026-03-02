@@ -27,6 +27,7 @@ import { register as registerExtract } from './lib/handlers/extract-handlers.js'
 import { register as registerAgent } from './lib/handlers/agent-handlers.js';
 import { register as registerGrammar } from './lib/handlers/grammar-handlers.js';
 import { register as registerBridge, initBridgeCallbacks } from './lib/handlers/bridge-handlers.js';
+import * as bridgeClient from './lib/bridge-client.js';
 import { register as registerSnapshot, handleSnapshotStorage } from './lib/handlers/snapshot-handlers.js';
 import { register as registerAutomation } from './lib/handlers/automation-handlers.js';
 import { register as registerScript } from './lib/handlers/script-handlers.js';
@@ -152,3 +153,10 @@ chrome.runtime.onMessage.addListener(createMessageRouter(handlers));
 
 // Set up bridge event forwarding (broadcasts snapshots/status to sidepanel)
 initBridgeCallbacks(handleSnapshotStorage);
+
+// Auto-connect to bridge server on startup (silent failure if bridge not running)
+bridgeClient.connectToBridge(9876).then(() => {
+  console.log('[Background] Auto-connected to bridge server');
+}).catch(() => {
+  console.log('[Background] Bridge server not available — will auto-reconnect when ready');
+});

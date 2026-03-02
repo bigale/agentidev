@@ -54,6 +54,10 @@ export const MSG = {
   BRIDGE_SCRIPT_SET_BREAKPOINT: 'BRIDGE_SCRIPT_SET_BREAKPOINT', // extension: toggle breakpoint
   BRIDGE_SCRIPT_VERIFY_SESSION: 'BRIDGE_SCRIPT_VERIFY_SESSION', // script: auth pre-flight
   BRIDGE_SCRIPT_SOURCE: 'BRIDGE_SCRIPT_SOURCE',              // dashboard: load script source file
+  BRIDGE_SCRIPT_DECLARE_CHECKPOINT: 'BRIDGE_SCRIPT_DECLARE_CHECKPOINT', // script: add checkpoint dynamically (e.g. new page)
+  BRIDGE_SCRIPT_PAGE_STATUS: 'BRIDGE_SCRIPT_PAGE_STATUS',    // script: update page URL/title for UI display
+  BRIDGE_SCRIPT_SAVE: 'BRIDGE_SCRIPT_SAVE',                  // extension: save script source to disk
+  BRIDGE_SCRIPT_FILE_CHANGED: 'BRIDGE_SCRIPT_FILE_CHANGED',  // server: file changed on disk (reverse sync)
 };
 
 /**

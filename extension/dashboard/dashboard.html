@@ -281,6 +281,40 @@
     }
     .dash-source-toggle-btn.active { background: #2a3a5a; color: #e0e0e0; border-color: #1a73e8; }
 
+    /* Debug controls toolbar */
+    .dash-debug-toolbar {
+      display: flex; align-items: center; gap: 4px;
+      padding: 3px 10px;
+      background: #111127; border-bottom: 1px solid #2a2a4a;
+      flex-shrink: 0; min-height: 28px;
+    }
+    .dash-dbg-tb-btn {
+      padding: 2px 8px; font-size: 10px; font-weight: 600;
+      border: 1px solid #3a3a5a; border-radius: 3px;
+      cursor: pointer; white-space: nowrap;
+      background: #2a2a4a; color: #8f8faf;
+    }
+    .dash-dbg-tb-btn:hover:not(:disabled) { background: #3a3a5a; color: #e0e0e0; }
+    .dash-dbg-tb-btn:disabled { opacity: 0.35; cursor: default; }
+    .dash-dbg-tb-btn.run { color: #4caf50; border-color: #2a4a2a; }
+    .dash-dbg-tb-btn.run:hover:not(:disabled) { background: #1e3a1e; }
+    .dash-dbg-tb-btn.pause { color: #f9ab00; border-color: #3a2a1e; }
+    .dash-dbg-tb-btn.pause:hover:not(:disabled) { background: #3a2e1e; }
+    .dash-dbg-tb-btn.resume { color: #4caf50; border-color: #2a4a2a; }
+    .dash-dbg-tb-btn.resume:hover:not(:disabled) { background: #1e3a1e; }
+    .dash-dbg-tb-btn.stop { color: #f44336; border-color: #3a1e1e; }
+    .dash-dbg-tb-btn.stop:hover:not(:disabled) { background: #3a1e1e; }
+    .dash-dbg-tb-btn.step { color: #5b8dee; border-color: #1e2a4a; }
+    .dash-dbg-tb-btn.step:hover:not(:disabled) { background: #1e3a5a; }
+    .dash-dbg-tb-btn.continue { color: #4caf50; border-color: #2a4a2a; }
+    .dash-dbg-tb-btn.continue:hover:not(:disabled) { background: #1e3a1e; }
+    .dash-dbg-tb-btn.kill { color: #f44336; border-color: #3a1e1e; }
+    .dash-dbg-tb-btn.kill:hover:not(:disabled) { background: #4a1e1e; }
+    .dash-dbg-tb-btn.unload { color: #8f8faf; }
+    .dash-dbg-tb-sep {
+      width: 1px; height: 16px; background: #2a2a4a; margin: 0 2px;
+    }
+
     #monaco-container { flex: 1; overflow: hidden; min-height: 0; }
 
     /* Snapshot fallback view */
@@ -292,6 +326,31 @@
       padding: 8px; white-space: pre;
       display: none;
     }
+    /* Clickable snapshot elements */
+    .dash-snap-element {
+      cursor: pointer;
+      border-radius: 2px;
+      transition: background 0.1s;
+    }
+    .dash-snap-element:hover {
+      background: #2a3a5a;
+      color: #5b8dee;
+    }
+
+    /* Snapshot context menu */
+    .dash-snap-ctx-menu {
+      position: fixed; z-index: 100;
+      background: #16213e; border: 1px solid #3a3a5a;
+      border-radius: 6px; min-width: 200px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+      padding: 4px 0; font-size: 11px;
+    }
+    .dash-snap-ctx-item {
+      padding: 6px 12px; cursor: pointer;
+      color: #c0c0d0;
+    }
+    .dash-snap-ctx-item:hover { background: #1c2a50; color: #e0e0e0; }
+
     .dash-snap-filter {
       display: flex; gap: 6px; align-items: center;
       padding: 4px 8px; background: #111127;
@@ -371,6 +430,93 @@
       color: #3a3a5a; font-size: 12px;
     }
 
+    /* Library list items */
+    .dash-library-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px; border-radius: 4px; cursor: pointer;
+      font-size: 11px; font-family: 'SF Mono', 'Consolas', monospace;
+      color: #8f8faf; border-bottom: 1px solid #222244;
+    }
+    .dash-library-item:hover { background: #1c2a50; color: #e0e0e0; }
+    .dash-library-item.selected { background: #1c2a50; border-left: 2px solid #1a73e8; }
+    .dash-library-name { flex: 1; color: #c0c0d0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dash-library-meta { font-size: 9px; color: #5f5f7f; white-space: nowrap; }
+    .dash-library-open {
+      background: #1e3a5a; border: none; color: #5b8dee; cursor: pointer;
+      font-size: 9px; font-weight: 600; padding: 2px 6px; border-radius: 3px;
+    }
+    .dash-library-open:hover { background: #2a4a6a; }
+    .dash-library-remove {
+      background: none; border: none; color: #5f5f7f; cursor: pointer;
+      font-size: 14px; padding: 0 2px; line-height: 1;
+    }
+    .dash-library-remove:hover { color: #f44336; }
+
+    /* File-changed notification bar */
+    .dash-file-changed-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 10px;
+      background: #3a2e1e; border-bottom: 1px solid #f9ab00;
+      font-size: 11px; color: #f0d080;
+      flex-shrink: 0;
+    }
+    .dash-file-changed-bar span { flex: 1; }
+
+    /* Snippet palette */
+    .dash-snippet-palette {
+      position: absolute; top: 34px; left: 0; right: 0; bottom: 0;
+      background: #1a1a2e; z-index: 10; overflow-y: auto;
+      padding: 10px;
+    }
+    .dash-snippet-cat-label {
+      font-size: 10px; font-weight: 600; color: #5f5f7f;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      margin: 10px 0 4px; padding-left: 4px;
+    }
+    .dash-snippet-cat-label:first-child { margin-top: 0; }
+    .dash-snippet-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px; border-radius: 4px; cursor: pointer;
+      font-size: 11px; color: #c0c0d0;
+      border-bottom: 1px solid #222244;
+    }
+    .dash-snippet-item:hover { background: #1c2a50; }
+    .dash-snippet-item-name { font-weight: 600; flex: 1; }
+    .dash-snippet-item-desc { font-size: 10px; color: #5f5f7f; }
+    .dash-snippet-form {
+      padding: 12px;
+    }
+    .dash-snippet-form-title {
+      font-size: 12px; font-weight: 600; color: #e0e0e0;
+      margin-bottom: 10px;
+    }
+    .dash-snippet-form-row {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+    }
+    .dash-snippet-form-label {
+      font-size: 10px; color: #8f8faf; min-width: 100px; text-align: right;
+    }
+    .dash-snippet-form-input {
+      flex: 1; padding: 4px 8px; font-size: 11px;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      background: #0d1117; color: #e0e0e0;
+      border: 1px solid #3a3a5a; border-radius: 3px;
+    }
+    .dash-snippet-form-input:focus { outline: none; border-color: #1a73e8; }
+    .dash-snippet-preview {
+      background: #0d1117; border: 1px solid #2a2a4a; border-radius: 4px;
+      padding: 8px; margin: 8px 0;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-size: 11px; color: #d4d4d4; white-space: pre; overflow-x: auto;
+      max-height: 200px; overflow-y: auto;
+    }
+    .dash-snippet-form-btns {
+      display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px;
+    }
+
+    /* Modified indicator dot in source toolbar */
+    .dash-source-file .dirty-dot { color: #f9ab00; }
+
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: #1a1a2e; }
@@ -387,31 +533,34 @@
     <span style="color:#3a3a5a;">|</span>
     <span class="dash-topbar-title">Automation Dashboard</span>
     <div class="dash-topbar-sep"></div>
-    <button id="dash-open-btn" class="dash-btn primary" disabled>Open Script...</button>
+    <button id="dash-open-btn" class="dash-btn primary">Script Library...</button>
   </div>
 
-  <!-- Open Script Modal -->
+  <!-- Script Library Modal -->
   <div class="dash-modal-overlay" id="dash-modal-overlay">
-    <div class="dash-modal">
+    <div class="dash-modal" style="width:620px;">
       <div class="dash-modal-hdr">
-        <span class="dash-modal-title">Open Script</span>
-        <button class="dash-modal-close" id="dash-modal-close">✕</button>
+        <span class="dash-modal-title">Script Library</span>
+        <button class="dash-modal-close" id="dash-modal-close">&#x2715;</button>
       </div>
       <div class="dash-modal-body">
-        <div class="dash-modal-label">Script path</div>
-        <input type="text" id="dash-launch-path" class="dash-modal-input"
-               placeholder="/home/user/scripts/my-script.mjs" spellcheck="false" autocomplete="off">
-        <div class="dash-modal-label">Arguments <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#3a3a5a;">(optional)</span></div>
-        <input type="text" id="dash-launch-args" class="dash-modal-input"
-               placeholder="--flag value" spellcheck="false" autocomplete="off">
-        <div class="dash-recent-label">Recent</div>
-        <div class="dash-recent-list" id="dash-recent-list">
-          <div class="dash-recent-empty">No recent scripts</div>
+        <!-- Import section -->
+        <div class="dash-modal-label">Import from file</div>
+        <div style="display:flex;gap:8px;margin-bottom:14px;">
+          <input type="text" id="dash-import-path" class="dash-modal-input" style="margin-bottom:0;flex:1;"
+                 placeholder="/home/user/scripts/my-script.mjs" spellcheck="false" autocomplete="off">
+          <button class="dash-btn primary" id="dash-import-btn">Import</button>
         </div>
+
+        <!-- Library list -->
+        <div class="dash-modal-label">Library <span id="dash-library-count" style="font-weight:400;text-transform:none;letter-spacing:0;"></span></div>
+        <div id="dash-library-list" class="dash-library-list" style="max-height:260px;overflow-y:auto;margin-bottom:10px;">
+          <div class="dash-recent-empty">No scripts imported</div>
+        </div>
+
       </div>
       <div class="dash-modal-footer">
-        <button class="dash-btn secondary" id="dash-modal-cancel">Cancel</button>
-        <button class="dash-btn primary" id="dash-launch-btn">Launch ▶</button>
+        <button class="dash-btn secondary" id="dash-modal-cancel">Close</button>
       </div>
     </div>
   </div>
@@ -449,7 +598,27 @@
         <div class="dash-source-toggle">
           <button class="dash-source-toggle-btn active" id="view-source-btn">Source</button>
           <button class="dash-source-toggle-btn" id="view-snap-btn">Snapshot</button>
+          <button class="dash-source-toggle-btn" id="view-snippets-btn">Snippets</button>
         </div>
+      </div>
+      <!-- Debug controls toolbar -->
+      <div class="dash-debug-toolbar" id="debug-toolbar">
+        <button class="dash-dbg-tb-btn run" id="tb-run" disabled title="Launch script">Run</button>
+        <button class="dash-dbg-tb-btn pause" id="tb-pause" disabled title="Pause script">Pause</button>
+        <button class="dash-dbg-tb-btn resume" id="tb-resume" disabled title="Resume script" style="display:none;">Resume</button>
+        <button class="dash-dbg-tb-btn stop" id="tb-stop" disabled title="Cancel script">Stop</button>
+        <span class="dash-dbg-tb-sep"></span>
+        <button class="dash-dbg-tb-btn step" id="tb-step" disabled title="Step past checkpoint">Step</button>
+        <button class="dash-dbg-tb-btn continue" id="tb-continue" disabled title="Continue (clear all breakpoints)">Continue</button>
+        <span class="dash-dbg-tb-sep"></span>
+        <button class="dash-dbg-tb-btn kill" id="tb-kill" disabled title="Force kill (SIGKILL)">Kill</button>
+        <div style="flex:1;"></div>
+        <button class="dash-dbg-tb-btn unload" id="tb-unload" disabled title="Unload script from editor">Unload</button>
+      </div>
+      <!-- Snippet palette overlay (hidden by default) -->
+      <div id="snippet-palette" class="dash-snippet-palette" style="display:none;">
+        <div class="dash-snippet-categories" id="snippet-categories"></div>
+        <div class="dash-snippet-form" id="snippet-form" style="display:none;"></div>
       </div>
       <div id="monaco-container"></div>
       <div id="snapshot-view">No snapshot yet</div>

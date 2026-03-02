@@ -55,9 +55,12 @@ export class ScriptPanel {
     const checkpoints = s.checkpoints || [];
     const selected = s.scriptId === selectedId;
 
+    const isDead = ['disconnected', 'complete', 'cancelled', 'killed', 'error'].includes(s.state);
+    const displayState = s.state === 'disconnected' && s.errors > 0 ? 'error' : s.state;
+
     const stateLabel = isAtCp
       ? `⏸ ${esc(s.checkpoint?.name || 'checkpoint')}`
-      : s.state;
+      : displayState;
 
     const bpDots = checkpoints.length > 0 ? `
       <div class="dash-sc-bps">
@@ -75,10 +78,14 @@ export class ScriptPanel {
 
     const actions = isActive ? `
       <div class="dash-sc-actions">
-        <button class="dash-sc-btn danger" data-action="kill" data-sid="${s.scriptId}" title="Force kill (SIGKILL)">Kill ⚡</button>
+        <button class="dash-sc-btn danger" data-action="kill" data-sid="${s.scriptId}" title="Force kill (SIGKILL)">Kill</button>
         ${s.state === 'running' ? `<button class="dash-sc-btn warn" data-action="pause" data-sid="${s.scriptId}">Pause</button>` : ''}
         ${s.state === 'paused'  ? `<button class="dash-sc-btn normal" data-action="resume" data-sid="${s.scriptId}">Resume</button>` : ''}
         ${isAtCp ? '' : `<button class="dash-sc-btn danger" data-action="cancel" data-sid="${s.scriptId}">Cancel</button>`}
+      </div>
+    ` : isDead ? `
+      <div class="dash-sc-actions">
+        <button class="dash-sc-btn normal" data-action="dismiss" data-sid="${s.scriptId}" title="Remove from list">Dismiss</button>
       </div>
     ` : '';
 
@@ -87,7 +94,7 @@ export class ScriptPanel {
            data-script-id="${s.scriptId}">
         <div class="dash-sc-header">
           <span class="dash-sc-name">${esc(s.name)}</span>
-          <span class="dash-sc-state ${s.state}">${stateLabel}</span>
+          <span class="dash-sc-state ${displayState}">${stateLabel}</span>
         </div>
         <div class="dash-sc-progress">
           <div class="dash-sc-progress-fill ${fillClass}" style="width:${pct}%"></div>

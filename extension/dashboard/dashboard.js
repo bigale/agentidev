@@ -6,6 +6,7 @@
 import { ScriptPanel } from './panels/script-panel.js';
 import { SourcePanel } from './panels/source-panel.js';
 import { DebugPanel } from './panels/debug-panel.js';
+import { getSnippetsByCategory, getSnippet, renderSnippet, suggestFromElement } from '../lib/snippet-library.js';
 
 // ---- Wait for Monaco to be ready ----
 await new Promise(resolve => {
@@ -31,12 +32,22 @@ const bridgeStatus = document.getElementById('dash-bridge-status');
 const connectBtn   = document.getElementById('dash-connect-btn');
 const openBtn      = document.getElementById('dash-open-btn');
 const modalOverlay = document.getElementById('dash-modal-overlay');
-const launchPath   = document.getElementById('dash-launch-path');
-const launchArgs   = document.getElementById('dash-launch-args');
-const launchBtn    = document.getElementById('dash-launch-btn');
-const recentList   = document.getElementById('dash-recent-list');
+const importPath   = document.getElementById('dash-import-path');
+const importBtn    = document.getElementById('dash-import-btn');
+const libraryList  = document.getElementById('dash-library-list');
+const libraryCount = document.getElementById('dash-library-count');
 const newSessionBtn     = document.getElementById('dash-new-session-btn');
 const destroySessionBtn = document.getElementById('dash-destroy-session-btn');
+
+// Debug toolbar refs
+const tbRun      = document.getElementById('tb-run');
+const tbPause    = document.getElementById('tb-pause');
+const tbResume   = document.getElementById('tb-resume');
+const tbStop     = document.getElementById('tb-stop');
+const tbStep     = document.getElementById('tb-step');
+const tbContinue = document.getElementById('tb-continue');
+const tbKill     = document.getElementById('tb-kill');
+const tbUnload   = document.getElementById('tb-unload');
 
 // ---- Initialize panels ----
 const scriptPanel = new ScriptPanel(
@@ -94,6 +105,229 @@ function setView(view) {
   }
 }
 
+// ---- Debug toolbar ----
+
+/**
+ * Update toolbar button states based on loaded script + running script state.
+ * - "Run" enabled when a library script is loaded in editor but not currently running
+ * - "Pause" enabled when running
+ * - "Resume" shown (replacing Pause) when paused
+ * - "Stop" enabled when active (running/paused/checkpoint)
+ * - "Step/Continue" enabled only at checkpoint
+ * - "Kill" enabled when active
+ * - "Unload" enabled when any script is loaded in editor
+ */
+function updateToolbar() {
+  const loadedName = sourcePanel.getScriptName();
+  const hasLoaded = !!loadedName;
+
+  // Find running script that matches the loaded editor script
+  let runningScript = null;
+  if (loadedName) {
+    for (const s of state.scripts.values()) {
+      if (s.name === loadedName && ['running', 'paused', 'checkpoint', 'registered'].includes(s.state)) {
+        runningScript = s;
+        break;
+      }
+    }
+  }
+
+  const scriptState = runningScript?.state || null;
+  const isActive = ['running', 'paused', 'checkpoint'].includes(scriptState);
+  const isCheckpoint = scriptState === 'checkpoint';
+  const isPaused = scriptState === 'paused';
+  const isRunning = scriptState === 'running';
+
+  // Run: only when loaded and NOT currently active
+  tbRun.disabled = !hasLoaded || !state.connected || isActive;
+
+  // Pause / Resume toggle
+  tbPause.style.display = isPaused ? 'none' : '';
+  tbResume.style.display = isPaused ? '' : 'none';
+  tbPause.disabled = !isRunning;
+  tbResume.disabled = !isPaused;
+
+  // Stop
+  tbStop.disabled = !isActive;
+
+  // Step / Continue: only at checkpoint
+  tbStep.disabled = !isCheckpoint;
+  tbContinue.disabled = !isCheckpoint;
+
+  // Kill
+  tbKill.disabled = !isActive;
+
+  // Unload: when anything is loaded
+  tbUnload.disabled = !hasLoaded;
+}
+
+// ---- Debug toolbar button handlers ----
+tbRun.addEventListener('click', () => {
+  const name = sourcePanel.getScriptName();
+  if (!name || !state.connected) return;
+
+  // Save first, then launch
+  if (sourcePanel.isDirty()) {
+    const source = sourcePanel.getSource();
+    chrome.runtime.sendMessage({ type: 'SCRIPT_LIBRARY_SAVE', name, source });
+  }
+
+  chrome.runtime.sendMessage({ type: 'BRIDGE_GET_INFO' }, (info) => {
+    const scriptsDir = info?.scriptsDir || '';
+    const scriptPath = `${scriptsDir}/${name}.mjs`;
+    chrome.runtime.sendMessage({ type: 'SCRIPT_LAUNCH', path: scriptPath, args: [] }, (response) => {
+      if (!response?.success) {
+        bridgeStatus.textContent = `Launch failed: ${response?.error || 'Unknown error'}`;
+      }
+    });
+  });
+});
+
+tbPause.addEventListener('click', () => {
+  const s = findRunningScriptForEditor();
+  if (s) chrome.runtime.sendMessage({ type: 'SCRIPT_PAUSE', scriptId: s.scriptId });
+});
+
+tbResume.addEventListener('click', () => {
+  const s = findRunningScriptForEditor();
+  if (s) chrome.runtime.sendMessage({ type: 'SCRIPT_RESUME', scriptId: s.scriptId });
+});
+
+tbStop.addEventListener('click', () => {
+  const s = findRunningScriptForEditor();
+  if (s) chrome.runtime.sendMessage({ type: 'SCRIPT_CANCEL', scriptId: s.scriptId, reason: 'Stopped from toolbar' });
+});
+
+tbStep.addEventListener('click', () => {
+  const s = findRunningScriptForEditor();
+  if (s) chrome.runtime.sendMessage({ type: 'SCRIPT_STEP', scriptId: s.scriptId, clearAll: false });
+});
+
+tbContinue.addEventListener('click', () => {
+  const s = findRunningScriptForEditor();
+  if (s) chrome.runtime.sendMessage({ type: 'SCRIPT_STEP', scriptId: s.scriptId, clearAll: true });
+});
+
+tbKill.addEventListener('click', () => {
+  const s = findRunningScriptForEditor();
+  if (s) chrome.runtime.sendMessage({ type: 'SCRIPT_CANCEL', scriptId: s.scriptId, reason: 'Force killed from toolbar', force: true });
+});
+
+tbUnload.addEventListener('click', () => {
+  sourcePanel.unload();
+  state.selectedScriptId = null;
+  scriptPanel.render(state.scripts, null);
+  debugPanel.update(null);
+  updateToolbar();
+});
+
+/**
+ * Find the running script entry that matches whatever is loaded in the editor.
+ */
+function findRunningScriptForEditor() {
+  const name = sourcePanel.getScriptName();
+  if (!name) return null;
+  for (const s of state.scripts.values()) {
+    if (s.name === name && ['running', 'paused', 'checkpoint', 'registered'].includes(s.state)) {
+      return s;
+    }
+  }
+  return null;
+}
+
+// ---- Snippet palette toggle ----
+document.getElementById('view-snippets-btn').addEventListener('click', () => {
+  const palette = document.getElementById('snippet-palette');
+  const snippetBtn = document.getElementById('view-snippets-btn');
+  const isOpen = palette.style.display !== 'none';
+  if (isOpen) {
+    palette.style.display = 'none';
+    snippetBtn.classList.remove('active');
+  } else {
+    palette.style.display = '';
+    snippetBtn.classList.add('active');
+    renderSnippetPalette();
+  }
+});
+
+function renderSnippetPalette() {
+  const container = document.getElementById('snippet-categories');
+  const formEl = document.getElementById('snippet-form');
+  formEl.style.display = 'none';
+
+  const groups = getSnippetsByCategory();
+  container.innerHTML = Object.entries(groups).map(([category, snippets]) => {
+    const items = snippets.map(s =>
+      `<div class="dash-snippet-item" data-snippet-id="${s.id}">
+        <span class="dash-snippet-item-name">${escHtml(s.name)}</span>
+        <span class="dash-snippet-item-desc">${escHtml(s.description)}</span>
+      </div>`
+    ).join('');
+    return `<div class="dash-snippet-cat-label">${escHtml(category)}</div>${items}`;
+  }).join('');
+
+  container.querySelectorAll('.dash-snippet-item').forEach(el => {
+    el.addEventListener('click', () => openSnippetForm(el.dataset.snippetId));
+  });
+}
+
+function openSnippetForm(snippetId, prefilled = {}) {
+  const snippet = getSnippet(snippetId);
+  if (!snippet) return;
+
+  const container = document.getElementById('snippet-categories');
+  const formEl = document.getElementById('snippet-form');
+  container.style.display = 'none';
+  formEl.style.display = '';
+
+  const paramRows = snippet.params.map(p =>
+    `<div class="dash-snippet-form-row">
+      <span class="dash-snippet-form-label">${escHtml(p.label)}</span>
+      <input class="dash-snippet-form-input" data-param="${p.name}" value="${escHtml(prefilled[p.name] ?? p.default ?? '')}" spellcheck="false">
+    </div>`
+  ).join('');
+
+  const initialValues = Object.fromEntries(snippet.params.map(p => [p.name, prefilled[p.name] ?? p.default ?? '']));
+  const preview = renderSnippet(snippetId, initialValues);
+
+  formEl.innerHTML = `
+    <div class="dash-snippet-form-title">${escHtml(snippet.name)}</div>
+    ${paramRows}
+    <div class="dash-snippet-preview" id="snippet-preview">${escHtml(preview)}</div>
+    <div class="dash-snippet-form-btns">
+      <button class="dash-btn secondary" id="snippet-back">Back</button>
+      <button class="dash-btn primary" id="snippet-insert">Insert</button>
+    </div>
+  `;
+
+  // Live preview on input change
+  const inputs = formEl.querySelectorAll('.dash-snippet-form-input');
+  inputs.forEach(input => {
+    input.addEventListener('input', () => {
+      const values = {};
+      inputs.forEach(inp => { values[inp.dataset.param] = inp.value; });
+      document.getElementById('snippet-preview').textContent = renderSnippet(snippetId, values);
+    });
+  });
+
+  document.getElementById('snippet-back').addEventListener('click', () => {
+    formEl.style.display = 'none';
+    container.style.display = '';
+  });
+
+  document.getElementById('snippet-insert').addEventListener('click', () => {
+    const values = {};
+    inputs.forEach(inp => { values[inp.dataset.param] = inp.value; });
+    const code = renderSnippet(snippetId, values);
+    sourcePanel.insertSnippet(code);
+
+    // Close palette and switch to source view
+    document.getElementById('snippet-palette').style.display = 'none';
+    document.getElementById('view-snippets-btn').classList.remove('active');
+    setView('source');
+  });
+}
+
 // ---- Sessions section collapse ----
 const sessionsToggle = document.getElementById('sessions-toggle');
 const sessionsBody   = document.getElementById('sessions-body');
@@ -121,7 +355,6 @@ function updateTopBar() {
   bridgeStatus.textContent = state.connected ? 'Connected' : 'Disconnected';
   connectBtn.textContent = state.connected ? 'Disconnect' : 'Connect';
   connectBtn.className   = state.connected ? 'dash-btn danger' : 'dash-btn secondary';
-  openBtn.disabled       = !state.connected;
   newSessionBtn.disabled = !state.connected;
 }
 
@@ -233,14 +466,28 @@ function selectScript(scriptId) {
   const script = state.scripts.get(scriptId);
   debugPanel.update(script);
 
-  // Load source into Monaco
-  const scriptPath = script?.metadata?.path;
-  if (scriptPath && state.connected) {
-    chrome.runtime.sendMessage({ type: 'SCRIPT_GET_SOURCE', path: scriptPath }, (response) => {
-      if (response?.success && response.source) {
-        const checkpointLines = findCheckpointLines(response.source);
-        sourcePanel.loadSource(response.source, scriptPath, checkpointLines,
-          script?.activeBreakpoints || [], script?.checkpoint?.name || null);
+  // Load source into Monaco — first try library, then fall back to bridge file read
+  const scriptName = script?.name;
+  if (scriptName) {
+    chrome.runtime.sendMessage({ type: 'SCRIPT_LIBRARY_GET', name: scriptName }, (response) => {
+      if (response?.success && response.script) {
+        const checkpointLines = findCheckpointLines(response.script.source);
+        sourcePanel.loadSource(response.script.source, response.script.originalPath,
+          checkpointLines, script?.activeBreakpoints || [], script?.checkpoint?.name || null, scriptName);
+        updateToolbar();
+      } else {
+        // Fall back to loading from disk via bridge
+        const scriptPath = script?.metadata?.path;
+        if (scriptPath && state.connected) {
+          chrome.runtime.sendMessage({ type: 'SCRIPT_GET_SOURCE', path: scriptPath }, (srcResp) => {
+            if (srcResp?.success && srcResp.source) {
+              const checkpointLines = findCheckpointLines(srcResp.source);
+              sourcePanel.loadSource(srcResp.source, scriptPath, checkpointLines,
+                script?.activeBreakpoints || [], script?.checkpoint?.name || null, null);
+              updateToolbar();
+            }
+          });
+        }
       }
     });
   }
@@ -259,6 +506,16 @@ function findCheckpointLines(source) {
 
 // ---- Script actions ----
 function handleScriptAction(action, scriptId) {
+  if (action === 'dismiss') {
+    state.scripts.delete(scriptId);
+    if (state.selectedScriptId === scriptId) {
+      state.selectedScriptId = null;
+      debugPanel.update(null);
+      updateToolbar();
+    }
+    scriptPanel.render(state.scripts, state.selectedScriptId);
+    return;
+  }
   const msgs = {
     pause:    { type: 'SCRIPT_PAUSE', scriptId },
     resume:   { type: 'SCRIPT_RESUME', scriptId },
@@ -286,50 +543,96 @@ function handleKill(scriptId) {
   chrome.runtime.sendMessage({ type: 'SCRIPT_CANCEL', scriptId, reason: 'Force killed from debugger', force: true });
 }
 
-// ---- Open Script modal ----
-const RECENT_KEY = 'dash-recent-scripts';
-const RECENT_MAX = 8;
+// ---- Script Library modal ----
 
-function loadRecent() {
-  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
+let libraryScripts = []; // cached library entries
+let selectedLibraryName = null;
+
+function openModal() {
+  loadLibrary();
+  modalOverlay.classList.add('open');
+  importPath.focus();
 }
-function saveRecent(path) {
-  const list = [path, ...loadRecent().filter(p => p !== path)].slice(0, RECENT_MAX);
-  localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+function closeModal() {
+  modalOverlay.classList.remove('open');
+  selectedLibraryName = null;
 }
-function renderRecent() {
-  const items = loadRecent();
-  if (items.length === 0) {
-    recentList.innerHTML = '<div class="dash-recent-empty">No recent scripts</div>';
+
+function loadLibrary() {
+  chrome.runtime.sendMessage({ type: 'SCRIPT_LIBRARY_LIST' }, (response) => {
+    libraryScripts = response?.scripts || [];
+    renderLibrary();
+  });
+}
+
+function renderLibrary() {
+  libraryCount.textContent = libraryScripts.length > 0 ? `(${libraryScripts.length})` : '';
+  if (libraryScripts.length === 0) {
+    libraryList.innerHTML = '<div class="dash-recent-empty">No scripts imported</div>';
     return;
   }
-  recentList.innerHTML = items.map(p => {
-    const name = p.split('/').pop();
-    const dir  = p.split('/').slice(0, -1).join('/');
-    return `<div class="dash-recent-item" data-path="${escHtml(p)}" title="${escHtml(p)}">
-      <span class="dash-recent-item-icon">▶</span>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-        <strong style="color:#c0c0d0;">${escHtml(name)}</strong>
-        <span style="color:#3a3a5a;"> — ${escHtml(dir)}</span>
-      </span>
+  libraryList.innerHTML = libraryScripts.map(s => {
+    const sizeStr = s.size > 1024 ? `${(s.size / 1024).toFixed(0)}KB` : `${s.size}B`;
+    const dateStr = new Date(s.modifiedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const isSelected = s.name === selectedLibraryName;
+    return `<div class="dash-library-item ${isSelected ? 'selected' : ''}" data-name="${escHtml(s.name)}" title="${escHtml(s.originalPath || '')}">
+      <span class="dash-library-name">${escHtml(s.name)}</span>
+      <span class="dash-library-meta">${sizeStr}</span>
+      <span class="dash-library-meta">${dateStr}</span>
+      <button class="dash-library-open" data-name="${escHtml(s.name)}" title="Open in editor">Open</button>
+      <button class="dash-library-remove" data-name="${escHtml(s.name)}" title="Remove from library">&#x2715;</button>
     </div>`;
   }).join('');
-  recentList.querySelectorAll('.dash-recent-item').forEach(el => {
-    el.addEventListener('click', () => {
-      launchPath.value = el.dataset.path;
-      launchPath.focus();
+
+  // Click to select (highlight only, no auto-load)
+  libraryList.querySelectorAll('.dash-library-item').forEach(el => {
+    el.addEventListener('click', (e) => {
+      if (e.target.classList.contains('dash-library-remove') || e.target.classList.contains('dash-library-open')) return;
+      selectedLibraryName = el.dataset.name;
+      renderLibrary();
+    });
+  });
+
+  // Open button → load into Monaco
+  libraryList.querySelectorAll('.dash-library-open').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      loadLibraryScript(btn.dataset.name);
+    });
+  });
+
+  // Remove button
+  libraryList.querySelectorAll('.dash-library-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const name = btn.dataset.name;
+      chrome.runtime.sendMessage({ type: 'SCRIPT_LIBRARY_REMOVE', name }, () => {
+        if (selectedLibraryName === name) {
+          selectedLibraryName = null;
+        }
+        loadLibrary();
+      });
     });
   });
 }
 
-function openModal() {
-  renderRecent();
-  modalOverlay.classList.add('open');
-  launchPath.focus();
-  launchPath.select();
-}
-function closeModal() {
-  modalOverlay.classList.remove('open');
+function loadLibraryScript(name) {
+  chrome.runtime.sendMessage({ type: 'SCRIPT_LIBRARY_GET', name }, (response) => {
+    if (response?.success && response.script) {
+      const script = response.script;
+      const checkpointLines = findCheckpointLines(script.source);
+      sourcePanel.loadSource(
+        script.source,
+        script.originalPath || `~/.contextual-recall/scripts/${name}.mjs`,
+        checkpointLines,
+        [], null,
+        name
+      );
+      setView('source');
+      closeModal();
+      updateToolbar();
+    }
+  });
 }
 
 openBtn.addEventListener('click', openModal);
@@ -337,30 +640,90 @@ document.getElementById('dash-modal-close').addEventListener('click', closeModal
 document.getElementById('dash-modal-cancel').addEventListener('click', closeModal);
 modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeModal(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
-launchPath.addEventListener('keydown', (e) => { if (e.key === 'Enter') launchBtn.click(); });
+importPath.addEventListener('keydown', (e) => { if (e.key === 'Enter') importBtn.click(); });
 
-// ---- Launch ----
-launchBtn.addEventListener('click', () => {
-  const path = launchPath.value.trim();
-  if (!path) { launchPath.focus(); return; }
-  const args = launchArgs.value.trim() ? launchArgs.value.trim().split(/\s+/) : [];
-  launchBtn.disabled = true;
-  launchBtn.textContent = 'Launching...';
-  chrome.runtime.sendMessage({ type: 'SCRIPT_LAUNCH', path, args }, (response) => {
-    launchBtn.disabled = false;
-    launchBtn.textContent = 'Launch ▶';
-    if (!response?.success) {
-      launchPath.focus();
-      launchPath.select();
-      bridgeStatus.textContent = `Launch failed: ${response?.error || 'Unknown error'}`;
+// ---- Import ----
+importBtn.addEventListener('click', () => {
+  const path = importPath.value.trim();
+  if (!path) { importPath.focus(); return; }
+  if (!state.connected) {
+    bridgeStatus.textContent = 'Connect to bridge first to import scripts';
+    return;
+  }
+  importBtn.disabled = true;
+  importBtn.textContent = 'Importing...';
+  chrome.runtime.sendMessage({ type: 'SCRIPT_IMPORT', path }, (response) => {
+    importBtn.disabled = false;
+    importBtn.textContent = 'Import';
+    if (response?.success) {
+      importPath.value = '';
+      loadLibrary();
+      // Load imported script into editor
+      loadLibraryScript(response.script.name);
     } else {
-      saveRecent(path);
-      launchPath.value = '';
-      launchArgs.value = '';
-      closeModal();
+      bridgeStatus.textContent = `Import failed: ${response?.error || 'Unknown error'}`;
     }
   });
 });
+
+// ---- Ctrl+S Save (wired to source panel) ----
+sourcePanel.onSave = (name, source) => {
+  chrome.runtime.sendMessage({ type: 'SCRIPT_LIBRARY_SAVE', name, source }, (response) => {
+    if (response?.success) {
+      console.log(`[Dashboard] Saved ${name}`);
+    } else {
+      console.error(`[Dashboard] Save failed:`, response?.error);
+      bridgeStatus.textContent = `Save failed: ${response?.error || 'Unknown error'}`;
+    }
+  });
+};
+
+// ---- Snapshot element click → snippet context menu ----
+sourcePanel.onElementClick = (element, event) => {
+  // Remove any existing context menu
+  const existing = document.querySelector('.dash-snap-ctx-menu');
+  if (existing) existing.remove();
+
+  const suggestions = suggestFromElement(element);
+  if (suggestions.length === 0) return;
+
+  const menu = document.createElement('div');
+  menu.className = 'dash-snap-ctx-menu';
+  menu.style.left = `${event.clientX}px`;
+  menu.style.top = `${event.clientY}px`;
+
+  menu.innerHTML = suggestions.map((s, i) =>
+    `<div class="dash-snap-ctx-item" data-idx="${i}">${escHtml(s.label)}</div>`
+  ).join('');
+
+  document.body.appendChild(menu);
+
+  // Adjust if off-screen
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) menu.style.left = `${window.innerWidth - rect.width - 8}px`;
+  if (rect.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - rect.height - 8}px`;
+
+  menu.querySelectorAll('.dash-snap-ctx-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const s = suggestions[parseInt(item.dataset.idx)];
+      menu.remove();
+      // Open snippet form with pre-filled values
+      openSnippetForm(s.snippetId, s.values);
+      // Show snippet palette + source view
+      document.getElementById('snippet-palette').style.display = '';
+      document.getElementById('view-snippets-btn').classList.add('active');
+    });
+  });
+
+  // Close on click outside
+  const closeHandler = (e) => {
+    if (!menu.contains(e.target)) {
+      menu.remove();
+      document.removeEventListener('click', closeHandler, true);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
+};
 
 // ---- Broadcast listener ----
 chrome.runtime.onMessage.addListener((message) => {
@@ -376,6 +739,7 @@ chrome.runtime.onMessage.addListener((message) => {
       }
 
       scriptPanel.render(state.scripts, state.selectedScriptId);
+      updateToolbar();
 
       if (message.scriptId === state.selectedScriptId) {
         debugPanel.update(updated);
@@ -406,15 +770,48 @@ chrome.runtime.onMessage.addListener((message) => {
     }
 
     case 'AUTO_BROADCAST_STATUS': {
-      const session = state.sessions.find(s => s.id === message.sessionId);
-      if (session) { session.state = message.state; renderSessions(); }
+      if (message.state === 'destroyed') {
+        state.sessions = state.sessions.filter(s => s.id !== message.sessionId);
+        if (state.activeSessionId === message.sessionId) state.activeSessionId = null;
+        renderSessions();
+      } else {
+        const session = state.sessions.find(s => s.id === message.sessionId);
+        if (session) {
+          session.state = message.state;
+          renderSessions();
+        } else {
+          loadSessions(); // new session created in another UI
+        }
+      }
       break;
     }
 
     case 'AUTO_BROADCAST_CONNECTION': {
       state.connected = message.connected;
       updateTopBar();
-      if (message.connected) { loadSessions(); loadScripts(); }
+      updateToolbar();
+      if (message.connected) { loadSessions(); loadScripts(); loadLibrary(); }
+      break;
+    }
+
+    case 'AUTO_BROADCAST_FILE_CHANGED': {
+      const { name, deleted } = message;
+      // Refresh library list in modal
+      loadLibrary();
+
+      if (deleted) break;
+
+      // Check if the changed file is currently open in Monaco
+      const currentName = sourcePanel.getScriptName();
+      if (currentName && currentName === name) {
+        if (sourcePanel.isDirty()) {
+          // Editor has unsaved changes — show notification bar
+          showFileChangedBar(name);
+        } else {
+          // Editor is clean — auto-reload from storage
+          reloadEditorFromStorage(name);
+        }
+      }
       break;
     }
   }
@@ -438,6 +835,42 @@ function renderActivityFeed() {
   ).join('');
 }
 
+// ---- File-changed notification bar ----
+function showFileChangedBar(name) {
+  const existing = document.getElementById('file-changed-bar');
+  if (existing) existing.remove();
+
+  const bar = document.createElement('div');
+  bar.id = 'file-changed-bar';
+  bar.className = 'dash-file-changed-bar';
+  bar.innerHTML = `<span>File <b>${escHtml(name)}.mjs</b> changed on disk.</span>
+    <button class="dash-btn primary" id="file-changed-reload">Reload</button>
+    <button class="dash-btn secondary" id="file-changed-keep">Keep mine</button>`;
+
+  const centerCol = document.getElementById('center-col');
+  const toolbar = centerCol.querySelector('.dash-source-toolbar');
+  toolbar.after(bar);
+
+  document.getElementById('file-changed-reload').addEventListener('click', () => {
+    reloadEditorFromStorage(name);
+    bar.remove();
+  });
+  document.getElementById('file-changed-keep').addEventListener('click', () => {
+    bar.remove();
+  });
+}
+
+function reloadEditorFromStorage(name) {
+  chrome.runtime.sendMessage({ type: 'SCRIPT_LIBRARY_GET', name }, (response) => {
+    if (response?.success && response.script) {
+      const checkpointLines = findCheckpointLines(response.script.source);
+      const script = state.scripts.get(state.selectedScriptId);
+      sourcePanel.loadSource(response.script.source, response.script.originalPath,
+        checkpointLines, script?.activeBreakpoints || [], script?.checkpoint?.name || null, name);
+    }
+  });
+}
+
 // ---- Utilities ----
 function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -446,14 +879,19 @@ function escHtml(s) {
 // ---- Startup ----
 function init() {
   updateTopBar();
+  updateToolbar();
   renderSessions();
   renderActivityFeed();
   scriptPanel.render(state.scripts, null);
   debugPanel.update(null);
 
+  // Load library from chrome.storage.local (works without bridge)
+  loadLibrary();
+
   chrome.runtime.sendMessage({ type: 'BRIDGE_STATUS' }, (response) => {
     state.connected = response?.connected || false;
     updateTopBar();
+    updateToolbar();
     if (state.connected) {
       loadSessions();
       loadScripts();

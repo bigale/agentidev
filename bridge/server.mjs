@@ -14,12 +14,19 @@
 
 import { WebSocketServer, WebSocket } from 'ws';
 import { spawn } from 'child_process';
-import { readFile } from 'fs/promises';
+import { readFile, writeFile, mkdir, stat } from 'fs/promises';
+import { watch } from 'fs';
+import { resolve as pathResolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { homedir } from 'os';
 import { MSG, buildMessage, buildReply, buildError, ROLES } from './protocol.mjs';
 import { PlaywrightSession, SESSION_STATE } from './playwright-session.mjs';
 
 const DEFAULT_PORT = 9876;
 const HEALTH_INTERVAL = 30000; // 30s ping/pong
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SHIM_PATH = pathResolve(__dirname, 'playwright-shim.mjs');
+const SCRIPTS_DIR = pathResolve(homedir(), '.contextual-recall', 'scripts');
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -60,6 +67,79 @@ function startServer() {
 
   // Registered scripts: Map<scriptId, { ws, name, totalSteps, step, label, errors, state, metadata, startedAt }>
   const scripts = new Map();
+
+  // Pre-breakpoints: breakpoints to apply when a script registers (keyed by PID)
+  const pendingBreakpoints = new Map();
+
+  // File watcher: echo suppression for writes we initiated
+  const fileWatcherIgnore = new Set();
+  const fileWatcherDebounce = new Map(); // filename → timer
+  let fileWatcher = null;
+  const FILE_WATCH_DEBOUNCE = 300;
+
+  // Start file watcher on scripts directory
+  async function startFileWatcher() {
+    try {
+      await mkdir(SCRIPTS_DIR, { recursive: true });
+    } catch { /* already exists */ }
+    try {
+      fileWatcher = watch(SCRIPTS_DIR, (eventType, filename) => {
+        if (!filename || !filename.endsWith('.mjs')) return;
+
+        // Debounce: editors write multiple times
+        if (fileWatcherDebounce.has(filename)) {
+          clearTimeout(fileWatcherDebounce.get(filename));
+        }
+        fileWatcherDebounce.set(filename, setTimeout(() => {
+          fileWatcherDebounce.delete(filename);
+          handleFileChange(filename);
+        }, FILE_WATCH_DEBOUNCE));
+      });
+      console.log(`[Bridge] Watching scripts dir: ${SCRIPTS_DIR}`);
+    } catch (err) {
+      console.warn(`[Bridge] File watcher failed (non-fatal): ${err.message}`);
+    }
+  }
+
+  async function handleFileChange(filename) {
+    const filePath = pathResolve(SCRIPTS_DIR, filename);
+
+    // Echo suppression: skip if we wrote this file ourselves
+    if (fileWatcherIgnore.has(filePath)) {
+      fileWatcherIgnore.delete(filePath);
+      return;
+    }
+
+    const name = filename.replace(/\.mjs$/, '');
+
+    try {
+      const fileStat = await stat(filePath);
+      const source = await readFile(filePath, 'utf-8');
+      console.log(`[Bridge] File changed on disk: ${filename} (${source.length} bytes)`);
+      broadcast(buildMessage(MSG.BRIDGE_SCRIPT_FILE_CHANGED, {
+        name,
+        source,
+        path: filePath,
+        size: source.length,
+        modifiedAt: fileStat.mtimeMs,
+      }));
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        // File was deleted
+        console.log(`[Bridge] File deleted: ${filename}`);
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_FILE_CHANGED, {
+          name,
+          source: null,
+          path: filePath,
+          deleted: true,
+        }));
+      } else {
+        console.warn(`[Bridge] Error reading changed file ${filename}: ${err.message}`);
+      }
+    }
+  }
+
+  startFileWatcher();
 
   const wss = new WebSocketServer({ port: PORT });
 
@@ -180,6 +260,8 @@ function startServer() {
           clientId: clientInfo.id,
           role,
           sessions: listSessionInfos(),
+          shimPath: SHIM_PATH,
+          scriptsDir: SCRIPTS_DIR,
         }));
         break;
       }
@@ -482,15 +564,27 @@ function startServer() {
           breakpoints: new Set(),             // active breakpoints (user-toggled)
           pendingStep: null,                  // resolve fn when paused at checkpoint
           currentCheckpoint: null,
+          pages: new Map(),                   // pageId → { url, title } (from playwright-shim)
         });
-        console.log(`[Bridge] Script registered: ${name} (${scriptId}, ${totalSteps} steps, pid=${pid || 'unknown'})`);
+        // Apply pre-breakpoints if this PID was launched with breakpoints
+        const script = scripts.get(scriptId);
+        if (pid && pendingBreakpoints.has(pid)) {
+          const preBreaks = pendingBreakpoints.get(pid);
+          pendingBreakpoints.delete(pid);
+          for (const bp of preBreaks) {
+            script.breakpoints.add(bp);
+          }
+          console.log(`[Bridge] Script registered: ${name} (${scriptId}, ${totalSteps} steps, pid=${pid}) [pre-breakpoints: ${preBreaks.join(', ')}]`);
+        } else {
+          console.log(`[Bridge] Script registered: ${name} (${scriptId}, ${totalSteps} steps, pid=${pid || 'unknown'})`);
+        }
         sendTo(ws, buildReply(msg, { success: true, scriptId, name }));
         broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
           scriptId, name, state: 'registered',
           step: 0, total: totalSteps || 0, label: '', errors: 0,
           metadata: metadata || {},
           checkpoints: checkpoints || [],
-          activeBreakpoints: [],
+          activeBreakpoints: Array.from(script.breakpoints),
           activity: '',
         }));
         break;
@@ -821,7 +915,7 @@ function startServer() {
       }
 
       case MSG.BRIDGE_SCRIPT_LAUNCH: {
-        const { path: scriptPath, args: scriptArgs = [] } = msg.payload || {};
+        const { path: scriptPath, args: scriptArgs = [], breakpoints: preBreakpoints } = msg.payload || {};
         if (!scriptPath) {
           sendTo(ws, buildError('Script path required', msg.id));
           break;
@@ -833,6 +927,11 @@ function startServer() {
           env: { ...process.env },
         });
         const launchId = `launch_${Date.now()}`;
+        // Store pre-breakpoints to apply when script registers with this PID
+        if (Array.isArray(preBreakpoints) && preBreakpoints.length > 0 && child.pid) {
+          pendingBreakpoints.set(child.pid, preBreakpoints);
+          console.log(`[Bridge] Pre-breakpoints queued for PID ${child.pid}: ${preBreakpoints.join(', ')}`);
+        }
         sendTo(ws, buildReply(msg, { success: true, launchId, pid: child.pid }));
         child.stdout.on('data', d => console.log(`[Script:${launchId}] ${d.toString().trim()}`));
         child.stderr.on('data', d => console.error(`[Script:${launchId}] ERR: ${d.toString().trim()}`));
@@ -849,6 +948,26 @@ function startServer() {
         break;
       }
 
+      case MSG.BRIDGE_SCRIPT_SAVE: {
+        const { name, source } = msg.payload || {};
+        if (!name || !source) {
+          sendTo(ws, buildError('name and source required', msg.id));
+          return;
+        }
+        try {
+          await mkdir(SCRIPTS_DIR, { recursive: true });
+          const filePath = pathResolve(SCRIPTS_DIR, `${name}.mjs`);
+          // Echo suppression: mark this path so the file watcher ignores our own write
+          fileWatcherIgnore.add(filePath);
+          await writeFile(filePath, source, 'utf-8');
+          console.log(`[Bridge] Script saved: ${filePath} (${source.length} bytes)`);
+          sendTo(ws, buildReply(msg, { success: true, path: filePath }));
+        } catch (err) {
+          sendTo(ws, buildError(`Failed to save script: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
       case MSG.BRIDGE_SCRIPT_SOURCE: {
         const { scriptPath } = msg.payload || {};
         if (!scriptPath) {
@@ -861,6 +980,48 @@ function startServer() {
         } catch (err) {
           sendTo(ws, buildError(`Cannot read file: ${err.message}`, msg.id));
         }
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_DECLARE_CHECKPOINT: {
+        const { scriptId, name } = msg.payload || {};
+        const script = scripts.get(scriptId);
+        if (!script) {
+          sendTo(ws, buildError('Script not found', msg.id));
+          return;
+        }
+        if (name && !script.checkpoints.includes(name)) {
+          script.checkpoints.push(name);
+        }
+        sendTo(ws, buildReply(msg, { success: true }));
+        // Broadcast updated checkpoint list so UIs show the new toggle immediately
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+          scriptId, name: script.name, state: script.state,
+          step: script.step, total: script.totalSteps,
+          label: script.label, errors: script.errors,
+          checkpoints: script.checkpoints,
+          activeBreakpoints: Array.from(script.breakpoints),
+          activity: script.activity,
+          pages: Object.fromEntries(script.pages),
+        }));
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_PAGE_STATUS: {
+        const { scriptId, pageId, url, title } = msg.payload || {};
+        const script = scripts.get(scriptId);
+        if (!script) return; // fire-and-forget, no error reply needed
+        script.pages.set(pageId, { url: url || '', title: title || '' });
+        // Broadcast so UIs can label the intercept toggles with the current URL
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+          scriptId, name: script.name, state: script.state,
+          step: script.step, total: script.totalSteps,
+          label: script.label, errors: script.errors,
+          checkpoints: script.checkpoints,
+          activeBreakpoints: Array.from(script.breakpoints),
+          activity: script.activity,
+          pages: Object.fromEntries(script.pages),
+        }));
         break;
       }
 
@@ -924,6 +1085,14 @@ function startServer() {
    */
   async function shutdown() {
     console.log('[Bridge] Shutting down...');
+
+    // Stop file watcher
+    if (fileWatcher) {
+      fileWatcher.close();
+      fileWatcher = null;
+    }
+    for (const timer of fileWatcherDebounce.values()) clearTimeout(timer);
+    fileWatcherDebounce.clear();
 
     // Destroy all sessions
     for (const session of sessions.values()) {

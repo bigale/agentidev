@@ -8,7 +8,14 @@
     "dev": "webpack --mode development --watch",
     "test": "jest",
     "lint": "eslint extension/**/*.js",
-    "format": "prettier --write \"**/*.{js,json,md}\""
+    "format": "prettier --write \"**/*.{js,json,md}\"",
+    "bridge": "node bridge/server.mjs",
+    "bridge:stop": "node bridge/server.mjs --stop",
+    "bridge:restart": "node bridge/server.mjs --stop && sleep 1 && node bridge/server.mjs",
+    "browser": "node bridge/launch-browser.mjs",
+    "browser:chrome": "node bridge/launch-browser.mjs --chrome",
+    "browser:list": "playwright-cli list",
+    "bridge:cli": "node bridge/claude-client.mjs"
   },
   "repository": {
     "type": "git",
