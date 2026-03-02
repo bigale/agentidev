@@ -1,0 +1,17 @@
+{
+  "browser": {
+    "browserName": "chromium",
+    "launchOptions": {
+      "channel": "chromium",
+      "headless": false,
+      "chromiumSandbox": false,
+      "args": [
+        "--disable-gpu",
+        "--no-sandbox",
+        "--load-extension=/home/bigale/repos/contextual-recall/extension",
+        "--disable-extensions-except=/home/bigale/repos/contextual-recall/extension"
+      ]
+    },
+    "userDataDir": "/home/bigale/.contextual-recall/browser-profile"
+  }
+}
