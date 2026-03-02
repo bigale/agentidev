@@ -221,6 +221,17 @@ export function initBridgeCallbacks(snapshotStorageFn) {
     chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_SCRIPT', ...data }).catch(() => {});
   });
 
+  // V8 Inspector debug events → forward to dashboard
+  bridgeClient.onDbgPaused((data) => {
+    console.log(`[Background] V8 paused: ${data.file}:${data.line} (${data.reason})`);
+    chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_DBG_PAUSED', ...data }).catch(() => {});
+  });
+
+  bridgeClient.onDbgResumed((data) => {
+    console.log(`[Background] V8 resumed: ${data.scriptId}`);
+    chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_DBG_RESUMED', ...data }).catch(() => {});
+  });
+
   bridgeClient.onFileChanged(async (data) => {
     const { name, source, path, size, modifiedAt, deleted } = data;
     console.log(`[Background] File changed on disk: ${name} ${deleted ? '(deleted)' : `(${size} bytes)`}`);

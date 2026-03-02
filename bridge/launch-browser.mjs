@@ -62,6 +62,7 @@ async function main() {
       args: [
         '--disable-gpu',
         '--no-sandbox',
+        '--remote-debugging-port=9222',
         `--disable-extensions-except=${EXTENSION_PATH}`,
         `--load-extension=${EXTENSION_PATH}`,
       ],

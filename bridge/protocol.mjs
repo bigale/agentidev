@@ -58,6 +58,18 @@ export const MSG = {
   BRIDGE_SCRIPT_PAGE_STATUS: 'BRIDGE_SCRIPT_PAGE_STATUS',    // script: update page URL/title for UI display
   BRIDGE_SCRIPT_SAVE: 'BRIDGE_SCRIPT_SAVE',                  // extension: save script source to disk
   BRIDGE_SCRIPT_FILE_CHANGED: 'BRIDGE_SCRIPT_FILE_CHANGED',  // server: file changed on disk (reverse sync)
+
+  // V8 Inspector debugging (line-level)
+  BRIDGE_DBG_SET_BREAKPOINT: 'BRIDGE_DBG_SET_BREAKPOINT',    // set breakpoint by file + line
+  BRIDGE_DBG_REMOVE_BREAKPOINT: 'BRIDGE_DBG_REMOVE_BREAKPOINT',
+  BRIDGE_DBG_STEP_OVER: 'BRIDGE_DBG_STEP_OVER',
+  BRIDGE_DBG_STEP_INTO: 'BRIDGE_DBG_STEP_INTO',
+  BRIDGE_DBG_STEP_OUT: 'BRIDGE_DBG_STEP_OUT',
+  BRIDGE_DBG_CONTINUE: 'BRIDGE_DBG_CONTINUE',               // resume to next breakpoint
+  BRIDGE_DBG_EVALUATE: 'BRIDGE_DBG_EVALUATE',                // eval expression in paused frame
+  BRIDGE_DBG_RESTART_FRAME: 'BRIDGE_DBG_RESTART_FRAME',      // restart current frame
+  BRIDGE_DBG_PAUSED: 'BRIDGE_DBG_PAUSED',                    // broadcast: script paused (V8)
+  BRIDGE_DBG_RESUMED: 'BRIDGE_DBG_RESUMED',                  // broadcast: script resumed (V8)
 };
 
 /**

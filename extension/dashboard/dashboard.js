@@ -41,6 +41,7 @@ const destroySessionBtn = document.getElementById('dash-destroy-session-btn');
 
 // Debug toolbar refs
 const tbRun      = document.getElementById('tb-run');
+const tbDebug    = document.getElementById('tb-debug');
 const tbPause    = document.getElementById('tb-pause');
 const tbResume   = document.getElementById('tb-resume');
 const tbStop     = document.getElementById('tb-stop');
@@ -48,6 +49,9 @@ const tbStep     = document.getElementById('tb-step');
 const tbContinue = document.getElementById('tb-continue');
 const tbKill     = document.getElementById('tb-kill');
 const tbUnload   = document.getElementById('tb-unload');
+
+// Editor-local breakpoints (toggled via gutter clicks, persisted until script unloaded)
+let editorBreakpoints = []; // checkpoint names toggled on in the editor
 
 // ---- Initialize panels ----
 const scriptPanel = new ScriptPanel(
@@ -63,6 +67,42 @@ const sourcePanel = new SourcePanel(
   document.getElementById('snap-filter-input'),
   document.getElementById('snap-filter-info'),
 );
+
+// Wire gutter click → toggle editor-local breakpoints
+// Dashboard is the single source of truth for breakpoint state (editorBreakpoints).
+// Source panel just reports the clicked checkpoint name.
+sourcePanel.onBreakpointToggle = (nameOrLine) => {
+  const active = !editorBreakpoints.includes(nameOrLine);
+  if (active) {
+    editorBreakpoints.push(nameOrLine);
+  } else {
+    editorBreakpoints = editorBreakpoints.filter(n => n !== nameOrLine);
+  }
+
+  // If a matching script is running, send breakpoint to the bridge
+  const running = findRunningScriptForEditor();
+  if (running) {
+    if (typeof nameOrLine === 'number' && v8Debug) {
+      // V8 line breakpoint: set/remove via V8 inspector
+      const scriptPath = sourcePanel.getOriginalPath();
+      if (active) {
+        chrome.runtime.sendMessage({
+          type: 'DBG_SET_BREAKPOINT', scriptId: running.scriptId, pid: v8Pid,
+          file: `file://${scriptPath}`, line: nameOrLine,
+        });
+      } else {
+        // Note: removing V8 breakpoints by line requires tracking breakpointId — skip for now
+      }
+    } else {
+      // Named checkpoint breakpoint
+      chrome.runtime.sendMessage({ type: 'SCRIPT_SET_BREAKPOINT', scriptId: running.scriptId, name: nameOrLine, active });
+    }
+  }
+
+  // Update decorations — always pass a fresh copy to avoid stale references
+  sourcePanel.updateDecorations([...editorBreakpoints], sourcePanel.currentCheckpoint);
+  updateToolbar();
+};
 
 const debugPanel = new DebugPanel(
   document.getElementById('debug-body'),
@@ -137,9 +177,16 @@ function updateToolbar() {
   const isCheckpoint = scriptState === 'checkpoint';
   const isPaused = scriptState === 'paused';
   const isRunning = scriptState === 'running';
+  const isV8Paused = v8Debug && v8PausedLine !== null;
 
   // Run: only when loaded and NOT currently active
   tbRun.disabled = !hasLoaded || !state.connected || isActive;
+
+  // Debug: same as Run — breakpoints are optional (can step from line 1)
+  tbDebug.disabled = !hasLoaded || !state.connected || isActive;
+  tbDebug.title = editorBreakpoints.length > 0
+    ? `Launch with ${editorBreakpoints.length} breakpoint${editorBreakpoints.length > 1 ? 's' : ''} (V8 inspector)`
+    : 'Launch with V8 inspector (step from start)';
 
   // Pause / Resume toggle
   tbPause.style.display = isPaused ? 'none' : '';
@@ -150,9 +197,15 @@ function updateToolbar() {
   // Stop
   tbStop.disabled = !isActive;
 
-  // Step / Continue: only at checkpoint
-  tbStep.disabled = !isCheckpoint;
-  tbContinue.disabled = !isCheckpoint;
+  // Step / Continue: enabled at checkpoint OR when V8 paused
+  tbStep.disabled = !isCheckpoint && !isV8Paused;
+  tbContinue.disabled = !isCheckpoint && !isV8Paused;
+
+  // Step Into / Step Out: only when V8 paused
+  const tbStepInto = document.getElementById('tb-step-into');
+  const tbStepOut = document.getElementById('tb-step-out');
+  if (tbStepInto) tbStepInto.disabled = !isV8Paused;
+  if (tbStepOut) tbStepOut.disabled = !isV8Paused;
 
   // Kill
   tbKill.disabled = !isActive;
@@ -162,7 +215,19 @@ function updateToolbar() {
 }
 
 // ---- Debug toolbar button handlers ----
-tbRun.addEventListener('click', () => {
+
+// V8 debug state: tracks whether we have a V8 inspector attached
+let v8Debug = false;       // true when script was launched with V8 inspector
+let v8Pid = null;          // PID of the V8-debugged process (for commands before script registers)
+let v8PausedLine = null;   // line number (1-indexed) when V8 paused
+let v8PausedCallFrames = []; // call frames from V8 paused event
+
+/**
+ * Launch a script from the editor.
+ * Run = no breakpoints, no debugger.
+ * Debug = V8 inspector + line breakpoints for true stepping.
+ */
+function launchFromEditor(debug = false) {
   const name = sourcePanel.getScriptName();
   if (!name || !state.connected) return;
 
@@ -175,13 +240,51 @@ tbRun.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'BRIDGE_GET_INFO' }, (info) => {
     const scriptsDir = info?.scriptsDir || '';
     const scriptPath = `${scriptsDir}/${name}.mjs`;
-    chrome.runtime.sendMessage({ type: 'SCRIPT_LAUNCH', path: scriptPath, args: [] }, (response) => {
-      if (!response?.success) {
-        bridgeStatus.textContent = `Launch failed: ${response?.error || 'Unknown error'}`;
-      }
-    });
+
+    if (debug) {
+      // V8 Debug mode: send line numbers for V8 breakpoints
+      // editorBreakpoints may contain checkpoint names (strings) or raw line numbers
+      const lineBreakpoints = editorBreakpoints
+        .map(bp => typeof bp === 'number' ? bp : sourcePanel.checkpointLines[bp])
+        .filter(Boolean);
+      const bpCount = lineBreakpoints.length;
+      bridgeStatus.textContent = bpCount > 0
+        ? `Debug: ${bpCount} breakpoint${bpCount > 1 ? 's' : ''} (V8 inspector)`
+        : 'Debug: stepping mode (V8 inspector)';
+      v8Debug = true;
+      v8Pid = null;
+      v8PausedLine = null;
+      chrome.runtime.sendMessage({
+        type: 'SCRIPT_LAUNCH', path: scriptPath, args: [],
+        lineBreakpoints, debug: true,
+      }, (response) => {
+        if (response?.success) {
+          v8Pid = response.pid || null;
+        } else {
+          bridgeStatus.textContent = `Launch failed: ${response?.error || 'Unknown error'}`;
+          v8Debug = false;
+        }
+      });
+    } else {
+      // Run mode: no debugger, runs straight through
+      v8Debug = false;
+      v8PausedLine = null;
+      chrome.runtime.sendMessage({
+        type: 'SCRIPT_LAUNCH', path: scriptPath, args: [],
+      }, (response) => {
+        if (!response?.success) {
+          bridgeStatus.textContent = `Launch failed: ${response?.error || 'Unknown error'}`;
+        }
+      });
+    }
   });
-});
+}
+
+// Run: launch without debugger
+tbRun.addEventListener('click', () => launchFromEditor(false));
+
+// Debug: launch with V8 inspector for true line-level debugging
+tbDebug.addEventListener('click', () => launchFromEditor(true));
 
 tbPause.addEventListener('click', () => {
   const s = findRunningScriptForEditor();
@@ -198,15 +301,49 @@ tbStop.addEventListener('click', () => {
   if (s) chrome.runtime.sendMessage({ type: 'SCRIPT_CANCEL', scriptId: s.scriptId, reason: 'Stopped from toolbar' });
 });
 
+// Step Over (F10): execute current line, pause at next line
 tbStep.addEventListener('click', () => {
-  const s = findRunningScriptForEditor();
-  if (s) chrome.runtime.sendMessage({ type: 'SCRIPT_STEP', scriptId: s.scriptId, clearAll: false });
+  if (v8Debug) {
+    const s = findRunningScriptForEditor();
+    chrome.runtime.sendMessage({ type: 'DBG_STEP_OVER', scriptId: s?.scriptId, pid: v8Pid });
+  } else {
+    const s = findRunningScriptForEditor();
+    if (s) chrome.runtime.sendMessage({ type: 'SCRIPT_STEP', scriptId: s.scriptId, clearAll: false });
+  }
 });
 
+// Continue (F5): resume to next breakpoint
 tbContinue.addEventListener('click', () => {
-  const s = findRunningScriptForEditor();
-  if (s) chrome.runtime.sendMessage({ type: 'SCRIPT_STEP', scriptId: s.scriptId, clearAll: true });
+  if (v8Debug) {
+    const s = findRunningScriptForEditor();
+    chrome.runtime.sendMessage({ type: 'DBG_CONTINUE', scriptId: s?.scriptId, pid: v8Pid });
+  } else {
+    const s = findRunningScriptForEditor();
+    if (s) chrome.runtime.sendMessage({ type: 'SCRIPT_STEP', scriptId: s.scriptId, clearAll: true });
+  }
 });
+
+// Step Into (F11): step into function call (V8 only)
+const tbStepIntoEl = document.getElementById('tb-step-into');
+if (tbStepIntoEl) {
+  tbStepIntoEl.addEventListener('click', () => {
+    if (v8Debug) {
+      const s = findRunningScriptForEditor();
+      chrome.runtime.sendMessage({ type: 'DBG_STEP_INTO', scriptId: s?.scriptId, pid: v8Pid });
+    }
+  });
+}
+
+// Step Out (Shift+F11): step out of current function (V8 only)
+const tbStepOutEl = document.getElementById('tb-step-out');
+if (tbStepOutEl) {
+  tbStepOutEl.addEventListener('click', () => {
+    if (v8Debug) {
+      const s = findRunningScriptForEditor();
+      chrome.runtime.sendMessage({ type: 'DBG_STEP_OUT', scriptId: s?.scriptId, pid: v8Pid });
+    }
+  });
+}
 
 tbKill.addEventListener('click', () => {
   const s = findRunningScriptForEditor();
@@ -215,7 +352,12 @@ tbKill.addEventListener('click', () => {
 
 tbUnload.addEventListener('click', () => {
   sourcePanel.unload();
+  editorBreakpoints = [];
   state.selectedScriptId = null;
+  v8Debug = false;
+  v8Pid = null;
+  v8PausedLine = null;
+  v8PausedCallFrames = [];
   scriptPanel.render(state.scripts, null);
   debugPanel.update(null);
   updateToolbar();
@@ -472,8 +614,11 @@ function selectScript(scriptId) {
     chrome.runtime.sendMessage({ type: 'SCRIPT_LIBRARY_GET', name: scriptName }, (response) => {
       if (response?.success && response.script) {
         const checkpointLines = findCheckpointLines(response.script.source);
+        // Merge server breakpoints into editor breakpoints
+        const serverBp = script?.activeBreakpoints || [];
+        editorBreakpoints = [...new Set([...editorBreakpoints, ...serverBp])];
         sourcePanel.loadSource(response.script.source, response.script.originalPath,
-          checkpointLines, script?.activeBreakpoints || [], script?.checkpoint?.name || null, scriptName);
+          checkpointLines, editorBreakpoints, script?.checkpoint?.name || null, scriptName);
         updateToolbar();
       } else {
         // Fall back to loading from disk via bridge
@@ -621,6 +766,8 @@ function loadLibraryScript(name) {
     if (response?.success && response.script) {
       const script = response.script;
       const checkpointLines = findCheckpointLines(script.source);
+      // Reset editor breakpoints when loading a new script
+      editorBreakpoints = [];
       sourcePanel.loadSource(
         script.source,
         script.originalPath || `~/.contextual-recall/scripts/${name}.mjs`,
@@ -738,6 +885,29 @@ chrome.runtime.onMessage.addListener((message) => {
         pushActivity(message.activity);
       }
 
+      // Auto-select script that matches the loaded editor script
+      const loadedName = sourcePanel.getScriptName();
+      if (loadedName && updated.name === loadedName) {
+        if (['running', 'registered', 'checkpoint', 'paused'].includes(updated.state)) {
+          state.selectedScriptId = message.scriptId;
+        } else if (['complete', 'cancelled', 'killed', 'error'].includes(updated.state) &&
+                   state.selectedScriptId === message.scriptId) {
+          // Clear selection on terminal state so next launch can auto-select
+          state.selectedScriptId = null;
+          // Clear checkpoint highlight but keep editor breakpoints visible
+          sourcePanel.updateDecorations([...editorBreakpoints], null);
+          // Clear V8 debug state
+          if (v8Debug) {
+            v8Debug = false;
+            v8Pid = null;
+            v8PausedLine = null;
+            v8PausedCallFrames = [];
+            sourcePanel.clearV8Highlight();
+          }
+          debugPanel.update(updated);
+        }
+      }
+
       scriptPanel.render(state.scripts, state.selectedScriptId);
       updateToolbar();
 
@@ -745,13 +915,12 @@ chrome.runtime.onMessage.addListener((message) => {
         debugPanel.update(updated);
 
         // Update Monaco decorations when checkpoint state changes
+        // Merge server breakpoints with editor-local breakpoints for display
         if (updated.activeBreakpoints || updated.checkpoint !== prev.checkpoint) {
-          sourcePanel.updateDecorations(
-            updated.activeBreakpoints || [],
-            updated.checkpoint?.name || null
-          );
+          const merged = [...new Set([...editorBreakpoints, ...(updated.activeBreakpoints || [])])];
+          sourcePanel.updateDecorations(merged, updated.checkpoint?.name || null);
         }
-        // Scroll to current checkpoint line
+        // Scroll to current checkpoint line when paused at checkpoint
         if (updated.state === 'checkpoint' && updated.checkpoint?.name) {
           sourcePanel.scrollToCheckpoint(updated.checkpoint.name);
         }
@@ -791,6 +960,44 @@ chrome.runtime.onMessage.addListener((message) => {
       updateTopBar();
       updateToolbar();
       if (message.connected) { loadSessions(); loadScripts(); loadLibrary(); }
+      break;
+    }
+
+    case 'AUTO_BROADCAST_DBG_PAUSED': {
+      // V8 inspector paused at a line
+      v8PausedLine = message.line;
+      v8PausedCallFrames = message.callFrames || [];
+      sourcePanel.highlightV8Line(message.line);
+      pushActivity(`V8 paused: line ${message.line} (${message.reason || 'breakpoint'})`);
+      updateToolbar();
+      // Update debug panel with V8 pause info
+      if (state.selectedScriptId) {
+        const script = state.scripts.get(state.selectedScriptId);
+        if (script) {
+          script._v8Paused = true;
+          script._v8Line = message.line;
+          script._v8CallFrames = message.callFrames || [];
+          debugPanel.update(script);
+        }
+      }
+      break;
+    }
+
+    case 'AUTO_BROADCAST_DBG_RESUMED': {
+      // V8 inspector resumed
+      v8PausedLine = null;
+      v8PausedCallFrames = [];
+      sourcePanel.clearV8Highlight();
+      updateToolbar();
+      if (state.selectedScriptId) {
+        const script = state.scripts.get(state.selectedScriptId);
+        if (script) {
+          script._v8Paused = false;
+          script._v8Line = null;
+          script._v8CallFrames = [];
+          debugPanel.update(script);
+        }
+      }
       break;
     }
 
@@ -901,3 +1108,63 @@ function init() {
 
 init();
 console.log('[Dashboard] Monaco debugger initialized');
+
+// ---- Test API (exposed for dashboard-driver.mjs) ----
+window.__dashTest = {
+  toggleBreakpoint(name) {
+    if (sourcePanel.onBreakpointToggle) sourcePanel.onBreakpointToggle(name);
+  },
+  getBreakpoints() { return [...editorBreakpoints]; },
+  getState() {
+    return {
+      connected: state.connected,
+      selectedScriptId: state.selectedScriptId,
+      loadedScript: sourcePanel.getScriptName(),
+      editorBreakpoints: [...editorBreakpoints],
+      v8Debug,
+      v8Pid,
+      v8PausedLine,
+      scripts: [...state.scripts.entries()].map(([id, s]) => ({
+        id, name: s.name, state: s.state,
+        checkpoint: s.checkpoint?.name || null,
+        activeBreakpoints: s.activeBreakpoints || [],
+      })),
+    };
+  },
+  launchRun() { launchFromEditor(false); },
+  launchDebug() { launchFromEditor(true); },
+  step() {
+    if (v8Debug) {
+      const s = findRunningScriptForEditor();
+      chrome.runtime.sendMessage({ type: 'DBG_STEP_OVER', scriptId: s?.scriptId, pid: v8Pid });
+      return 'v8-step pid=' + v8Pid;
+    }
+    const s = findRunningScriptForEditor();
+    if (!s) return 'no running script';
+    chrome.runtime.sendMessage({ type: 'SCRIPT_STEP', scriptId: s.scriptId, clearAll: false });
+    return 'stepped ' + s.scriptId;
+  },
+  continue() {
+    if (v8Debug) {
+      const s = findRunningScriptForEditor();
+      chrome.runtime.sendMessage({ type: 'DBG_CONTINUE', scriptId: s?.scriptId, pid: v8Pid });
+      return 'v8-continue pid=' + v8Pid;
+    }
+    const s = findRunningScriptForEditor();
+    if (!s) return 'no running script';
+    chrome.runtime.sendMessage({ type: 'SCRIPT_STEP', scriptId: s.scriptId, clearAll: true });
+    return 'continued ' + s.scriptId;
+  },
+  stepInto() {
+    if (!v8Debug) return 'no V8 debug session';
+    const s = findRunningScriptForEditor();
+    chrome.runtime.sendMessage({ type: 'DBG_STEP_INTO', scriptId: s?.scriptId, pid: v8Pid });
+    return 'step-into pid=' + v8Pid;
+  },
+  stepOut() {
+    if (!v8Debug) return 'no V8 debug session';
+    const s = findRunningScriptForEditor();
+    chrome.runtime.sendMessage({ type: 'DBG_STEP_OUT', scriptId: s?.scriptId, pid: v8Pid });
+    return 'step-out pid=' + v8Pid;
+  },
+};

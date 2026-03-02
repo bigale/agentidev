@@ -298,6 +298,8 @@
     .dash-dbg-tb-btn:disabled { opacity: 0.35; cursor: default; }
     .dash-dbg-tb-btn.run { color: #4caf50; border-color: #2a4a2a; }
     .dash-dbg-tb-btn.run:hover:not(:disabled) { background: #1e3a1e; }
+    .dash-dbg-tb-btn.debug { color: #e8a040; border-color: #3a3a1e; }
+    .dash-dbg-tb-btn.debug:hover:not(:disabled) { background: #3a2e1e; }
     .dash-dbg-tb-btn.pause { color: #f9ab00; border-color: #3a2a1e; }
     .dash-dbg-tb-btn.pause:hover:not(:disabled) { background: #3a2e1e; }
     .dash-dbg-tb-btn.resume { color: #4caf50; border-color: #2a4a2a; }
@@ -603,13 +605,16 @@
       </div>
       <!-- Debug controls toolbar -->
       <div class="dash-debug-toolbar" id="debug-toolbar">
-        <button class="dash-dbg-tb-btn run" id="tb-run" disabled title="Launch script">Run</button>
+        <button class="dash-dbg-tb-btn run" id="tb-run" disabled title="Launch script (no debugger)">Run</button>
+        <button class="dash-dbg-tb-btn debug" id="tb-debug" disabled title="Launch with V8 inspector">Debug</button>
         <button class="dash-dbg-tb-btn pause" id="tb-pause" disabled title="Pause script">Pause</button>
         <button class="dash-dbg-tb-btn resume" id="tb-resume" disabled title="Resume script" style="display:none;">Resume</button>
         <button class="dash-dbg-tb-btn stop" id="tb-stop" disabled title="Cancel script">Stop</button>
         <span class="dash-dbg-tb-sep"></span>
-        <button class="dash-dbg-tb-btn step" id="tb-step" disabled title="Step past checkpoint">Step</button>
-        <button class="dash-dbg-tb-btn continue" id="tb-continue" disabled title="Continue (clear all breakpoints)">Continue</button>
+        <button class="dash-dbg-tb-btn step" id="tb-step" disabled title="Step Over (F10)">Step</button>
+        <button class="dash-dbg-tb-btn step" id="tb-step-into" disabled title="Step Into (F11)">Into</button>
+        <button class="dash-dbg-tb-btn step" id="tb-step-out" disabled title="Step Out (Shift+F11)">Out</button>
+        <button class="dash-dbg-tb-btn continue" id="tb-continue" disabled title="Continue to next breakpoint (F5)">Continue</button>
         <span class="dash-dbg-tb-sep"></span>
         <button class="dash-dbg-tb-btn kill" id="tb-kill" disabled title="Force kill (SIGKILL)">Kill</button>
         <div style="flex:1;"></div>

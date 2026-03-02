@@ -31,6 +31,8 @@ const callbacks = {
   onSearchRequest: [],
   onScriptUpdate: [],
   onFileChanged: [],
+  onDbgPaused: [],
+  onDbgResumed: [],
 };
 
 /**
@@ -250,8 +252,12 @@ export function listScripts() {
  * @param {string} scriptPath - Absolute path to .mjs or .js script
  * @param {string[]} [args] - Optional CLI args
  */
-export function launchScript(scriptPath, args = []) {
-  return _sendRequest('BRIDGE_SCRIPT_LAUNCH', { path: scriptPath, args });
+export function launchScript(scriptPath, args = [], breakpoints = [], lineBreakpoints = [], debug = false) {
+  const payload = { path: scriptPath, args };
+  if (breakpoints.length > 0) payload.breakpoints = breakpoints;
+  if (lineBreakpoints.length > 0) payload.lineBreakpoints = lineBreakpoints;
+  if (debug) payload.debug = true;
+  return _sendRequest('BRIDGE_SCRIPT_LAUNCH', payload);
 }
 
 /**
@@ -324,6 +330,33 @@ export function saveScript(name, source) {
   return _sendRequest('BRIDGE_SCRIPT_SAVE', { name, source });
 }
 
+// ---- V8 Inspector debugging (line-level) ----
+
+export function dbgStepOver(scriptId, pid) {
+  return _sendRequest('BRIDGE_DBG_STEP_OVER', { scriptId, pid });
+}
+export function dbgStepInto(scriptId, pid) {
+  return _sendRequest('BRIDGE_DBG_STEP_INTO', { scriptId, pid });
+}
+export function dbgStepOut(scriptId, pid) {
+  return _sendRequest('BRIDGE_DBG_STEP_OUT', { scriptId, pid });
+}
+export function dbgContinue(scriptId, pid) {
+  return _sendRequest('BRIDGE_DBG_CONTINUE', { scriptId, pid });
+}
+export function dbgSetBreakpoint(scriptId, pid, file, line) {
+  return _sendRequest('BRIDGE_DBG_SET_BREAKPOINT', { scriptId, pid, file, line });
+}
+export function dbgRemoveBreakpoint(scriptId, pid, breakpointId) {
+  return _sendRequest('BRIDGE_DBG_REMOVE_BREAKPOINT', { scriptId, pid, breakpointId });
+}
+export function dbgEvaluate(scriptId, pid, expression, callFrameId) {
+  return _sendRequest('BRIDGE_DBG_EVALUATE', { scriptId, pid, expression, callFrameId });
+}
+export function dbgRestartFrame(scriptId, pid, callFrameId) {
+  return _sendRequest('BRIDGE_DBG_RESTART_FRAME', { scriptId, pid, callFrameId });
+}
+
 /**
  * Get the shim path provided by the bridge server at connect time.
  * @returns {string|null}
@@ -388,6 +421,12 @@ export function onScriptUpdate(cb) {
  */
 export function onFileChanged(cb) {
   callbacks.onFileChanged.push(cb);
+}
+export function onDbgPaused(cb) {
+  callbacks.onDbgPaused.push(cb);
+}
+export function onDbgResumed(cb) {
+  callbacks.onDbgResumed.push(cb);
 }
 
 /**
@@ -460,6 +499,12 @@ function _handleBroadcast(msg) {
       break;
     case 'BRIDGE_SCRIPT_FILE_CHANGED':
       _fireCallbacks('onFileChanged', msg.payload);
+      break;
+    case 'BRIDGE_DBG_PAUSED':
+      _fireCallbacks('onDbgPaused', msg.payload);
+      break;
+    case 'BRIDGE_DBG_RESUMED':
+      _fireCallbacks('onDbgResumed', msg.payload);
       break;
     case 'BRIDGE_SEARCH_SNAPSHOTS':
       _handleSearchRequest(msg);

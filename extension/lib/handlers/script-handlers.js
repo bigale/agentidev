@@ -46,7 +46,11 @@ export function register(handlers) {
     if (!bridgeClient.isConnected()) {
       return { success: false, error: 'Not connected to bridge' };
     }
-    const result = await bridgeClient.launchScript(msg.path, msg.args || []);
+    const bp = msg.breakpoints || [];
+    const lineBp = msg.lineBreakpoints || [];
+    const debug = msg.debug || false;
+    console.log(`[ScriptHandlers] SCRIPT_LAUNCH path=${msg.path} breakpoints=[${bp.join(',')}] lineBreakpoints=[${lineBp.join(',')}] debug=${debug}`);
+    const result = await bridgeClient.launchScript(msg.path, msg.args || [], bp, lineBp, debug);
     return { success: true, ...result };
   };
 
@@ -66,6 +70,41 @@ export function register(handlers) {
     }
     const result = await bridgeClient.setBreakpoint(msg.scriptId, msg.name, msg.active);
     return { success: true, ...result };
+  };
+
+  // ---- V8 Inspector debugging (line-level) ----
+
+  handlers['DBG_STEP_OVER'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected' };
+    return { success: true, ...(await bridgeClient.dbgStepOver(msg.scriptId, msg.pid)) };
+  };
+  handlers['DBG_STEP_INTO'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected' };
+    return { success: true, ...(await bridgeClient.dbgStepInto(msg.scriptId, msg.pid)) };
+  };
+  handlers['DBG_STEP_OUT'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected' };
+    return { success: true, ...(await bridgeClient.dbgStepOut(msg.scriptId, msg.pid)) };
+  };
+  handlers['DBG_CONTINUE'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected' };
+    return { success: true, ...(await bridgeClient.dbgContinue(msg.scriptId, msg.pid)) };
+  };
+  handlers['DBG_SET_BREAKPOINT'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected' };
+    return { success: true, ...(await bridgeClient.dbgSetBreakpoint(msg.scriptId, msg.pid, msg.file, msg.line)) };
+  };
+  handlers['DBG_REMOVE_BREAKPOINT'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected' };
+    return { success: true, ...(await bridgeClient.dbgRemoveBreakpoint(msg.scriptId, msg.pid, msg.breakpointId)) };
+  };
+  handlers['DBG_EVALUATE'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected' };
+    return { success: true, ...(await bridgeClient.dbgEvaluate(msg.scriptId, msg.pid, msg.expression, msg.callFrameId)) };
+  };
+  handlers['DBG_RESTART_FRAME'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected' };
+    return { success: true, ...(await bridgeClient.dbgRestartFrame(msg.scriptId, msg.pid, msg.callFrameId)) };
   };
 
   // ---- Script Library (chrome.storage.local) ----

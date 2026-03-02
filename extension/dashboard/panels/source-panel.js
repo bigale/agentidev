@@ -19,6 +19,7 @@ export class SourcePanel {
 
     this.editor = null;
     this.decorations = null;   // IDecorationsCollection
+    this._v8Decorations = null; // V8 debug line highlight (separate collection)
     this.checkpointLines = {}; // { name: lineNumber }
     this.activeBreakpoints = [];
     this.currentCheckpoint = null;
@@ -63,20 +64,20 @@ export class SourcePanel {
       this._updateDirtyIndicator();
     });
 
-    // Gutter click → toggle breakpoint
+    // Gutter click → toggle breakpoint.
+    // Named checkpoint lines report the checkpoint name;
+    // other lines report the raw line number (for V8 line-level debugging).
     this.editor.onMouseDown((e) => {
       if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
         const line = e.target.position?.lineNumber;
-        if (!line) return;
-        // Find which checkpoint is at this line
+        if (!line || !this.onBreakpointToggle) return;
         const name = Object.entries(this.checkpointLines).find(([, l]) => l === line)?.[0];
-        if (name && this.onBreakpointToggle) {
-          this.onBreakpointToggle(name, !this.activeBreakpoints.includes(name));
-        }
+        this.onBreakpointToggle(name || line);
       }
     });
 
     this.decorations = this.editor.createDecorationsCollection([]);
+    this._v8Decorations = this.editor.createDecorationsCollection([]);
   }
 
   _initSnapFilter() {
@@ -126,7 +127,11 @@ export class SourcePanel {
 
     const decorations = [];
 
+    // Track which lines already have checkpoint decorations
+    const decoratedLines = new Set();
+
     for (const [name, line] of Object.entries(this.checkpointLines)) {
+      decoratedLines.add(line);
       const isCurrent = name === this.currentCheckpoint;
       const isActive  = this.activeBreakpoints.includes(name);
 
@@ -157,6 +162,19 @@ export class SourcePanel {
           options: {
             glyphMarginClassName: 'monaco-bp-inactive',
             glyphMarginHoverMessage: { value: `○ Checkpoint: **${name}** (click to set breakpoint)` },
+          },
+        });
+      }
+    }
+
+    // Raw line-number breakpoints (V8 debugging — any line, not just checkpoints)
+    for (const bp of this.activeBreakpoints) {
+      if (typeof bp === 'number' && !decoratedLines.has(bp)) {
+        decorations.push({
+          range: new monaco.Range(bp, 1, bp, 1),
+          options: {
+            glyphMarginClassName: 'monaco-bp-active',
+            glyphMarginHoverMessage: { value: `🔴 Line breakpoint: **${bp}** (click to remove)` },
           },
         });
       }
@@ -305,6 +323,32 @@ export class SourcePanel {
   }
 
   /**
+   * Highlight a specific line for V8 debugger pause (yellow arrow + line highlight).
+   * This is separate from checkpoint decorations to avoid conflicts.
+   * @param {number} lineNumber - 1-indexed line number
+   */
+  highlightV8Line(lineNumber) {
+    if (!this.editor || !this._v8Decorations || !lineNumber) return;
+    this._v8Decorations.set([{
+      range: new monaco.Range(lineNumber, 1, lineNumber, 1),
+      options: {
+        glyphMarginClassName: 'monaco-bp-current',
+        className: 'monaco-line-current',
+        isWholeLine: true,
+        glyphMarginHoverMessage: { value: `**V8 Debugger** paused at line ${lineNumber}` },
+      },
+    }]);
+    this.editor.revealLineInCenter(lineNumber);
+  }
+
+  /**
+   * Clear V8 debugger line highlight.
+   */
+  clearV8Highlight() {
+    if (this._v8Decorations) this._v8Decorations.set([]);
+  }
+
+  /**
    * Unload the current script — clear editor, reset state.
    */
   unload() {
@@ -321,6 +365,7 @@ export class SourcePanel {
       this.editor.setModel(emptyModel);
     }
     if (this.decorations) this.decorations.set([]);
+    if (this._v8Decorations) this._v8Decorations.set([]);
 
     this.fileLabelEl.textContent = 'No script selected';
     this.fileLabelEl.title = '';
@@ -333,6 +378,10 @@ export class SourcePanel {
 
   getScriptName() {
     return this._currentScriptName;
+  }
+
+  getOriginalPath() {
+    return this.fileLabelEl?.title || '';
   }
 
   isDirty() {

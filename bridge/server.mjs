@@ -21,6 +21,7 @@ import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { MSG, buildMessage, buildReply, buildError, ROLES } from './protocol.mjs';
 import { PlaywrightSession, SESSION_STATE } from './playwright-session.mjs';
+import { InspectorClient, parseInspectorUrl } from './inspector-client.mjs';
 
 const DEFAULT_PORT = 9876;
 const HEALTH_INTERVAL = 30000; // 30s ping/pong
@@ -70,6 +71,9 @@ function startServer() {
 
   // Pre-breakpoints: breakpoints to apply when a script registers (keyed by PID)
   const pendingBreakpoints = new Map();
+
+  // V8 Inspectors: keyed by PID until script registers, then moved to script object
+  const pendingInspectors = new Map();
 
   // File watcher: echo suppression for writes we initiated
   const fileWatcherIgnore = new Set();
@@ -217,6 +221,33 @@ function startServer() {
       if (info) info.lastPong = Date.now();
     });
   });
+
+  /**
+   * Find scriptId by PID (for V8 inspector events that fire before scriptId is known)
+   */
+  function findScriptIdByPid(pid) {
+    for (const [scriptId, script] of scripts) {
+      if (script.pid === pid) return scriptId;
+    }
+    return null;
+  }
+
+  /**
+   * Get the InspectorClient for a script (by scriptId or pid).
+   * Falls back to pendingInspectors for scripts that haven't registered yet.
+   */
+  function getInspector(scriptId, pid) {
+    if (scriptId) {
+      const script = scripts.get(scriptId);
+      if (script?.inspector) return script.inspector;
+    }
+    // pendingInspectors keys are numeric PIDs; coerce in case payload sent a string
+    const numPid = pid ? Number(pid) : null;
+    if (numPid && pendingInspectors.has(numPid)) {
+      return pendingInspectors.get(numPid);
+    }
+    return null;
+  }
 
   /**
    * Find first connected client with a given role
@@ -562,12 +593,19 @@ function startServer() {
           pid: pid || null,
           checkpoints: checkpoints || [],     // available checkpoint names (for UI display)
           breakpoints: new Set(),             // active breakpoints (user-toggled)
+          stepOnce: false,                    // true = pause at next checkpoint (Step button)
           pendingStep: null,                  // resolve fn when paused at checkpoint
           currentCheckpoint: null,
           pages: new Map(),                   // pageId → { url, title } (from playwright-shim)
+          inspector: null,                    // InspectorClient (V8 debugger)
         });
-        // Apply pre-breakpoints if this PID was launched with breakpoints
+        // Attach V8 inspector if one was pending for this PID
         const script = scripts.get(scriptId);
+        if (pid && pendingInspectors.has(pid)) {
+          script.inspector = pendingInspectors.get(pid);
+          pendingInspectors.delete(pid);
+          console.log(`[Bridge] V8 Inspector attached to script: ${name} (${scriptId})`);
+        }
         if (pid && pendingBreakpoints.has(pid)) {
           const preBreaks = pendingBreakpoints.get(pid);
           pendingBreakpoints.delete(pid);
@@ -814,13 +852,20 @@ function startServer() {
           return;
         }
 
-        // Zero-cost fast path: breakpoint not active
-        if (!script.breakpoints.has(name)) {
+        // Should we pause here?
+        // - stepOnce: Step was pressed → pause at ANY checkpoint, then clear flag
+        // - breakpoint active: user set a breakpoint on this checkpoint
+        const shouldPause = script.stepOnce || script.breakpoints.has(name);
+        if (script.stepOnce) {
+          script.stepOnce = false; // consume the single-step flag
+        }
+
+        if (!shouldPause) {
           sendTo(ws, buildReply(msg, { proceed: true, name, active: false }));
           return;
         }
 
-        // Breakpoint active — pause script, wait for Step or Cancel
+        // Pause script, wait for Step or Continue or Cancel
         script.state = 'checkpoint';
         script.currentCheckpoint = { name, context, timestamp: Date.now() };
         console.log(`[Bridge] Script paused at checkpoint "${name}": ${script.name}`);
@@ -872,8 +917,12 @@ function startServer() {
           return;
         }
         if (clearAll) {
-          script.breakpoints.clear();
-          console.log(`[Bridge] All breakpoints cleared (continue): ${script.name}`);
+          // Continue: resume and pause at next active breakpoint (don't clear them)
+          console.log(`[Bridge] Continue: ${script.name} (breakpoints preserved)`);
+        } else {
+          // Step: pause at the very next checkpoint regardless of breakpoints
+          script.stepOnce = true;
+          console.log(`[Bridge] Step (next checkpoint): ${script.name}`);
         }
         const resolve = script.pendingStep;
         script.pendingStep = null;
@@ -915,26 +964,115 @@ function startServer() {
       }
 
       case MSG.BRIDGE_SCRIPT_LAUNCH: {
-        const { path: scriptPath, args: scriptArgs = [], breakpoints: preBreakpoints } = msg.payload || {};
+        const { path: scriptPath, args: scriptArgs = [], breakpoints: preBreakpoints, lineBreakpoints, debug } = msg.payload || {};
         if (!scriptPath) {
           sendTo(ws, buildError('Script path required', msg.id));
           break;
         }
-        console.log(`[Bridge] Launching script: node ${scriptPath} ${scriptArgs.join(' ')}`);
-        const child = spawn('node', [scriptPath, ...scriptArgs], {
+
+        // V8 debug mode: launch with --inspect-brk when lineBreakpoints or debug flag is set
+        const useV8Debug = debug || (Array.isArray(lineBreakpoints) && lineBreakpoints.length > 0);
+        const nodeArgs = useV8Debug ? ['--inspect-brk=0', scriptPath, ...scriptArgs] : [scriptPath, ...scriptArgs];
+
+        console.log(`[Bridge] Launching script: node ${nodeArgs.join(' ')}${useV8Debug ? ' [V8 DEBUG]' : ''}`);
+        const child = spawn('node', nodeArgs, {
           detached: false,
           stdio: 'pipe',
           env: { ...process.env },
         });
         const launchId = `launch_${Date.now()}`;
-        // Store pre-breakpoints to apply when script registers with this PID
+
+        // Store checkpoint-level pre-breakpoints (existing system)
         if (Array.isArray(preBreakpoints) && preBreakpoints.length > 0 && child.pid) {
           pendingBreakpoints.set(child.pid, preBreakpoints);
           console.log(`[Bridge] Pre-breakpoints queued for PID ${child.pid}: ${preBreakpoints.join(', ')}`);
         }
-        sendTo(ws, buildReply(msg, { success: true, launchId, pid: child.pid }));
+
+        sendTo(ws, buildReply(msg, { success: true, launchId, pid: child.pid, v8Debug: useV8Debug }));
         child.stdout.on('data', d => console.log(`[Script:${launchId}] ${d.toString().trim()}`));
-        child.stderr.on('data', d => console.error(`[Script:${launchId}] ERR: ${d.toString().trim()}`));
+
+        // V8 Inspector: parse debugger URL from stderr and connect
+        if (useV8Debug) {
+          let inspectorConnected = false;
+          child.stderr.on('data', async (d) => {
+            const text = d.toString().trim();
+            console.error(`[Script:${launchId}] ERR: ${text}`);
+
+            if (inspectorConnected) return;
+            const inspectorUrl = parseInspectorUrl(text);
+            if (!inspectorUrl) return;
+
+            inspectorConnected = true;
+            console.log(`[Bridge] V8 Inspector URL: ${inspectorUrl}`);
+
+            try {
+              const inspector = new InspectorClient(inspectorUrl);
+              await inspector.connect();
+              await inspector.enable();
+
+              // Store inspector keyed by PID (script hasn't registered yet, so no scriptId)
+              pendingInspectors.set(child.pid, inspector);
+
+              // Set initial line breakpoints
+              if (Array.isArray(lineBreakpoints)) {
+                const fileUrl = `file://${scriptPath}`;
+                for (const line of lineBreakpoints) {
+                  try {
+                    const bp = await inspector.setBreakpoint(fileUrl, line);
+                    console.log(`[Bridge] V8 breakpoint set: line ${bp.actualLine} (requested ${line})`);
+                  } catch (err) {
+                    console.warn(`[Bridge] V8 breakpoint failed at line ${line}: ${err.message}`);
+                  }
+                }
+              }
+
+              let firstPauseHandled = false;
+              // Wire paused/resumed events
+              inspector.onPaused(async (data) => {
+                console.log(`[Bridge] V8 paused: ${data.file}:${data.line} (${data.reason})`);
+                // ESM modules cause a "Break on start" pause after runIfWaitingForDebugger().
+                // Auto-resume only the FIRST pause (the module entry pause at line 1).
+                if (!firstPauseHandled) {
+                  firstPauseHandled = true;
+                  if (data.reason === 'Break on start' || (!data.file && data.line === 1)) {
+                    console.log(`[Bridge] Auto-resuming past ESM entry pause`);
+                    try { await inspector.resume(); } catch {}
+                    return;
+                  }
+                }
+                const scriptId = findScriptIdByPid(child.pid);
+                broadcast(buildMessage(MSG.BRIDGE_DBG_PAUSED, {
+                  scriptId,
+                  pid: child.pid,
+                  line: data.line,
+                  file: data.file,
+                  column: data.column,
+                  reason: data.reason,
+                  callFrames: data.callFrames,
+                }));
+              });
+
+              inspector.onResumed(() => {
+                const scriptId = findScriptIdByPid(child.pid);
+                broadcast(buildMessage(MSG.BRIDGE_DBG_RESUMED, { scriptId, pid: child.pid }));
+              });
+
+              // Unblock the --inspect-brk initial pause (Runtime-level, not Debugger-level)
+              try {
+                await inspector.runIfWaitingForDebugger();
+                console.log(`[Bridge] V8 Inspector attached, initial breakpoints set, script running`);
+              } catch (resumeErr) {
+                console.warn(`[Bridge] V8 initial runIfWaitingForDebugger failed: ${resumeErr.message}`);
+              }
+
+            } catch (err) {
+              console.error(`[Bridge] V8 Inspector connect failed: ${err.message}`);
+            }
+          });
+        } else {
+          child.stderr.on('data', d => console.error(`[Script:${launchId}] ERR: ${d.toString().trim()}`));
+        }
+
         child.on('error', err => {
           console.error(`[Bridge] Script launch error: ${err.message}`);
           broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
@@ -944,6 +1082,18 @@ function startServer() {
         });
         child.on('exit', (code) => {
           console.log(`[Bridge] Script exited: ${scriptPath} (code ${code})`);
+          // Clean up inspector
+          if (pendingInspectors.has(child.pid)) {
+            pendingInspectors.get(child.pid).disconnect();
+            pendingInspectors.delete(child.pid);
+          }
+          // Also check script-keyed inspectors
+          for (const [scriptId, script] of scripts) {
+            if (script.pid === child.pid && script.inspector) {
+              script.inspector.disconnect();
+              script.inspector = null;
+            }
+          }
         });
         break;
       }
@@ -1022,6 +1172,96 @@ function startServer() {
           activity: script.activity,
           pages: Object.fromEntries(script.pages),
         }));
+        break;
+      }
+
+      // ---- V8 Inspector Debugging (line-level) ----
+
+      case MSG.BRIDGE_DBG_STEP_OVER:
+      case MSG.BRIDGE_DBG_STEP_INTO:
+      case MSG.BRIDGE_DBG_STEP_OUT:
+      case MSG.BRIDGE_DBG_CONTINUE: {
+        const { scriptId, pid } = msg.payload || {};
+        const inspector = getInspector(scriptId, pid);
+        if (!inspector) {
+          sendTo(ws, buildError('No V8 debugger attached to this script', msg.id));
+          return;
+        }
+        try {
+          switch (msg.type) {
+            case MSG.BRIDGE_DBG_STEP_OVER: await inspector.stepOver(); break;
+            case MSG.BRIDGE_DBG_STEP_INTO: await inspector.stepInto(); break;
+            case MSG.BRIDGE_DBG_STEP_OUT:  await inspector.stepOut(); break;
+            case MSG.BRIDGE_DBG_CONTINUE:  await inspector.resume(); break;
+          }
+          sendTo(ws, buildReply(msg, { success: true, scriptId }));
+        } catch (err) {
+          sendTo(ws, buildError(`V8 debug command failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_DBG_SET_BREAKPOINT: {
+        const { scriptId, pid, file, line } = msg.payload || {};
+        const inspector = getInspector(scriptId, pid);
+        if (!inspector) {
+          sendTo(ws, buildError('No V8 debugger attached to this script', msg.id));
+          return;
+        }
+        try {
+          const result = await inspector.setBreakpoint(file, line);
+          sendTo(ws, buildReply(msg, { success: true, ...result }));
+        } catch (err) {
+          sendTo(ws, buildError(`Set breakpoint failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_DBG_REMOVE_BREAKPOINT: {
+        const { scriptId, pid, breakpointId } = msg.payload || {};
+        const inspector = getInspector(scriptId, pid);
+        if (!inspector) {
+          sendTo(ws, buildError('No V8 debugger attached', msg.id));
+          return;
+        }
+        try {
+          await inspector.removeBreakpoint(breakpointId);
+          sendTo(ws, buildReply(msg, { success: true }));
+        } catch (err) {
+          sendTo(ws, buildError(`Remove breakpoint failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_DBG_EVALUATE: {
+        const { scriptId, pid, expression, callFrameId } = msg.payload || {};
+        const inspector = getInspector(scriptId, pid);
+        if (!inspector) {
+          sendTo(ws, buildError('No V8 debugger attached', msg.id));
+          return;
+        }
+        try {
+          const result = await inspector.evaluate(expression, callFrameId);
+          sendTo(ws, buildReply(msg, { success: true, ...result }));
+        } catch (err) {
+          sendTo(ws, buildError(`Evaluate failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_DBG_RESTART_FRAME: {
+        const { scriptId, pid, callFrameId } = msg.payload || {};
+        const inspector = getInspector(scriptId, pid);
+        if (!inspector) {
+          sendTo(ws, buildError('No V8 debugger attached', msg.id));
+          return;
+        }
+        try {
+          await inspector.restartFrame(callFrameId);
+          sendTo(ws, buildReply(msg, { success: true }));
+        } catch (err) {
+          sendTo(ws, buildError(`Restart frame failed: ${err.message}`, msg.id));
+        }
         break;
       }
 
