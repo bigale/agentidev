@@ -13,7 +13,7 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws';
-import { spawn } from 'child_process';
+import { spawn, execFile } from 'child_process';
 import { readFile, writeFile, mkdir, stat } from 'fs/promises';
 import { watch } from 'fs';
 import { resolve as pathResolve, dirname } from 'path';
@@ -51,6 +51,65 @@ if (args.includes('--stop')) {
   }
 } else {
   startServer();
+}
+
+/**
+ * Discover running Playwright Chromium browser processes via `ps`.
+ * Filters for processes whose args contain 'playwright' or 'ms-playwright'.
+ * Excludes sub-processes (renderer, gpu, utility, zygote).
+ * Correlates ppid against known script PIDs to identify owner.
+ * @param {Map} scripts - Active scripts map
+ * @returns {Promise<Array<{ pid, ppid, elapsedSeconds, ownerScriptId, ownerScriptName }>>}
+ */
+function discoverBrowserProcesses(scripts) {
+  return new Promise((resolve) => {
+    execFile('ps', ['-eo', 'pid,ppid,etimes,args', '--no-headers'], (err, stdout) => {
+      if (err) {
+        console.warn('[Bridge] ps failed:', err.message);
+        resolve([]);
+        return;
+      }
+      // Build set of known script PIDs for owner correlation
+      const scriptPidMap = new Map(); // pid → { scriptId, name }
+      for (const [scriptId, s] of scripts) {
+        if (s.pid) scriptPidMap.set(s.pid, { scriptId, name: s.name });
+      }
+
+      const subProcessTypes = ['--type=renderer', '--type=gpu-process', '--type=utility', '--type=zygote', 'crashpad_handler'];
+      const processes = [];
+
+      for (const line of stdout.trim().split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        // Parse: PID PPID ELAPSED ARGS...
+        const match = trimmed.match(/^(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/);
+        if (!match) continue;
+        const [, pidStr, ppidStr, etimeStr, args] = match;
+        // Must contain playwright or ms-playwright in args
+        if (!args.includes('playwright') && !args.includes('ms-playwright')) continue;
+        // Exclude sub-processes
+        if (subProcessTypes.some(t => args.includes(t))) continue;
+        // Must look like a chromium/chrome binary
+        if (!args.includes('chromium') && !args.includes('chrome') && !args.includes('Chromium')) continue;
+
+        const pid = parseInt(pidStr, 10);
+        const ppid = parseInt(ppidStr, 10);
+        const elapsedSeconds = parseInt(etimeStr, 10);
+
+        // Check if ppid matches a known script
+        const owner = scriptPidMap.get(ppid);
+
+        processes.push({
+          pid,
+          ppid,
+          elapsedSeconds,
+          ownerScriptId: owner?.scriptId || null,
+          ownerScriptName: owner?.name || null,
+        });
+      }
+      resolve(processes);
+    });
+  });
 }
 
 function startServer() {
@@ -1261,6 +1320,37 @@ function startServer() {
           sendTo(ws, buildReply(msg, { success: true }));
         } catch (err) {
           sendTo(ws, buildError(`Restart frame failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_SYSTEM_PROCESSES: {
+        try {
+          const processes = await discoverBrowserProcesses(scripts);
+          sendTo(ws, buildReply(msg, { success: true, processes }));
+        } catch (err) {
+          sendTo(ws, buildError(`Process discovery failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_KILL_PROCESS: {
+        const { pid: killPid } = msg.payload || {};
+        if (!killPid) {
+          sendTo(ws, buildError('pid required', msg.id));
+          return;
+        }
+        try {
+          process.kill(killPid, 'SIGTERM');
+          // Delayed SIGKILL if still alive
+          const pidToKill = killPid;
+          setTimeout(() => {
+            try { process.kill(pidToKill, 'SIGKILL'); } catch { /* already dead */ }
+          }, 2000);
+          console.log(`[Bridge] Killed process: ${killPid}`);
+          sendTo(ws, buildReply(msg, { success: true, pid: killPid }));
+        } catch (err) {
+          sendTo(ws, buildError(`Kill failed: ${err.message}`, msg.id));
         }
         break;
       }

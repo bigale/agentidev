@@ -357,6 +357,15 @@ export function dbgRestartFrame(scriptId, pid, callFrameId) {
   return _sendRequest('BRIDGE_DBG_RESTART_FRAME', { scriptId, pid, callFrameId });
 }
 
+// ---- System process management ----
+
+export function getSystemProcesses() {
+  return _sendRequest('BRIDGE_SYSTEM_PROCESSES', {});
+}
+export function killProcess(pid) {
+  return _sendRequest('BRIDGE_KILL_PROCESS', { pid });
+}
+
 /**
  * Get the shim path provided by the bridge server at connect time.
  * @returns {string|null}

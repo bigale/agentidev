@@ -24,6 +24,7 @@ const state = {
   snapshots: [],           // last N snapshots
   activities: [],          // last 20 activity strings
   lastSnapshot: null,
+  processes: [],           // discovered Playwright browser processes
 };
 
 // ---- DOM refs ----
@@ -474,10 +475,23 @@ function openSnippetForm(snippetId, prefilled = {}) {
 const sessionsToggle = document.getElementById('sessions-toggle');
 const sessionsBody   = document.getElementById('sessions-body');
 const sessionsArrow  = document.getElementById('sessions-arrow');
-sessionsToggle.addEventListener('click', () => {
+sessionsToggle.addEventListener('click', (e) => {
+  // Don't collapse when clicking the Refresh button
+  if (e.target.id === 'dash-refresh-processes') return;
   const open = sessionsBody.style.display !== 'none';
   sessionsBody.style.display = open ? 'none' : '';
   sessionsArrow.classList.toggle('open', !open);
+});
+
+// Refresh button — scan for running browser processes
+document.getElementById('dash-refresh-processes').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const btn = e.target;
+  btn.textContent = 'Scanning...';
+  btn.disabled = true;
+  loadSessions();
+  loadProcesses();
+  setTimeout(() => { btn.textContent = 'Refresh'; btn.disabled = false; }, 1000);
 });
 
 const activityToggle = document.getElementById('activity-toggle');
@@ -542,21 +556,48 @@ function loadSessions() {
 
 function renderSessions() {
   const body = document.getElementById('sessions-body');
-  document.getElementById('sessions-count').textContent = state.sessions.length;
+  const totalCount = state.sessions.length + state.processes.length;
+  document.getElementById('sessions-count').textContent = totalCount;
   destroySessionBtn.disabled = !state.activeSessionId || !state.connected;
 
-  if (state.sessions.length === 0) {
-    body.innerHTML = '<div class="dash-empty" style="padding:12px;">No sessions</div>';
-    return;
+  let html = '';
+
+  // Playwright API sessions
+  if (state.sessions.length > 0) {
+    html += state.sessions.map(s => {
+      const stateClass = (s.state || 'IDLE').toUpperCase();
+      return `<div class="dash-session-item ${s.id === state.activeSessionId ? 'active' : ''}" data-sid="${s.id}">
+        <div class="dash-session-dot ${stateClass}"></div>
+        <span class="dash-session-name">${escHtml(s.name || s.id)}</span>
+        <span class="dash-session-state">${s.state || 'idle'}</span>
+      </div>`;
+    }).join('');
   }
-  body.innerHTML = state.sessions.map(s => {
-    const stateClass = (s.state || 'IDLE').toUpperCase();
-    return `<div class="dash-session-item ${s.id === state.activeSessionId ? 'active' : ''}" data-sid="${s.id}">
-      <div class="dash-session-dot ${stateClass}"></div>
-      <span class="dash-session-name">${escHtml(s.name || s.id)}</span>
-      <span class="dash-session-state">${s.state || 'idle'}</span>
-    </div>`;
-  }).join('');
+
+  // Browser processes
+  if (state.processes.length > 0) {
+    html += '<div class="dash-process-subhdr">Browser Processes</div>';
+    html += state.processes.map(p => {
+      const isOrphan = !p.ownerScriptId;
+      const dotClass = isOrphan ? 'orphan' : 'owned';
+      const label = isOrphan ? 'orphan' : escHtml(p.ownerScriptName);
+      return `<div class="dash-process-item" data-pid="${p.pid}">
+        <div class="dash-process-dot ${dotClass}"></div>
+        <span class="dash-process-pid">${p.pid}</span>
+        <span class="dash-process-info">${label}</span>
+        <span class="dash-process-elapsed">${formatElapsed(p.elapsedSeconds)}</span>
+        <button class="dash-process-kill" data-kill-pid="${p.pid}">Kill</button>
+      </div>`;
+    }).join('');
+  }
+
+  if (!html) {
+    html = '<div class="dash-empty" style="padding:12px;">No sessions</div>';
+  }
+
+  body.innerHTML = html;
+
+  // Wire session click handlers
   body.querySelectorAll('.dash-session-item').forEach(el => {
     el.addEventListener('click', () => {
       state.activeSessionId = el.dataset.sid;
@@ -564,6 +605,38 @@ function renderSessions() {
       renderSessions();
     });
   });
+
+  // Wire kill buttons
+  body.querySelectorAll('.dash-process-kill').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const pid = parseInt(btn.dataset.killPid, 10);
+      if (!confirm(`Kill browser process ${pid}?`)) return;
+      btn.disabled = true;
+      btn.textContent = '...';
+      chrome.runtime.sendMessage({ type: 'KILL_PROCESS', pid }, () => {
+        // Auto-refresh after kill
+        setTimeout(() => loadProcesses(), 1500);
+      });
+    });
+  });
+}
+
+function loadProcesses() {
+  if (!state.connected) { state.processes = []; renderSessions(); return; }
+  chrome.runtime.sendMessage({ type: 'SYSTEM_PROCESSES' }, (response) => {
+    state.processes = response?.processes || [];
+    renderSessions();
+  });
+}
+
+function formatElapsed(seconds) {
+  if (seconds == null) return '';
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return `${h}h ${m}m`;
 }
 
 newSessionBtn.addEventListener('click', () => {
@@ -959,7 +1032,7 @@ chrome.runtime.onMessage.addListener((message) => {
       state.connected = message.connected;
       updateTopBar();
       updateToolbar();
-      if (message.connected) { loadSessions(); loadScripts(); loadLibrary(); }
+      if (message.connected) { loadSessions(); loadScripts(); loadLibrary(); loadProcesses(); }
       break;
     }
 
@@ -1102,6 +1175,7 @@ function init() {
     if (state.connected) {
       loadSessions();
       loadScripts();
+      loadProcesses();
     }
   });
 }

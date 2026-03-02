@@ -259,6 +259,34 @@
     .dash-session-name { flex: 1; color: #c0c0d0; }
     .dash-session-state { font-size: 10px; color: #5f5f7f; text-transform: uppercase; }
 
+    /* Browser process items */
+    .dash-process-subhdr {
+      font-size: 9px; font-weight: 600; color: #5f5f7f;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 6px 12px 2px; background: #111127;
+    }
+    .dash-process-item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 5px 12px; border-bottom: 1px solid #222244;
+      font-size: 11px;
+    }
+    .dash-process-dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    }
+    .dash-process-dot.orphan { background: #d93025; }
+    .dash-process-dot.owned { background: #f9ab00; }
+    .dash-process-pid {
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-size: 10px; color: #8f8faf; min-width: 48px;
+    }
+    .dash-process-info { flex: 1; color: #c0c0d0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dash-process-elapsed { font-size: 10px; color: #5f5f7f; white-space: nowrap; }
+    .dash-process-kill {
+      background: #4a1e1e; border: none; color: #f44336; cursor: pointer;
+      font-size: 9px; font-weight: 600; padding: 2px 6px; border-radius: 3px;
+    }
+    .dash-process-kill:hover { background: #5a2e2e; }
+
     /* ---- Center Col: Monaco Source ---- */
     .dash-center { position: relative; }
     .dash-source-toolbar {
@@ -583,6 +611,7 @@
       <div class="dash-section-hdr clickable" id="sessions-toggle">
         <span class="dash-section-title">Sessions</span>
         <span id="sessions-count" class="dash-badge">0</span>
+        <button class="dash-btn secondary" id="dash-refresh-processes" style="padding:1px 6px;font-size:9px;" title="Scan for running browser processes">Refresh</button>
         <span class="dash-collapse-arrow open" id="sessions-arrow">▶</span>
       </div>
       <div id="sessions-body" class="dash-sessions-body"></div>

@@ -139,6 +139,23 @@ export function register(handlers) {
     return { log: commandLog };
   };
 
+  // System process discovery and kill
+  handlers['SYSTEM_PROCESSES'] = async () => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge', processes: [] };
+    }
+    const result = await bridgeClient.getSystemProcesses();
+    return { success: true, ...result };
+  };
+
+  handlers['KILL_PROCESS'] = async (msg) => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge' };
+    }
+    const result = await bridgeClient.killProcess(msg.pid);
+    return { success: true, ...result };
+  };
+
   // Bridge info (scripts dir, shim path)
   handlers['BRIDGE_GET_INFO'] = async () => {
     return {

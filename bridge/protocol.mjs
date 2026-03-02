@@ -70,6 +70,10 @@ export const MSG = {
   BRIDGE_DBG_RESTART_FRAME: 'BRIDGE_DBG_RESTART_FRAME',      // restart current frame
   BRIDGE_DBG_PAUSED: 'BRIDGE_DBG_PAUSED',                    // broadcast: script paused (V8)
   BRIDGE_DBG_RESUMED: 'BRIDGE_DBG_RESUMED',                  // broadcast: script resumed (V8)
+
+  // System process management
+  BRIDGE_SYSTEM_PROCESSES: 'BRIDGE_SYSTEM_PROCESSES',        // discover running Playwright browser processes
+  BRIDGE_KILL_PROCESS: 'BRIDGE_KILL_PROCESS',                // kill a process by PID
 };
 
 /**
