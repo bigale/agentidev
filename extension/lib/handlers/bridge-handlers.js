@@ -174,6 +174,15 @@ export function register(handlers) {
     const result = await bridgeClient.getScriptSource(msg.path);
     return { success: true, ...result };
   };
+
+  // Report viewer — load HTML file from disk
+  handlers['REPORT_LOAD'] = async (msg) => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge' };
+    }
+    const result = await bridgeClient.getScriptSource(msg.path);
+    return { success: true, ...result };
+  };
 }
 
 /**
@@ -247,6 +256,11 @@ export function initBridgeCallbacks(snapshotStorageFn) {
   bridgeClient.onDbgResumed((data) => {
     console.log(`[Background] V8 resumed: ${data.scriptId}`);
     chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_DBG_RESUMED', ...data }).catch(() => {});
+  });
+
+  bridgeClient.onScheduleUpdate((data) => {
+    console.log(`[Background] Schedule update: ${data.schedule?.name || data.scheduleId || 'unknown'}`);
+    chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_SCHEDULE', ...data }).catch(() => {});
   });
 
   bridgeClient.onFileChanged(async (data) => {

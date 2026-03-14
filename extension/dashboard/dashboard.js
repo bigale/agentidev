@@ -7,6 +7,7 @@ import { ScriptPanel } from './panels/script-panel.js';
 import { SourcePanel } from './panels/source-panel.js';
 import { DebugPanel } from './panels/debug-panel.js';
 import { getSnippetsByCategory, getSnippet, renderSnippet, suggestFromElement } from '../lib/snippet-library.js';
+import { CLI_COMMANDS, CATEGORIES } from './lib/cli-commands.js';
 
 // ---- Wait for Monaco to be ready ----
 await new Promise(resolve => {
@@ -25,6 +26,7 @@ const state = {
   activities: [],          // last 20 activity strings
   lastSnapshot: null,
   processes: [],           // discovered Playwright browser processes
+  schedules: new Map(),    // scheduleId → schedule
 };
 
 // ---- DOM refs ----
@@ -37,6 +39,8 @@ const importPath   = document.getElementById('dash-import-path');
 const importBtn    = document.getElementById('dash-import-btn');
 const libraryList  = document.getElementById('dash-library-list');
 const libraryCount = document.getElementById('dash-library-count');
+const reportPathInput   = document.getElementById('dash-report-path');
+const reportBtn         = document.getElementById('dash-report-btn');
 const newSessionBtn     = document.getElementById('dash-new-session-btn');
 const destroySessionBtn = document.getElementById('dash-destroy-session-btn');
 
@@ -50,7 +54,19 @@ const tbStep     = document.getElementById('tb-step');
 const tbContinue = document.getElementById('tb-continue');
 const tbKill     = document.getElementById('tb-kill');
 const tbAuth     = document.getElementById('tb-auth');
+const tbArgs     = document.getElementById('tb-args');
 const tbUnload   = document.getElementById('tb-unload');
+
+// Recipe panel refs
+const recipePanel   = document.getElementById('recipe-panel');
+const recipePreList = document.getElementById('recipe-pre-list');
+const recipePostList = document.getElementById('recipe-post-list');
+const recipeAddPre  = document.getElementById('recipe-add-pre');
+const recipeAddPost = document.getElementById('recipe-add-post');
+const recipeSaveBtn = document.getElementById('recipe-save-btn');
+
+// Recipe state
+const recipe = { preActions: [], postActions: [] };
 
 // Editor-local breakpoints (toggled via gutter clicks, persisted until script unloaded)
 let editorBreakpoints = []; // checkpoint names toggled on in the editor
@@ -219,6 +235,9 @@ function updateToolbar() {
   // Auth: enabled when script loaded, connected, not running, not already capturing
   tbAuth.disabled = !hasLoaded || !state.connected || isActive || !!authCaptureSessionId;
 
+  // Recipe panel: visible when a script is loaded
+  recipePanel.style.display = hasLoaded ? '' : 'none';
+
   // Check if auth state exists for the loaded script (async, non-blocking UI update)
   if (hasLoaded && state.connected) {
     chrome.runtime.sendMessage({ type: 'AUTH_CHECK', scriptName: loadedName }, (response) => {
@@ -251,6 +270,12 @@ let v8PausedCallFrames = []; // call frames from V8 paused event
  * Run = no breakpoints, no debugger.
  * Debug = V8 inspector + line breakpoints for true stepping.
  */
+function parseArgs() {
+  const raw = tbArgs.value.trim();
+  if (!raw) return [];
+  return raw.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+}
+
 function launchFromEditor(debug = false) {
   const name = sourcePanel.getScriptName();
   if (!name || !state.connected) return;
@@ -279,8 +304,11 @@ function launchFromEditor(debug = false) {
       v8Pid = null;
       v8PausedLine = null;
       chrome.runtime.sendMessage({
-        type: 'SCRIPT_LAUNCH', path: scriptPath, args: [],
+        type: 'SCRIPT_LAUNCH', path: scriptPath, args: parseArgs(),
         lineBreakpoints, debug: true,
+        sessionId: state.activeSessionId || undefined,
+        preActions: recipe.preActions.length > 0 ? recipe.preActions : undefined,
+        postActions: recipe.postActions.length > 0 ? recipe.postActions : undefined,
       }, (response) => {
         if (response?.success) {
           v8Pid = response.pid || null;
@@ -294,7 +322,10 @@ function launchFromEditor(debug = false) {
       v8Debug = false;
       v8PausedLine = null;
       chrome.runtime.sendMessage({
-        type: 'SCRIPT_LAUNCH', path: scriptPath, args: [],
+        type: 'SCRIPT_LAUNCH', path: scriptPath, args: parseArgs(),
+        sessionId: state.activeSessionId || undefined,
+        preActions: recipe.preActions.length > 0 ? recipe.preActions : undefined,
+        postActions: recipe.postActions.length > 0 ? recipe.postActions : undefined,
       }, (response) => {
         if (!response?.success) {
           bridgeStatus.textContent = `Launch failed: ${response?.error || 'Unknown error'}`;
@@ -377,6 +408,7 @@ tbKill.addEventListener('click', () => {
 tbUnload.addEventListener('click', () => {
   sourcePanel.unload();
   editorBreakpoints = [];
+  loadRecipe(null);
   state.selectedScriptId = null;
   v8Debug = false;
   v8Pid = null;
@@ -654,12 +686,22 @@ activityToggle.addEventListener('click', () => {
 // ---- Bridge connect/disconnect ----
 connectBtn.addEventListener('click', handleBridgeToggle);
 
+// ---- Report viewer ----
+reportBtn.addEventListener('click', () => {
+  const path = reportPathInput.value.trim().replace(/^["']|["']$/g, '');
+  if (!path) return;
+  const viewerUrl = chrome.runtime.getURL('reports/viewer.html') + '?file=' + encodeURIComponent(path);
+  chrome.tabs.create({ url: viewerUrl });
+});
+reportPathInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') reportBtn.click(); });
+
 function updateTopBar() {
   bridgeDot.className    = state.connected ? 'dash-topbar-dot connected' : 'dash-topbar-dot';
   bridgeStatus.textContent = state.connected ? 'Connected' : 'Disconnected';
   connectBtn.textContent = state.connected ? 'Disconnect' : 'Connect';
   connectBtn.className   = state.connected ? 'dash-btn danger' : 'dash-btn secondary';
   newSessionBtn.disabled = !state.connected;
+  newScheduleBtn.disabled = !state.connected;
 }
 
 function handleBridgeToggle() {
@@ -702,6 +744,15 @@ function loadSessions() {
   });
 }
 
+function findLinkedScript(sessionId) {
+  for (const [, s] of state.scripts) {
+    if (s.sessionId === sessionId && ['registered', 'running', 'paused', 'checkpoint'].includes(s.state)) {
+      return s;
+    }
+  }
+  return null;
+}
+
 function renderSessions() {
   const body = document.getElementById('sessions-body');
   const totalCount = state.sessions.length + state.processes.length;
@@ -714,9 +765,12 @@ function renderSessions() {
   if (state.sessions.length > 0) {
     html += state.sessions.map(s => {
       const stateClass = (s.state || 'IDLE').toUpperCase();
+      const linked = findLinkedScript(s.id);
+      const linkedBadge = linked ? `<span class="dash-session-linked">${escHtml(linked.name)}</span>` : '';
       return `<div class="dash-session-item ${s.id === state.activeSessionId ? 'active' : ''}" data-sid="${s.id}">
         <div class="dash-session-dot ${stateClass}"></div>
         <span class="dash-session-name">${escHtml(s.name || s.id)}</span>
+        ${linkedBadge}
         <span class="dash-session-state">${s.state || 'idle'}</span>
       </div>`;
     }).join('');
@@ -847,12 +901,172 @@ destroySessionBtn.addEventListener('click', () => {
   });
 });
 
+// ---- Schedules ----
+const newScheduleBtn = document.getElementById('dash-new-schedule-btn');
+const scheduleForm   = document.getElementById('schedule-form');
+const schedulesBody  = document.getElementById('schedules-body');
+const schedulesCount = document.getElementById('schedules-count');
+const schedulesToggle = document.getElementById('schedules-toggle');
+const schedulesArrow  = document.getElementById('schedules-arrow');
+let schedulesCollapsed = false;
+
+schedulesToggle.addEventListener('click', (e) => {
+  if (e.target.closest('button')) return;
+  schedulesCollapsed = !schedulesCollapsed;
+  schedulesBody.style.display = schedulesCollapsed ? 'none' : '';
+  schedulesArrow.classList.toggle('open', !schedulesCollapsed);
+});
+
+function loadSchedules() {
+  if (!state.connected) return;
+  chrome.runtime.sendMessage({ type: 'SCHEDULE_LIST' }, (response) => {
+    if (response?.success && response.schedules) {
+      state.schedules.clear();
+      for (const s of response.schedules) state.schedules.set(s.id, s);
+      renderSchedules();
+    }
+  });
+}
+
+function renderSchedules() {
+  schedulesCount.textContent = state.schedules.size;
+  if (state.schedules.size === 0) {
+    schedulesBody.innerHTML = '<div class="dash-empty" style="padding:10px;">No schedules</div>';
+    return;
+  }
+  const items = [...state.schedules.values()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  schedulesBody.innerHTML = items.map(s => {
+    const interval = s.intervalMs >= 60000
+      ? `${Math.round(s.intervalMs / 60000)}m`
+      : `${Math.round(s.intervalMs / 1000)}s`;
+    const next = s.nextRunAt && s.enabled
+      ? `next ${Math.max(0, Math.round((s.nextRunAt - Date.now()) / 1000))}s`
+      : '';
+    return `<div class="dash-schedule-item" data-sched-id="${s.id}">
+      <span class="dash-schedule-dot ${s.enabled ? 'enabled' : 'disabled'}"></span>
+      <span class="dash-schedule-name" title="${escHtml(s.scriptPath || '')}">${escHtml(s.name)}</span>
+      <span class="dash-schedule-info">every ${interval} · ${s.runCount} runs${next ? ' · ' + next : ''}</span>
+      <span class="dash-schedule-actions">
+        <button class="dash-schedule-btn trigger" data-sched-action="trigger" data-sched-id="${s.id}" title="Run now">▶</button>
+        <button class="dash-schedule-btn toggle" data-sched-action="toggle" data-sched-id="${s.id}" title="${s.enabled ? 'Disable' : 'Enable'}">${s.enabled ? '⏸' : '▶'}</button>
+        <button class="dash-schedule-btn delete" data-sched-action="delete" data-sched-id="${s.id}" title="Delete">✕</button>
+      </span>
+    </div>`;
+  }).join('');
+
+  schedulesBody.querySelectorAll('[data-sched-action]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.schedId;
+      const action = btn.dataset.schedAction;
+      if (action === 'trigger') {
+        chrome.runtime.sendMessage({ type: 'SCHEDULE_TRIGGER', scheduleId: id });
+      } else if (action === 'toggle') {
+        const sched = state.schedules.get(id);
+        if (sched) {
+          chrome.runtime.sendMessage({ type: 'SCHEDULE_UPDATE', scheduleId: id, enabled: !sched.enabled });
+        }
+      } else if (action === 'delete') {
+        chrome.runtime.sendMessage({ type: 'SCHEDULE_DELETE', scheduleId: id });
+      }
+    });
+  });
+}
+
+// Schedule create form
+newScheduleBtn.addEventListener('click', () => {
+  const scriptSelect = document.getElementById('sched-script');
+  scriptSelect.innerHTML = '<option value="">-- select script --</option>';
+  const seen = new Set();
+
+  // Populate from library (chrome.storage)
+  chrome.runtime.sendMessage({ type: 'SCRIPT_LIBRARY_LIST' }, (response) => {
+    if (response?.success) {
+      for (const s of response.scripts || []) {
+        if (seen.has(s.name)) continue;
+        seen.add(s.name);
+        const opt = document.createElement('option');
+        opt.value = s.name;
+        opt.textContent = s.name;
+        scriptSelect.appendChild(opt);
+      }
+    }
+    // Also populate from currently registered scripts (bridge)
+    chrome.runtime.sendMessage({ type: 'SCRIPT_LIST' }, (resp2) => {
+      if (resp2?.success) {
+        for (const s of resp2.scripts || []) {
+          if (seen.has(s.name)) continue;
+          seen.add(s.name);
+          const opt = document.createElement('option');
+          opt.value = s.name;
+          opt.textContent = `${s.name} (running)`;
+          scriptSelect.appendChild(opt);
+        }
+      }
+    });
+  });
+
+  scheduleForm.style.display = '';
+});
+
+// Prevent clicks inside form from bubbling to collapse toggles
+scheduleForm.addEventListener('click', (e) => e.stopPropagation());
+scheduleForm.addEventListener('mousedown', (e) => e.stopPropagation());
+
+document.getElementById('sched-cancel-btn').addEventListener('click', () => {
+  scheduleForm.style.display = 'none';
+});
+
+document.getElementById('sched-create-btn').addEventListener('click', () => {
+  const nameInput = document.getElementById('sched-name').value.trim();
+  const rawScriptName = document.getElementById('sched-script').value;
+  const interval = parseInt(document.getElementById('sched-interval').value) || 30;
+  const unit = parseInt(document.getElementById('sched-unit').value) || 60000;
+  const argsStr = document.getElementById('sched-args').value.trim();
+  const runNow = document.getElementById('sched-run-now').checked;
+
+  // Strip " (running)" suffix if present
+  const scriptName = rawScriptName.replace(/\s*\(running\)$/, '');
+  if (!scriptName) return;
+
+  // Resolve script path from bridge scripts dir
+  chrome.runtime.sendMessage({ type: 'BRIDGE_GET_INFO' }, (info) => {
+    const scriptsDir = info?.scriptsDir || '';
+    const scriptPath = `${scriptsDir}/${scriptName}.mjs`;
+
+    // Also look up originalPath from library for CWD resolution
+    chrome.runtime.sendMessage({ type: 'SCRIPT_LIBRARY_GET', name: scriptName }, (libResp) => {
+      const originalPath = libResp?.success ? libResp.script?.originalPath : null;
+
+      chrome.runtime.sendMessage({
+        type: 'SCHEDULE_CREATE',
+        name: nameInput || scriptName,
+        scriptPath,
+        scriptName,
+        intervalMs: interval * unit,
+        args: argsStr ? argsStr.split(/\s+/) : [],
+        runNow,
+        originalPath,
+      }, (response) => {
+        if (response?.success) {
+          scheduleForm.style.display = 'none';
+          loadSchedules();
+        }
+      });
+    });
+  });
+});
+
 // ---- Scripts ----
 function loadScripts() {
   chrome.runtime.sendMessage({ type: 'SCRIPT_LIST' }, (response) => {
     if (response?.success && response.scripts) {
       state.scripts.clear();
       for (const s of response.scripts) {
+        if (s.sessionId) {
+          const sess = state.sessions.find(se => se.id === s.sessionId);
+          s.sessionName = sess ? sess.name : s.sessionId;
+        }
         state.scripts.set(s.scriptId, s);
       }
       scriptPanel.render(state.scripts, state.selectedScriptId);
@@ -878,6 +1092,7 @@ function selectScript(scriptId) {
         editorBreakpoints = [...new Set([...editorBreakpoints, ...serverBp])];
         sourcePanel.loadSource(response.script.source, response.script.originalPath,
           checkpointLines, editorBreakpoints, script?.checkpoint?.name || null, scriptName);
+        loadRecipe(response.script.recipe);
         updateToolbar();
       } else {
         // Fall back to loading from disk via bridge
@@ -977,10 +1192,14 @@ function renderLibrary() {
   }
   libraryList.innerHTML = libraryScripts.map(s => {
     const sizeStr = s.size > 1024 ? `${(s.size / 1024).toFixed(0)}KB` : `${s.size}B`;
-    const dateStr = new Date(s.modifiedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const dateStr = new Date(s.modifiedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     const isSelected = s.name === selectedLibraryName;
-    return `<div class="dash-library-item ${isSelected ? 'selected' : ''}" data-name="${escHtml(s.name)}" title="${escHtml(s.originalPath || '')}">
-      <span class="dash-library-name">${escHtml(s.name)}</span>
+    const pathLine = s.originalPath ? `<div class="dash-library-path">${escHtml(s.originalPath)}</div>` : '';
+    return `<div class="dash-library-item ${isSelected ? 'selected' : ''}" data-name="${escHtml(s.name)}">
+      <div class="dash-library-info">
+        <span class="dash-library-name">${escHtml(s.name)}</span>
+        ${pathLine}
+      </div>
       <span class="dash-library-meta">${sizeStr}</span>
       <span class="dash-library-meta">${dateStr}</span>
       <button class="dash-library-open" data-name="${escHtml(s.name)}" title="Open in editor">Open</button>
@@ -1034,6 +1253,8 @@ function loadLibraryScript(name) {
         [], null,
         name
       );
+      // Load recipe from library
+      loadRecipe(script.recipe);
       setView('source');
       closeModal();
       updateToolbar();
@@ -1050,7 +1271,7 @@ importPath.addEventListener('keydown', (e) => { if (e.key === 'Enter') importBtn
 
 // ---- Import ----
 importBtn.addEventListener('click', () => {
-  const path = importPath.value.trim();
+  const path = importPath.value.trim().replace(/^["']+|["']+$/g, '');
   if (!path) { importPath.focus(); return; }
   if (!state.connected) {
     bridgeStatus.textContent = 'Connect to bridge first to import scripts';
@@ -1137,6 +1358,11 @@ chrome.runtime.onMessage.addListener((message) => {
     case 'AUTO_BROADCAST_SCRIPT': {
       const prev = state.scripts.get(message.scriptId) || {};
       const updated = { ...prev, ...message };
+      // Resolve session name for UI display
+      if (updated.sessionId) {
+        const sess = state.sessions.find(s => s.id === updated.sessionId);
+        updated.sessionName = sess ? sess.name : updated.sessionId;
+      }
       state.scripts.set(message.scriptId, updated);
 
       // Track activity
@@ -1168,6 +1394,7 @@ chrome.runtime.onMessage.addListener((message) => {
       }
 
       scriptPanel.render(state.scripts, state.selectedScriptId);
+      renderSessions(); // Update session linked-script badges
       updateToolbar();
 
       if (message.scriptId === state.selectedScriptId) {
@@ -1218,7 +1445,7 @@ chrome.runtime.onMessage.addListener((message) => {
       state.connected = message.connected;
       updateTopBar();
       updateToolbar();
-      if (message.connected) { loadSessions(); loadScripts(); loadLibrary(); loadProcesses(); }
+      if (message.connected) { loadSessions(); loadScripts(); loadLibrary(); loadProcesses(); loadSchedules(); }
       break;
     }
 
@@ -1229,6 +1456,7 @@ chrome.runtime.onMessage.addListener((message) => {
       sourcePanel.highlightV8Line(message.line);
       pushActivity(`V8 paused: line ${message.line} (${message.reason || 'breakpoint'})`);
       updateToolbar();
+      showEvaluatePanel(message.callFrames || []);
       // Update debug panel with V8 pause info
       if (state.selectedScriptId) {
         const script = state.scripts.get(state.selectedScriptId);
@@ -1248,6 +1476,7 @@ chrome.runtime.onMessage.addListener((message) => {
       v8PausedCallFrames = [];
       sourcePanel.clearV8Highlight();
       updateToolbar();
+      hideEvaluatePanel();
       if (state.selectedScriptId) {
         const script = state.scripts.get(state.selectedScriptId);
         if (script) {
@@ -1257,6 +1486,17 @@ chrome.runtime.onMessage.addListener((message) => {
           debugPanel.update(script);
         }
       }
+      break;
+    }
+
+    case 'AUTO_BROADCAST_SCHEDULE': {
+      if (message.scheduleId && !message.schedule) {
+        // Deleted
+        state.schedules.delete(message.scheduleId);
+      } else if (message.schedule) {
+        state.schedules.set(message.schedule.id, message.schedule);
+      }
+      renderSchedules();
       break;
     }
 
@@ -1362,6 +1602,7 @@ function init() {
       loadSessions();
       loadScripts();
       loadProcesses();
+      loadSchedules();
     }
   });
 }
@@ -1428,3 +1669,440 @@ window.__dashTest = {
     return 'step-out pid=' + v8Pid;
   },
 };
+
+// ---- Evaluate Panel ----
+
+function showEvaluatePanel(callFrames) {
+  const panel  = document.getElementById('evaluate-panel');
+  const select = document.getElementById('eval-frame-select');
+  select.innerHTML = callFrames.map(f => {
+    const fn   = f.functionName || '(anonymous)';
+    const line = f.location?.lineNumber != null ? f.location.lineNumber + 1 : '?';
+    return `<option value="${_esc(f.callFrameId)}">${_esc(fn)} (line ${line})</option>`;
+  }).join('');
+  panel.style.display = '';
+}
+
+function hideEvaluatePanel() {
+  document.getElementById('evaluate-panel').style.display = 'none';
+  const r = document.getElementById('eval-result');
+  r.textContent = '—';
+  r.className = 'dash-eval-result';
+}
+
+function runEvaluate() {
+  const expr = document.getElementById('eval-input').value.trim();
+  if (!expr) return;
+  const frameId  = document.getElementById('eval-frame-select').value;
+  const resultEl = document.getElementById('eval-result');
+  resultEl.textContent = '…';
+  resultEl.className   = 'dash-eval-result pending';
+
+  const script = state.selectedScriptId ? state.scripts.get(state.selectedScriptId) : null;
+  chrome.runtime.sendMessage({
+    type: 'DBG_EVALUATE',
+    scriptId: script?.scriptId,
+    pid: v8Pid,
+    expression: expr,
+    callFrameId: frameId || undefined,
+  }, (response) => {
+    if (!response) {
+      resultEl.textContent = 'No response from bridge';
+      resultEl.className   = 'dash-eval-result error';
+      return;
+    }
+    if (response.exceptionDetails || response.error) {
+      const msg = response.exceptionDetails?.exception?.description
+               || response.exceptionDetails?.text
+               || response.error
+               || 'Error';
+      resultEl.textContent = msg;
+      resultEl.className   = 'dash-eval-result error';
+    } else {
+      const r   = response.result || response;
+      const val = r.type === 'string'      ? `"${r.value}"`
+                : r.value !== undefined    ? String(r.value)
+                : r.description            ? r.description
+                : `[${r.type || 'unknown'}]`;
+      resultEl.textContent = val;
+      resultEl.className   = 'dash-eval-result success';
+    }
+  });
+}
+
+document.getElementById('eval-run-btn').addEventListener('click', runEvaluate);
+document.getElementById('eval-input').addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); runEvaluate(); }
+});
+
+function _esc(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ---- Resize Handles ----
+
+function initResizeHandles() {
+  // Column resize (left ↔ center, center ↔ right)
+  const grid = document.getElementById('dash-grid');
+  document.querySelectorAll('.dash-resize-handle[data-resize-col]').forEach(handle => {
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      const isLeft   = handle.dataset.resizeCol === 'left';
+      const startX   = e.clientX;
+      const cols     = getComputedStyle(grid).gridTemplateColumns.split(' ');
+      const startLeft  = parseFloat(cols[0]);
+      const startRight = parseFloat(cols[4]);
+
+      handle.classList.add('dragging');
+      document.body.style.cursor     = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      function onMove(ev) {
+        const dx = ev.clientX - startX;
+        const l  = isLeft ? Math.max(180, Math.min(600, startLeft  + dx)) : startLeft;
+        const r  = isLeft ? startRight : Math.max(180, Math.min(500, startRight - dx));
+        grid.style.gridTemplateColumns = `${l}px 4px 1fr 4px ${r}px`;
+      }
+      function onUp() {
+        handle.classList.remove('dragging');
+        document.body.style.cursor     = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup',   onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup',   onUp);
+    });
+  });
+
+  // Horizontal resize — controls activity panel height
+  const hHandle      = document.getElementById('activity-resize-h');
+  const activityBody = document.getElementById('activity-body');
+  if (hHandle && activityBody) {
+    hHandle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      const startY  = e.clientY;
+      const startH  = activityBody.getBoundingClientRect().height;
+
+      hHandle.classList.add('dragging');
+      document.body.style.cursor     = 'row-resize';
+      document.body.style.userSelect = 'none';
+
+      function onMove(ev) {
+        const dy   = ev.clientY - startY;
+        const newH = Math.max(40, Math.min(500, startH - dy));
+        activityBody.style.maxHeight = `${newH}px`;
+        activityBody.style.height    = `${newH}px`;
+      }
+      function onUp() {
+        hHandle.classList.remove('dragging');
+        document.body.style.cursor     = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup',   onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup',   onUp);
+    });
+  }
+}
+
+initResizeHandles();
+
+// ---- Recipe / Launch Actions ----
+
+/**
+ * Load a recipe into the UI state.
+ * @param {object|null} r - { preActions: [], postActions: [] } or null to clear
+ */
+function loadRecipe(r) {
+  recipe.preActions = r?.preActions ? r.preActions.map(a => ({ ...a })) : [];
+  recipe.postActions = r?.postActions ? r.postActions.map(a => ({ ...a })) : [];
+  renderRecipe();
+}
+
+/** Render both pre and post action lists. */
+function renderRecipe() {
+  renderActionList(recipePreList, recipe.preActions, 'pre');
+  renderActionList(recipePostList, recipe.postActions, 'post');
+}
+
+/**
+ * Render a list of actions into a container.
+ * @param {HTMLElement} container
+ * @param {object[]} actions
+ * @param {string} phase - 'pre' or 'post'
+ */
+function renderActionList(container, actions, phase) {
+  container.innerHTML = '';
+  if (actions.length === 0) {
+    container.innerHTML = '<div class="dash-recipe-empty">No actions</div>';
+    return;
+  }
+  actions.forEach((action, i) => {
+    const row = document.createElement('div');
+    row.className = 'dash-recipe-row';
+
+    // Index
+    const idx = document.createElement('span');
+    idx.className = 'dash-recipe-idx';
+    idx.textContent = `${i + 1}.`;
+    row.appendChild(idx);
+
+    // Move up/down
+    if (actions.length > 1) {
+      const moveUp = document.createElement('button');
+      moveUp.className = 'dash-recipe-move';
+      moveUp.textContent = '\u25B2';
+      moveUp.title = 'Move up';
+      moveUp.disabled = i === 0;
+      moveUp.addEventListener('click', () => { moveAction(phase, i, -1); });
+      row.appendChild(moveUp);
+
+      const moveDown = document.createElement('button');
+      moveDown.className = 'dash-recipe-move';
+      moveDown.textContent = '\u25BC';
+      moveDown.title = 'Move down';
+      moveDown.disabled = i === actions.length - 1;
+      moveDown.addEventListener('click', () => { moveAction(phase, i, 1); });
+      row.appendChild(moveDown);
+    }
+
+    // Command select (grouped by category)
+    const cmdSelect = document.createElement('select');
+    cmdSelect.title = 'Command';
+    let currentCat = '';
+    for (const [cmdName, def] of Object.entries(CLI_COMMANDS)) {
+      if (def.category !== currentCat) {
+        currentCat = def.category;
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = CATEGORIES[currentCat] || currentCat;
+        // Add commands in this category
+        for (const [cn, cd] of Object.entries(CLI_COMMANDS)) {
+          if (cd.category === currentCat) {
+            const opt = document.createElement('option');
+            opt.value = cn;
+            opt.textContent = cn;
+            optgroup.appendChild(opt);
+          }
+        }
+        cmdSelect.appendChild(optgroup);
+        // Skip duplicate iteration by jumping past this category
+        currentCat = def.category;
+      }
+    }
+    // Deduplicate optgroups — build properly
+    cmdSelect.innerHTML = '';
+    const catGroups = {};
+    for (const [cmdName, def] of Object.entries(CLI_COMMANDS)) {
+      if (!catGroups[def.category]) catGroups[def.category] = [];
+      catGroups[def.category].push(cmdName);
+    }
+    for (const [cat, cmds] of Object.entries(catGroups)) {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = CATEGORIES[cat] || cat;
+      for (const cn of cmds) {
+        const opt = document.createElement('option');
+        opt.value = cn;
+        opt.textContent = cn;
+        if (cn === action.command) opt.selected = true;
+        optgroup.appendChild(opt);
+      }
+      cmdSelect.appendChild(optgroup);
+    }
+    cmdSelect.addEventListener('change', () => {
+      action.command = cmdSelect.value;
+      action.args = {};
+      action.options = {};
+      renderRecipe();
+    });
+    row.appendChild(cmdSelect);
+
+    // Arg inputs
+    const def = CLI_COMMANDS[action.command];
+    if (def) {
+      for (const argDef of (def.args || [])) {
+        const input = createArgInput(argDef, action.args?.[argDef.name], (val) => {
+          if (!action.args) action.args = {};
+          action.args[argDef.name] = val;
+        });
+        row.appendChild(input);
+      }
+      // Options (expandable)
+      for (const optDef of (def.options || [])) {
+        const input = createArgInput(optDef, action.options?.[optDef.name], (val) => {
+          if (!action.options) action.options = {};
+          action.options[optDef.name] = val;
+        }, true);
+        row.appendChild(input);
+      }
+    }
+
+    // Remove button
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'dash-recipe-remove';
+    removeBtn.innerHTML = '&times;';
+    removeBtn.title = 'Remove action';
+    removeBtn.addEventListener('click', () => {
+      actions.splice(i, 1);
+      renderRecipe();
+    });
+    row.appendChild(removeBtn);
+
+    container.appendChild(row);
+  });
+}
+
+/**
+ * Create an input element for a command argument.
+ * @param {object} argDef - { name, type, required, placeholder, values }
+ * @param {*} currentValue
+ * @param {function} onChange
+ * @param {boolean} isOption - true if this is an option (not positional arg)
+ * @returns {HTMLElement}
+ */
+function createArgInput(argDef, currentValue, onChange, isOption = false) {
+  const { type, name, placeholder, values, required } = argDef;
+
+  if (type === 'boolean') {
+    const label = document.createElement('label');
+    label.className = 'recipe-cb';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!currentValue;
+    cb.addEventListener('change', () => onChange(cb.checked));
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(name));
+    return label;
+  }
+
+  if (type === 'enum') {
+    const select = document.createElement('select');
+    select.title = name;
+    if (!required) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = name;
+      select.appendChild(opt);
+    }
+    for (const v of (values || [])) {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = v;
+      if (v === currentValue) opt.selected = true;
+      select.appendChild(opt);
+    }
+    select.addEventListener('change', () => onChange(select.value || undefined));
+    return select;
+  }
+
+  if (type === 'code') {
+    const ta = document.createElement('textarea');
+    ta.value = currentValue || '';
+    ta.placeholder = placeholder || name;
+    ta.title = name;
+    ta.rows = 2;
+    ta.addEventListener('input', () => onChange(ta.value));
+    return ta;
+  }
+
+  // text, url, file, ref, number
+  const input = document.createElement('input');
+  input.type = type === 'number' ? 'number' : 'text';
+  input.value = currentValue ?? '';
+  input.placeholder = placeholder || name;
+  input.title = `${name}${required ? ' (required)' : ''}`;
+  if (type === 'number') input.style.width = '60px';
+  input.addEventListener('input', () => {
+    const val = type === 'number' ? (input.value ? Number(input.value) : undefined) : input.value;
+    onChange(val);
+  });
+  return input;
+}
+
+function moveAction(phase, index, dir) {
+  const list = phase === 'pre' ? recipe.preActions : recipe.postActions;
+  const newIdx = index + dir;
+  if (newIdx < 0 || newIdx >= list.length) return;
+  [list[index], list[newIdx]] = [list[newIdx], list[index]];
+  renderRecipe();
+}
+
+/** Open a category→command picker menu and add the selected command. */
+function showAddMenu(phase, anchorBtn) {
+  // Remove any existing menu
+  document.querySelectorAll('.dash-recipe-cat-menu').forEach(m => m.remove());
+
+  const menu = document.createElement('div');
+  menu.className = 'dash-recipe-cat-menu';
+
+  const catGroups = {};
+  for (const [cmdName, def] of Object.entries(CLI_COMMANDS)) {
+    if (!catGroups[def.category]) catGroups[def.category] = [];
+    catGroups[def.category].push(cmdName);
+  }
+
+  for (const [cat, cmds] of Object.entries(catGroups)) {
+    const hdr = document.createElement('div');
+    hdr.className = 'dash-recipe-cat-menu-hdr';
+    hdr.textContent = CATEGORIES[cat] || cat;
+    menu.appendChild(hdr);
+
+    for (const cmdName of cmds) {
+      const item = document.createElement('div');
+      item.className = 'dash-recipe-cat-menu-item';
+      item.textContent = cmdName;
+      item.addEventListener('click', () => {
+        const list = phase === 'pre' ? recipe.preActions : recipe.postActions;
+        list.push({ command: cmdName, args: {}, options: {} });
+        menu.remove();
+        renderRecipe();
+      });
+      menu.appendChild(item);
+    }
+
+    const sep = document.createElement('div');
+    sep.className = 'dash-recipe-cat-menu-sep';
+    menu.appendChild(sep);
+  }
+
+  // Position near button
+  const rect = anchorBtn.getBoundingClientRect();
+  menu.style.position = 'fixed';
+  menu.style.top = `${rect.bottom + 2}px`;
+  menu.style.left = `${rect.left}px`;
+  menu.style.maxHeight = '400px';
+  menu.style.overflowY = 'auto';
+  document.body.appendChild(menu);
+
+  // Close on outside click
+  const closeMenu = (e) => {
+    if (!menu.contains(e.target) && e.target !== anchorBtn) {
+      menu.remove();
+      document.removeEventListener('click', closeMenu, true);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', closeMenu, true), 0);
+}
+
+recipeAddPre.addEventListener('click', () => showAddMenu('pre', recipeAddPre));
+recipeAddPost.addEventListener('click', () => showAddMenu('post', recipeAddPost));
+
+recipeSaveBtn.addEventListener('click', () => {
+  const name = sourcePanel.getScriptName();
+  if (!name) return;
+  const source = sourcePanel.getSource();
+  const recipeData = {
+    preActions: recipe.preActions.filter(a => a.command),
+    postActions: recipe.postActions.filter(a => a.command),
+  };
+  chrome.runtime.sendMessage({
+    type: 'SCRIPT_LIBRARY_SAVE', name, source,
+    recipe: recipeData,
+  }, (response) => {
+    if (response?.success) {
+      bridgeStatus.textContent = 'Recipe saved';
+      setTimeout(() => updateToolbar(), 1000);
+    }
+  });
+});

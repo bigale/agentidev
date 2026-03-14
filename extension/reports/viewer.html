@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Report Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      display: flex; flex-direction: column;
+      width: 100vw; height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1a1a2e; color: #e0e0e0;
+    }
+    .viewer-toolbar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 0 16px; height: 40px; flex-shrink: 0;
+      background: #16213e; border-bottom: 1px solid #2a2a4a;
+      font-size: 12px;
+    }
+    .viewer-path {
+      font-family: 'SF Mono', Consolas, monospace;
+      color: #8f8faf; flex: 1; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .viewer-refresh-info { color: #5f5f7f; font-size: 11px; }
+    .viewer-btn {
+      background: #1a73e8; color: #fff; border: none;
+      padding: 4px 10px; border-radius: 4px; font-size: 11px;
+      cursor: pointer;
+    }
+    .viewer-btn:hover { background: #1557b0; }
+    .viewer-frame {
+      flex: 1; border: none; width: 100%;
+    }
+    .viewer-error {
+      padding: 40px; text-align: center; color: #ff6b6b;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="viewer-toolbar">
+    <span class="viewer-path" id="viewer-path">Loading...</span>
+    <span class="viewer-refresh-info" id="viewer-refresh-info"></span>
+    <button class="viewer-btn" id="viewer-refresh-btn">Refresh</button>
+  </div>
+  <iframe class="viewer-frame" id="viewer-frame"
+    sandbox="allow-scripts allow-forms allow-popups"
+  ></iframe>
+  <div class="viewer-error" id="viewer-error" style="display:none;"></div>
+  <script src="viewer.js" type="module"></script>
+</body>
+</html>

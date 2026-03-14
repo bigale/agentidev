@@ -124,15 +124,65 @@
     .dash-grid {
       flex: 1;
       display: grid;
-      grid-template-columns: 300px 1fr 280px;
+      grid-template-columns: 300px 4px 1fr 4px 280px;
       overflow: hidden;
     }
 
     .dash-col {
       display: flex; flex-direction: column; overflow: hidden;
-      border-right: 1px solid #2a2a4a;
     }
-    .dash-col:last-child { border-right: none; }
+
+    /* ---- Resize handles ---- */
+    .dash-resize-handle {
+      background: #2a2a4a;
+      cursor: col-resize;
+      flex-shrink: 0;
+      transition: background 0.15s;
+      z-index: 5;
+    }
+    .dash-resize-handle:hover,
+    .dash-resize-handle.dragging { background: #1a73e8; }
+
+    .dash-resize-handle-h {
+      height: 4px;
+      background: #2a2a4a;
+      cursor: row-resize;
+      flex-shrink: 0;
+      transition: background 0.15s;
+      z-index: 5;
+    }
+    .dash-resize-handle-h:hover,
+    .dash-resize-handle-h.dragging { background: #1a73e8; }
+
+    /* ---- Evaluate Panel ---- */
+    .dash-eval-body {
+      padding: 6px 8px; display: flex; flex-direction: column; gap: 4px;
+    }
+    .dash-eval-input {
+      width: 100%; padding: 6px 8px;
+      font-family: 'SF Mono', 'Consolas', monospace; font-size: 11px;
+      background: #0d1117; color: #e0e0e0;
+      border: 1px solid #3a3a5a; border-radius: 4px;
+      resize: vertical; min-height: 52px;
+    }
+    .dash-eval-input:focus { outline: none; border-color: #1a73e8; }
+    .dash-eval-input::placeholder { color: #3a3a5a; }
+    .dash-eval-result {
+      font-family: 'SF Mono', 'Consolas', monospace; font-size: 11px;
+      padding: 6px 8px; border-radius: 4px; white-space: pre-wrap;
+      word-break: break-all; min-height: 28px; max-height: 200px;
+      line-height: 1.4; overflow-y: auto;
+      background: #0d1117; border: 1px solid #2a2a4a; color: #5f5f7f;
+    }
+    .dash-eval-result.success { color: #4caf50; border-color: #2a4a2a; background: #0d1a0d; }
+    .dash-eval-result.error   { color: #f44336; border-color: #4a1e1e; background: #1a0d0d; }
+    .dash-eval-result.pending { color: #8f8faf; }
+    .dash-eval-frame-select {
+      flex: 1; padding: 2px 6px; font-size: 10px;
+      background: #16213e; color: #c0c0d0;
+      border: 1px solid #3a3a5a; border-radius: 3px; cursor: pointer;
+    }
+    .dash-eval-frame-select:focus { outline: none; border-color: #1a73e8; }
 
     /* ---- Section headers ---- */
     .dash-section-hdr {
@@ -258,6 +308,15 @@
     .dash-session-dot.NAVIGATING { background: #1967d2; }
     .dash-session-name { flex: 1; color: #c0c0d0; }
     .dash-session-state { font-size: 10px; color: #5f5f7f; text-transform: uppercase; }
+    .dash-session-linked {
+      font-size: 9px; color: #5b8dee; background: #1e2a4a;
+      padding: 1px 5px; border-radius: 6px; white-space: nowrap;
+    }
+    .dash-sc-session {
+      font-size: 9px; color: #80deea; background: #0e2a30;
+      padding: 1px 5px; border-radius: 6px; margin-left: 4px;
+      white-space: nowrap;
+    }
 
     /* Browser process items */
     .dash-process-subhdr {
@@ -344,6 +403,16 @@
     .dash-dbg-tb-btn.auth { color: #26c6da; border-color: #1a3a4a; }
     .dash-dbg-tb-btn.auth:hover:not(:disabled) { background: #1a3a4a; }
     .dash-dbg-tb-btn.auth.has-auth { color: #00e5ff; border-color: #26c6da; background: #0e2a30; }
+
+    .dash-args-input {
+      flex: 1; min-width: 120px;
+      padding: 2px 8px; font-size: 10px;
+      font-family: SF Mono, Consolas, monospace;
+      background: #0d1117; color: #e0e0e0;
+      border: 1px solid #3a3a5a; border-radius: 3px;
+    }
+    .dash-args-input:focus { outline: none; border-color: #1a73e8; }
+    .dash-args-input::placeholder { color: #3a3a5a; }
 
     /* Auth capture bar */
     .dash-auth-capture-bar {
@@ -497,7 +566,9 @@
     }
     .dash-library-item:hover { background: #1c2a50; color: #e0e0e0; }
     .dash-library-item.selected { background: #1c2a50; border-left: 2px solid #1a73e8; }
-    .dash-library-name { flex: 1; color: #c0c0d0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dash-library-info { flex: 1; min-width: 0; }
+    .dash-library-name { color: #c0c0d0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dash-library-path { font-size: 9px; color: #5f5f7f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
     .dash-library-meta { font-size: 9px; color: #5f5f7f; white-space: nowrap; }
     .dash-library-open {
       background: #1e3a5a; border: none; color: #5b8dee; cursor: pointer;
@@ -572,8 +643,166 @@
       display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px;
     }
 
+    /* Poll indicator in script cards */
+    .dash-sc-poll {
+      font-size: 10px; color: #00bcd4; font-family: 'SF Mono', 'Consolas', monospace;
+      margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* Schedule section */
+    .dash-schedules-body {
+      overflow-y: auto; flex-shrink: 0; max-height: 200px;
+    }
+    .dash-schedule-item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 7px 12px; border-bottom: 1px solid #222244;
+      font-size: 11px;
+    }
+    .dash-schedule-dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    }
+    .dash-schedule-dot.enabled { background: #1e8e3e; }
+    .dash-schedule-dot.disabled { background: #5f5f7f; }
+    .dash-schedule-name { flex: 1; color: #c0c0d0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dash-schedule-info { font-size: 9px; color: #5f5f7f; white-space: nowrap; }
+    .dash-schedule-actions { display: flex; gap: 3px; }
+    .dash-schedule-btn {
+      background: #2a2a4a; border: none; cursor: pointer;
+      font-size: 9px; font-weight: 500; padding: 2px 6px; border-radius: 3px;
+    }
+    .dash-schedule-btn.trigger { color: #4caf50; }
+    .dash-schedule-btn.trigger:hover { background: #1e3a1e; }
+    .dash-schedule-btn.toggle { color: #f9ab00; }
+    .dash-schedule-btn.toggle:hover { background: #3a2e1e; }
+    .dash-schedule-btn.delete { color: #f44336; }
+    .dash-schedule-btn.delete:hover { background: #3a1e1e; }
+
+    /* New schedule inline form */
+    .dash-schedule-form {
+      padding: 8px 12px; border-top: 1px solid #2a2a4a;
+      display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
+    }
+    .dash-schedule-form-row {
+      display: flex; gap: 6px; align-items: center;
+    }
+    .dash-schedule-form input {
+      flex: 1; padding: 3px 6px; font-size: 10px;
+      background: #0d1117; color: #e0e0e0;
+      border: 1px solid #3a3a5a; border-radius: 3px;
+      font-family: 'SF Mono', 'Consolas', monospace;
+    }
+    .dash-schedule-form select {
+      padding: 3px 4px; font-size: 10px;
+      background: #0d1117; color: #e0e0e0;
+      border: 1px solid #3a3a5a; border-radius: 3px;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      -webkit-appearance: menulist; appearance: menulist;
+      cursor: pointer;
+    }
+    .dash-schedule-form input:focus, .dash-schedule-form select:focus {
+      outline: none; border-color: #1a73e8;
+    }
+    .dash-schedule-form label {
+      font-size: 9px; color: #5f5f7f; min-width: 50px; text-align: right;
+      flex-shrink: 0;
+    }
+
     /* Modified indicator dot in source toolbar */
     .dash-source-file .dirty-dot { color: #f9ab00; }
+
+    /* ---- Recipe / Launch Actions ---- */
+    .dash-recipe-panel {
+      flex-shrink: 0; border-top: 1px solid #2a2a4a;
+      max-height: 240px; overflow-y: auto;
+    }
+    .dash-recipe-section {
+      padding: 4px 10px;
+    }
+    .dash-recipe-section-hdr {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 9px; font-weight: 600; color: #5f5f7f;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 3px;
+    }
+    .dash-recipe-section-hdr span { flex: 1; }
+    .dash-recipe-add {
+      background: none; border: 1px solid #3a3a5a; color: #8f8faf;
+      font-size: 9px; padding: 1px 6px; border-radius: 3px; cursor: pointer;
+    }
+    .dash-recipe-add:hover { background: #2a2a4a; color: #e0e0e0; }
+    .dash-recipe-row {
+      display: flex; align-items: center; gap: 4px;
+      padding: 3px 0; font-size: 10px;
+    }
+    .dash-recipe-row select {
+      padding: 2px 4px; font-size: 10px;
+      background: #0d1117; color: #c0c0d0;
+      border: 1px solid #3a3a5a; border-radius: 3px;
+      cursor: pointer; max-width: 110px;
+    }
+    .dash-recipe-row select:focus { outline: none; border-color: #1a73e8; }
+    .dash-recipe-row input[type="text"],
+    .dash-recipe-row input[type="number"] {
+      padding: 2px 6px; font-size: 10px;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      background: #0d1117; color: #e0e0e0;
+      border: 1px solid #3a3a5a; border-radius: 3px;
+      min-width: 0; flex: 1;
+    }
+    .dash-recipe-row input:focus { outline: none; border-color: #1a73e8; }
+    .dash-recipe-row input::placeholder { color: #3a3a5a; }
+    .dash-recipe-row textarea {
+      padding: 2px 6px; font-size: 10px;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      background: #0d1117; color: #e0e0e0;
+      border: 1px solid #3a3a5a; border-radius: 3px;
+      min-width: 0; flex: 1; resize: vertical; min-height: 28px;
+    }
+    .dash-recipe-row textarea:focus { outline: none; border-color: #1a73e8; }
+    .dash-recipe-row label.recipe-cb {
+      display: flex; align-items: center; gap: 3px;
+      font-size: 9px; color: #8f8faf; white-space: nowrap; cursor: pointer;
+    }
+    .dash-recipe-idx {
+      color: #5f5f7f; font-size: 9px; min-width: 14px; text-align: right;
+    }
+    .dash-recipe-remove {
+      background: none; border: none; color: #5f5f7f; cursor: pointer;
+      font-size: 12px; padding: 0 2px; line-height: 1; flex-shrink: 0;
+    }
+    .dash-recipe-remove:hover { color: #f44336; }
+    .dash-recipe-move {
+      background: none; border: none; color: #5f5f7f; cursor: pointer;
+      font-size: 10px; padding: 0 1px; line-height: 1; flex-shrink: 0;
+    }
+    .dash-recipe-move:hover { color: #e0e0e0; }
+    .dash-recipe-empty {
+      font-size: 9px; color: #3a3a5a; padding: 2px 0; font-style: italic;
+    }
+    .dash-recipe-save-row {
+      display: flex; justify-content: flex-end; gap: 6px;
+      padding: 4px 10px 6px; border-top: 1px solid #222244;
+    }
+
+    /* Category dropdown menu */
+    .dash-recipe-cat-menu {
+      position: absolute; z-index: 50;
+      background: #16213e; border: 1px solid #3a3a5a;
+      border-radius: 6px; min-width: 160px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+      padding: 4px 0; font-size: 11px;
+    }
+    .dash-recipe-cat-menu-hdr {
+      padding: 4px 10px; font-size: 9px; font-weight: 600;
+      color: #5f5f7f; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .dash-recipe-cat-menu-item {
+      padding: 5px 10px; cursor: pointer; color: #c0c0d0;
+    }
+    .dash-recipe-cat-menu-item:hover { background: #1c2a50; color: #e0e0e0; }
+    .dash-recipe-cat-menu-sep {
+      height: 1px; background: #2a2a4a; margin: 3px 0;
+    }
 
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -591,6 +820,9 @@
     <span style="color:#3a3a5a;">|</span>
     <span class="dash-topbar-title">Automation Dashboard</span>
     <div class="dash-topbar-sep"></div>
+    <input id="dash-report-path" class="dash-modal-input" style="width:320px;margin:0;font-size:11px;padding:4px 8px;" placeholder="/path/to/report.html">
+    <button id="dash-report-btn" class="dash-btn secondary">View Report</button>
+    <span style="color:#3a3a5a;">|</span>
     <button id="dash-open-btn" class="dash-btn primary">Script Library...</button>
   </div>
 
@@ -624,7 +856,7 @@
   </div>
 
   <!-- 3-Column Grid -->
-  <div class="dash-grid">
+  <div class="dash-grid" id="dash-grid">
 
     <!-- LEFT: Scripts + Sessions -->
     <div class="dash-col" id="left-col">
@@ -653,7 +885,48 @@
         <button id="session-name-ok" class="dash-btn secondary" style="padding:1px 8px;">OK</button>
         <button id="session-name-cancel" class="dash-btn" style="padding:1px 8px;">Cancel</button>
       </div>
+      <!-- Schedules header (collapsible) -->
+      <div class="dash-section-hdr clickable" id="schedules-toggle">
+        <span class="dash-section-title">Schedules</span>
+        <span id="schedules-count" class="dash-badge">0</span>
+        <button class="dash-btn secondary" id="dash-new-schedule-btn" style="padding:1px 6px;font-size:9px;" disabled>+ New</button>
+        <span class="dash-collapse-arrow open" id="schedules-arrow">▶</span>
+      </div>
+      <div id="schedules-body" class="dash-schedules-body"></div>
+      <div id="schedule-form" class="dash-schedule-form" style="display:none;">
+        <div class="dash-schedule-form-row">
+          <label>Name</label>
+          <input id="sched-name" type="text" placeholder="my-poller" spellcheck="false">
+        </div>
+        <div class="dash-schedule-form-row">
+          <label>Script</label>
+          <select id="sched-script" style="flex:1;min-width:0;"></select>
+        </div>
+        <div class="dash-schedule-form-row">
+          <label>Every</label>
+          <input id="sched-interval" type="number" min="1" value="30" style="width:60px;flex:none;">
+          <select id="sched-unit" style="width:70px;flex:none;">
+            <option value="1000">sec</option>
+            <option value="60000" selected>min</option>
+            <option value="3600000">hr</option>
+          </select>
+        </div>
+        <div class="dash-schedule-form-row">
+          <label>Args</label>
+          <input id="sched-args" type="text" placeholder="--flag=value" spellcheck="false">
+        </div>
+        <div class="dash-schedule-form-row" style="justify-content:flex-end;">
+          <label style="min-width:auto;">
+            <input type="checkbox" id="sched-run-now" style="flex:none;width:auto;"> Run now
+          </label>
+          <button class="dash-btn primary" id="sched-create-btn">Create</button>
+          <button class="dash-btn secondary" id="sched-cancel-btn">Cancel</button>
+        </div>
+      </div>
     </div>
+
+    <!-- RESIZE: Left ↔ Center -->
+    <div class="dash-resize-handle" id="resize-left" data-resize-col="left" title="Drag to resize"></div>
 
     <!-- CENTER: Monaco Source / Snapshot -->
     <div class="dash-col dash-center" id="center-col">
@@ -681,7 +954,31 @@
         <span class="dash-dbg-tb-sep"></span>
         <button class="dash-dbg-tb-btn kill" id="tb-kill" disabled title="Force kill (SIGKILL)">Kill</button>
         <div style="flex:1;"></div>
+        <input type="text" id="tb-args" class="dash-args-input"
+          placeholder="CLI args: --date=2026-03-04 --tracks=CT --limit=1"
+          spellcheck="false" autocomplete="off"
+          title="CLI arguments passed to script on Run/Debug">
         <button class="dash-dbg-tb-btn unload" id="tb-unload" disabled title="Unload script from editor">Unload</button>
+      </div>
+      <!-- Recipe panel (launch actions) -->
+      <div class="dash-recipe-panel" id="recipe-panel" style="display:none;">
+        <div class="dash-recipe-section">
+          <div class="dash-recipe-section-hdr">
+            <span>Pre-actions</span>
+            <button class="dash-recipe-add" id="recipe-add-pre">+ Add</button>
+          </div>
+          <div id="recipe-pre-list"></div>
+        </div>
+        <div class="dash-recipe-section">
+          <div class="dash-recipe-section-hdr">
+            <span>Post-actions</span>
+            <button class="dash-recipe-add" id="recipe-add-post">+ Add</button>
+          </div>
+          <div id="recipe-post-list"></div>
+        </div>
+        <div class="dash-recipe-save-row">
+          <button class="dash-btn secondary" id="recipe-save-btn" style="font-size:10px;padding:2px 8px;">Save Recipe</button>
+        </div>
       </div>
       <!-- Auth capture bar (hidden by default) -->
       <div id="auth-capture-bar" class="dash-auth-capture-bar" style="display:none;">
@@ -709,6 +1006,9 @@
       </div>
     </div>
 
+    <!-- RESIZE: Center ↔ Right -->
+    <div class="dash-resize-handle" id="resize-right" data-resize-col="right" title="Drag to resize"></div>
+
     <!-- RIGHT: Debug State + Activity -->
     <div class="dash-col" id="right-col">
       <div class="dash-section-hdr">
@@ -717,6 +1017,25 @@
       <div class="dash-debug-body" id="debug-body">
         <div class="dash-empty" id="debug-empty">Select a running script</div>
       </div>
+      <!-- Evaluate Panel (shown only when V8 is paused) -->
+      <div id="evaluate-panel" style="display:none; flex-shrink:0; border-top:1px solid #2a2a4a;">
+        <div class="dash-section-hdr" style="gap:6px;">
+          <span class="dash-section-title">Evaluate</span>
+          <select id="eval-frame-select" class="dash-eval-frame-select"></select>
+        </div>
+        <div class="dash-eval-body">
+          <textarea id="eval-input" class="dash-eval-input" rows="3"
+                    placeholder="expression... (Ctrl+Enter to run)" spellcheck="false"></textarea>
+          <div style="display:flex; justify-content:flex-end;">
+            <button id="eval-run-btn" class="dash-btn primary" style="font-size:10px; padding:3px 10px;">&#9654; Run</button>
+          </div>
+          <pre id="eval-result" class="dash-eval-result">—</pre>
+        </div>
+      </div>
+
+      <!-- Horizontal resize: drag to change activity panel height -->
+      <div class="dash-resize-handle-h" id="activity-resize-h" title="Drag to resize activity panel"></div>
+
       <div class="dash-section-hdr clickable" id="activity-toggle">
         <span class="dash-section-title">Activity</span>
         <span class="dash-collapse-arrow open" id="activity-arrow">▶</span>
