@@ -97,6 +97,12 @@ for (const [cat, methods] of Object.entries(INTERCEPT_CATEGORIES)) {
   for (const m of methods) METHOD_CATEGORY[m] = cat;
 }
 
+// ---- Session browser endpoint (from BRIDGE_CDP_ENDPOINT env) ----
+const _bridgeCdpEndpoint = process.env.BRIDGE_CDP_ENDPOINT || null;
+if (_bridgeCdpEndpoint) {
+  console.log(`[playwright-shim] Will connect to session browser via CDP: ${_bridgeCdpEndpoint}`);
+}
+
 // ---- Auth state auto-load (from PLAYWRIGHT_AUTH_STATE env) ----
 const _authStatePath = process.env.PLAYWRIGHT_AUTH_STATE || null;
 if (_authStatePath) {
@@ -181,7 +187,7 @@ function wrapContext(context) {
 
 // ---- Wrap a Browser instance ----
 
-function wrapBrowser(browser) {
+function wrapBrowser(browser, isSessionBrowser = false) {
   const origNewPage = browser.newPage.bind(browser);
   const origNewContext = browser.newContext.bind(browser);
 
@@ -201,6 +207,17 @@ function wrapBrowser(browser) {
     return wrapContext(context);
   };
 
+  // Session browser: close() disconnects only (don't kill the session's browser)
+  if (isSessionBrowser) {
+    browser.close = async () => {
+      console.log('[playwright-shim] Disconnecting from session browser (not closing)');
+      // Close only contexts created by this script, then disconnect
+      for (const ctx of browser.contexts()) {
+        try { await ctx.close(); } catch { /* ignore */ }
+      }
+    };
+  }
+
   return browser;
 }
 
@@ -211,8 +228,14 @@ function wrapBrowserType(browserType) {
     get(target, prop, receiver) {
       if (prop === 'launch') {
         return async (...args) => {
+          // If session CDP endpoint is set, connect instead of launching a new browser
+          if (_bridgeCdpEndpoint) {
+            console.log(`[playwright-shim] Connecting to session browser via CDP instead of launching`);
+            const browser = await target.connectOverCDP(_bridgeCdpEndpoint);
+            return wrapBrowser(browser, true);
+          }
           const browser = await target.launch(...args);
-          return wrapBrowser(browser);
+          return wrapBrowser(browser, false);
         };
       }
       if (prop === 'launchPersistentContext') {
@@ -220,8 +243,22 @@ function wrapBrowserType(browserType) {
           if (_authStatePath && !opts.storageState) {
             opts = { ...opts, storageState: _authStatePath };
           }
+          // If session CDP endpoint is set, connect + create a new context
+          if (_bridgeCdpEndpoint) {
+            console.log(`[playwright-shim] Connecting to session browser via CDP (persistent context mode)`);
+            const browser = await target.connectOverCDP(_bridgeCdpEndpoint);
+            const wrapped = wrapBrowser(browser, true);
+            const context = await wrapped.newContext(opts);
+            return wrapContext(context);
+          }
           const context = await target.launchPersistentContext(userDataDir, opts);
           return wrapContext(context);
+        };
+      }
+      if (prop === 'connect' || prop === 'connectOverCDP') {
+        return async (...args) => {
+          const browser = await target[prop](...args);
+          return wrapBrowser(browser, false);
         };
       }
       const val = Reflect.get(target, prop, receiver);

@@ -59,6 +59,16 @@ export const MSG = {
   BRIDGE_SCRIPT_SAVE: 'BRIDGE_SCRIPT_SAVE',                  // extension: save script source to disk
   BRIDGE_SCRIPT_FILE_CHANGED: 'BRIDGE_SCRIPT_FILE_CHANGED',  // server: file changed on disk (reverse sync)
 
+  // Script polling
+  BRIDGE_SCRIPT_POLL_STATE: 'BRIDGE_SCRIPT_POLL_STATE',          // script: report poll loop state
+
+  // Scheduling (server-side auto-launch)
+  BRIDGE_SCHEDULE_CREATE: 'BRIDGE_SCHEDULE_CREATE',
+  BRIDGE_SCHEDULE_UPDATE: 'BRIDGE_SCHEDULE_UPDATE',
+  BRIDGE_SCHEDULE_DELETE: 'BRIDGE_SCHEDULE_DELETE',
+  BRIDGE_SCHEDULE_LIST: 'BRIDGE_SCHEDULE_LIST',
+  BRIDGE_SCHEDULE_TRIGGER: 'BRIDGE_SCHEDULE_TRIGGER',
+
   // V8 Inspector debugging (line-level)
   BRIDGE_DBG_SET_BREAKPOINT: 'BRIDGE_DBG_SET_BREAKPOINT',    // set breakpoint by file + line
   BRIDGE_DBG_REMOVE_BREAKPOINT: 'BRIDGE_DBG_REMOVE_BREAKPOINT',

@@ -89,11 +89,14 @@ export class ScriptPanel {
       </div>
     ` : '';
 
+    const sessionLabel = s.sessionId && s.sessionName
+      ? `<span class="dash-sc-session">${esc(s.sessionName)}</span>` : '';
+
     return `
       <div class="dash-script-card ${selected ? 'selected' : ''} ${isAtCp ? 'checkpoint-active' : ''}"
            data-script-id="${s.scriptId}">
         <div class="dash-sc-header">
-          <span class="dash-sc-name">${esc(s.name)}</span>
+          <span class="dash-sc-name">${esc(s.name)}${sessionLabel}</span>
           <span class="dash-sc-state ${displayState}">${stateLabel}</span>
         </div>
         <div class="dash-sc-progress">
@@ -105,10 +108,21 @@ export class ScriptPanel {
           ${s.label ? `<span style="color:#5f5f7f">— ${esc(s.label)}</span>` : ''}
         </div>
         ${s.activity ? `<div class="dash-sc-activity">${esc(s.activity)}</div>` : ''}
+        ${s.poll?.polling ? this._renderPollRow(s.poll) : ''}
         ${bpDots}
         ${actions}
       </div>
     `;
+  }
+
+  _renderPollRow(poll) {
+    const interval = poll.intervalMs >= 60000
+      ? `${Math.round(poll.intervalMs / 60000)}m`
+      : `${Math.round(poll.intervalMs / 1000)}s`;
+    const next = poll.nextPollAt
+      ? `next ${Math.max(0, Math.round((poll.nextPollAt - Date.now()) / 1000))}s`
+      : '';
+    return `<div class="dash-sc-poll">↻ Iteration ${poll.iteration || 0}${poll.maxIterations < Infinity ? '/' + poll.maxIterations : ''} · ${interval} interval${next ? ' · ' + next : ''}</div>`;
   }
 }
 

@@ -25,8 +25,12 @@
  */
 
 import WebSocket from 'ws';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 
 const DEFAULT_PORT = 9876;
+const STATE_DIR = join(homedir(), '.contextual-recall', 'state');
 
 let _msgCounter = 0;
 
@@ -278,6 +282,79 @@ export class ScriptClient {
   }
 
   /**
+   * Poll loop — repeatedly calls `fn` at `intervalMs` with dashboard-visible state.
+   * Composes existing sleep(), checkPause(), and checkpoint() primitives.
+   *
+   * @param {function} fn - Async callback({ iteration, elapsed, client }) → result
+   * @param {number} intervalMs - Milliseconds between iterations
+   * @param {object} [options]
+   * @param {boolean} [options.once=false] - Run exactly once (no loop)
+   * @param {number} [options.maxIterations=Infinity] - Stop after N iterations
+   * @param {string} [options.checkpoint] - Checkpoint name to hit each iteration
+   * @param {function} [options.onError] - Error handler(err, iteration) → 'stop' to break
+   * @returns {Promise<{ iterations: number, errors: number }>}
+   * @throws {ScriptCancelledError} If cancelled during poll
+   */
+  async poll(fn, intervalMs, options = {}) {
+    const { once = false, maxIterations = Infinity, checkpoint, onError } = options;
+    let iteration = 0;
+    const startedAt = Date.now();
+
+    this._reportPollState({ polling: true, intervalMs, once, maxIterations });
+
+    try {
+      while (true) {
+        await this.checkPause();
+        iteration++;
+
+        if (checkpoint) await this.checkpoint(checkpoint, { iteration, intervalMs });
+
+        this.setActivity(`Poll #${iteration}${maxIterations < Infinity ? '/' + maxIterations : ''}`);
+
+        let result;
+        try {
+          result = await fn({ iteration, elapsed: Date.now() - startedAt, client: this });
+        } catch (err) {
+          this.errors++;
+          if (onError) {
+            if ((await onError(err, iteration)) === 'stop') break;
+          } else {
+            this.reportError(`Iteration ${iteration}: ${err.message}`);
+          }
+          result = { error: err.message };
+        }
+
+        this._reportPollState({
+          polling: true, intervalMs, once, iteration, maxIterations,
+          lastResult: result,
+          nextPollAt: once ? null : Date.now() + intervalMs,
+        });
+
+        if (once || iteration >= maxIterations) break;
+        await this.sleep(intervalMs);
+      }
+    } catch (err) {
+      if (err.name === 'ScriptCancelledError') {
+        this._reportPollState({ polling: false, iteration, cancelled: true });
+        throw err;
+      }
+      throw err;
+    }
+
+    this._reportPollState({ polling: false, iteration, complete: true });
+    return { iterations: iteration, errors: this.errors };
+  }
+
+  /**
+   * Report poll state to bridge (fire-and-forget, like setActivity).
+   * @param {object} pollState
+   */
+  _reportPollState(pollState) {
+    if (!this.scriptId) return;
+    this._send(buildMessage('BRIDGE_SCRIPT_POLL_STATE', { scriptId: this.scriptId, ...pollState }));
+  }
+
+  /**
    * Auth pre-flight guard — verify session is logged in, report error and exit if not.
    * Replaces ~17 lines of boilerplate in every script that needs auth checks.
    *
@@ -340,6 +417,51 @@ export class ScriptClient {
     this.connected = false;
   }
 
+  // ---- Persistent state (Phase 1: file-based) ----
+
+  /**
+   * Read a value from this script's persistent state file.
+   * State is stored at ~/.contextual-recall/state/{scriptName}.json
+   *
+   * @param {string} [key] - Key to read. If omitted, returns the full state object.
+   * @returns {Promise<any>} Value for key, full state object, or undefined if not set.
+   */
+  async getState(key) {
+    const store = this._readStateFile();
+    return key === undefined ? store : store[key];
+  }
+
+  /**
+   * Write a value to this script's persistent state file.
+   * Creates ~/.contextual-recall/state/ if it doesn't exist.
+   * API is async for future Phase 2 bridge-mediated compatibility.
+   *
+   * @param {string} key - Key to set
+   * @param {any} value - Value (must be JSON-serializable)
+   * @returns {Promise<void>}
+   */
+  async setState(key, value) {
+    const store = this._readStateFile();
+    store[key] = value;
+    this._writeStateFile(store);
+  }
+
+  /**
+   * Clear a key (or the entire state bag) from this script's persistent state file.
+   *
+   * @param {string} [key] - Key to clear. If omitted, clears entire state.
+   * @returns {Promise<void>}
+   */
+  async clearState(key) {
+    if (key === undefined) {
+      this._writeStateFile({});
+    } else {
+      const store = this._readStateFile();
+      delete store[key];
+      this._writeStateFile(store);
+    }
+  }
+
   // ---- Internal ----
 
   _connect() {
@@ -362,6 +484,12 @@ export class ScriptClient {
 
       this.ws.on('close', () => {
         this.connected = false;
+        // Immediately reject all pending requests so page ops don't hang 10 min
+        for (const [id, { reject, timer }] of this._pending) {
+          clearTimeout(timer);
+          reject(new Error('Bridge disconnected'));
+        }
+        this._pending.clear();
       });
 
       this.ws.on('error', (err) => {
@@ -435,6 +563,27 @@ export class ScriptClient {
       this._pending.set(msg.id, { resolve, reject, timer });
       this._send(msg);
     });
+  }
+
+  // ---- State file helpers ----
+
+  _stateFilePath() {
+    return join(STATE_DIR, `${this.name}.json`);
+  }
+
+  _readStateFile() {
+    const file = this._stateFilePath();
+    if (!existsSync(file)) return {};
+    try {
+      return JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+      return {}; // corrupt file → start fresh
+    }
+  }
+
+  _writeStateFile(store) {
+    mkdirSync(STATE_DIR, { recursive: true });
+    writeFileSync(this._stateFilePath(), JSON.stringify(store, null, 2), 'utf8');
   }
 }
 

@@ -49,8 +49,22 @@ export function register(handlers) {
     const bp = msg.breakpoints || [];
     const lineBp = msg.lineBreakpoints || [];
     const debug = msg.debug || false;
-    console.log(`[ScriptHandlers] SCRIPT_LAUNCH path=${msg.path} breakpoints=[${bp.join(',')}] lineBreakpoints=[${lineBp.join(',')}] debug=${debug}`);
-    const result = await bridgeClient.launchScript(msg.path, msg.args || [], bp, lineBp, debug);
+    const sessionId = msg.sessionId || null;
+
+    // Look up originalPath from library so server can derive CWD for dependencies
+    let originalPath = null;
+    try {
+      const scriptName = (msg.path || '').split('/').pop().replace(/\.(mjs|js)$/, '');
+      const lib = await getLibrary();
+      if (lib[scriptName]?.originalPath) {
+        originalPath = lib[scriptName].originalPath;
+      }
+    } catch {}
+
+    const preActions = msg.preActions || null;
+    const postActions = msg.postActions || null;
+    console.log(`[ScriptHandlers] SCRIPT_LAUNCH path=${msg.path} originalPath=${originalPath} breakpoints=[${bp.join(',')}] lineBreakpoints=[${lineBp.join(',')}] debug=${debug} sessionId=${sessionId} pre=${preActions?.length || 0} post=${postActions?.length || 0}`);
+    const result = await bridgeClient.launchScript(msg.path, msg.args || [], bp, lineBp, debug, sessionId, originalPath, preActions, postActions);
     return { success: true, ...result };
   };
 
@@ -127,10 +141,46 @@ export function register(handlers) {
     return { success: true, ...result };
   };
 
+  // ---- Scheduling ----
+
+  handlers['SCHEDULE_CREATE'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
+
+    // Look up originalPath from library so scheduled triggers can derive CWD for dependencies
+    if (!msg.originalPath && msg.scriptPath) {
+      try {
+        const scriptName = msg.scriptPath.split('/').pop().replace(/\.(mjs|js)$/, '');
+        const lib = await getLibrary();
+        if (lib[scriptName]?.originalPath) {
+          msg.originalPath = lib[scriptName].originalPath;
+        }
+      } catch {}
+    }
+
+    return { success: true, ...(await bridgeClient.createSchedule(msg)) };
+  };
+  handlers['SCHEDULE_UPDATE'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
+    const { scheduleId, ...updates } = msg;
+    return { success: true, ...(await bridgeClient.updateSchedule(scheduleId, updates)) };
+  };
+  handlers['SCHEDULE_DELETE'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
+    return { success: true, ...(await bridgeClient.deleteSchedule(msg.scheduleId)) };
+  };
+  handlers['SCHEDULE_LIST'] = async () => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge', schedules: [] };
+    return { success: true, ...(await bridgeClient.listSchedules()) };
+  };
+  handlers['SCHEDULE_TRIGGER'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
+    return { success: true, ...(await bridgeClient.triggerSchedule(msg.scheduleId)) };
+  };
+
   // ---- Script Library (chrome.storage.local) ----
 
   handlers['SCRIPT_IMPORT'] = async (msg) => {
-    const { path: scriptPath } = msg;
+    const scriptPath = (msg.path || '').trim().replace(/^["']+|["']+$/g, '');
     if (!scriptPath) return { success: false, error: 'Path required' };
     if (!bridgeClient.isConnected()) {
       return { success: false, error: 'Not connected to bridge' };
@@ -185,7 +235,7 @@ export function register(handlers) {
   };
 
   handlers['SCRIPT_LIBRARY_SAVE'] = async (msg) => {
-    const { name, source: rawSource } = msg;
+    const { name, source: rawSource, recipe } = msg;
     if (!name || !rawSource) return { success: false, error: 'name and source required' };
     const lib = await getLibrary();
     const existing = lib[name];
@@ -196,6 +246,10 @@ export function register(handlers) {
     existing.source = source;
     existing.modifiedAt = Date.now();
     existing.size = source.length;
+    // Persist recipe if provided
+    if (recipe !== undefined) {
+      existing.recipe = recipe;
+    }
     await saveLibrary(lib);
     // Sync to disk via bridge
     if (bridgeClient.isConnected()) {

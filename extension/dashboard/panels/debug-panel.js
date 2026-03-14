@@ -121,8 +121,38 @@ export class DebugPanel {
         </div>
         ${script.label ? `<div class="dash-stat-row"><span class="dash-stat-label">Label</span><span class="dash-stat-val" style="color:#8f8faf;">${esc(script.label)}</span></div>` : ''}
         ${script.activity ? `<div style="margin-top:8px; font-size:10px; color:#5b8dee; font-style:italic; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${esc(script.activity)}">${esc(script.activity)}</div>` : ''}
+        ${script.poll?.polling ? this._pollStatsHTML(script.poll) : ''}
       </div>
       ${killBtn}
+    `;
+  }
+
+  _pollStatsHTML(poll) {
+    const interval = poll.intervalMs >= 60000
+      ? `${Math.round(poll.intervalMs / 60000)}m`
+      : `${Math.round(poll.intervalMs / 1000)}s`;
+    const next = poll.nextPollAt
+      ? `${Math.max(0, Math.round((poll.nextPollAt - Date.now()) / 1000))}s`
+      : '—';
+    return `
+      <div style="margin-top:8px; padding-top:8px; border-top:1px solid #2a2a4a;">
+        <div class="dash-stat-row">
+          <span class="dash-stat-label" style="color:#00bcd4;">Poll Mode</span>
+          <span class="dash-stat-val" style="color:#00bcd4;">Active</span>
+        </div>
+        <div class="dash-stat-row">
+          <span class="dash-stat-label">Interval</span>
+          <span class="dash-stat-val">${interval}</span>
+        </div>
+        <div class="dash-stat-row">
+          <span class="dash-stat-label">Iteration</span>
+          <span class="dash-stat-val">${poll.iteration || 0}${poll.maxIterations < Infinity ? ' / ' + poll.maxIterations : ''}</span>
+        </div>
+        <div class="dash-stat-row">
+          <span class="dash-stat-label">Next Poll</span>
+          <span class="dash-stat-val">${next}</span>
+        </div>
+      </div>
     `;
   }
 

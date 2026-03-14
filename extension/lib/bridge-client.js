@@ -33,6 +33,7 @@ const callbacks = {
   onFileChanged: [],
   onDbgPaused: [],
   onDbgResumed: [],
+  onScheduleUpdate: [],
 };
 
 /**
@@ -252,11 +253,15 @@ export function listScripts() {
  * @param {string} scriptPath - Absolute path to .mjs or .js script
  * @param {string[]} [args] - Optional CLI args
  */
-export function launchScript(scriptPath, args = [], breakpoints = [], lineBreakpoints = [], debug = false) {
+export function launchScript(scriptPath, args = [], breakpoints = [], lineBreakpoints = [], debug = false, sessionId = null, originalPath = null, preActions = null, postActions = null) {
   const payload = { path: scriptPath, args };
   if (breakpoints.length > 0) payload.breakpoints = breakpoints;
   if (lineBreakpoints.length > 0) payload.lineBreakpoints = lineBreakpoints;
   if (debug) payload.debug = true;
+  if (sessionId) payload.sessionId = sessionId;
+  if (originalPath) payload.originalPath = originalPath;
+  if (preActions && preActions.length > 0) payload.preActions = preActions;
+  if (postActions && postActions.length > 0) payload.postActions = postActions;
   return _sendRequest('BRIDGE_SCRIPT_LAUNCH', payload);
 }
 
@@ -386,6 +391,28 @@ export function saveAuthState(sessionId, scriptName) {
  */
 export function checkAuthState(scriptName) {
   return _sendRequest('BRIDGE_AUTH_CHECK', { scriptName });
+}
+
+// ---- Scheduling ----
+
+export function createSchedule(payload) {
+  return _sendRequest('BRIDGE_SCHEDULE_CREATE', payload);
+}
+export function updateSchedule(scheduleId, updates) {
+  return _sendRequest('BRIDGE_SCHEDULE_UPDATE', { scheduleId, ...updates });
+}
+export function deleteSchedule(scheduleId) {
+  return _sendRequest('BRIDGE_SCHEDULE_DELETE', { scheduleId });
+}
+export function listSchedules() {
+  return _sendRequest('BRIDGE_SCHEDULE_LIST', {});
+}
+export function triggerSchedule(scheduleId) {
+  return _sendRequest('BRIDGE_SCHEDULE_TRIGGER', { scheduleId });
+}
+
+export function onScheduleUpdate(cb) {
+  callbacks.onScheduleUpdate.push(cb);
 }
 
 // ---- System process management ----
@@ -545,6 +572,10 @@ function _handleBroadcast(msg) {
       break;
     case 'BRIDGE_DBG_RESUMED':
       _fireCallbacks('onDbgResumed', msg.payload);
+      break;
+    case 'BRIDGE_SCHEDULE_UPDATE':
+    case 'BRIDGE_SCHEDULE_DELETED':
+      _fireCallbacks('onScheduleUpdate', msg.payload);
       break;
     case 'BRIDGE_SEARCH_SNAPSHOTS':
       _handleSearchRequest(msg);

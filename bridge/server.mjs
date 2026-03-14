@@ -14,7 +14,7 @@
 
 import { WebSocketServer, WebSocket } from 'ws';
 import { spawn, execFile } from 'child_process';
-import { readFile, writeFile, mkdir, stat } from 'fs/promises';
+import { readFile, writeFile, mkdir, stat, readdir, symlink, lstat, unlink, readlink } from 'fs/promises';
 import { watch } from 'fs';
 import { resolve as pathResolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -22,6 +22,7 @@ import { homedir } from 'os';
 import { MSG, buildMessage, buildReply, buildError, ROLES } from './protocol.mjs';
 import { PlaywrightSession, SESSION_STATE } from './playwright-session.mjs';
 import { InspectorClient, parseInspectorUrl } from './inspector-client.mjs';
+import { actionToCommandArgs } from './cli-commands.mjs';
 
 const DEFAULT_PORT = 9876;
 const HEALTH_INTERVAL = 30000; // 30s ping/pong
@@ -146,11 +147,106 @@ function startServer() {
   // V8 Inspectors: keyed by PID until script registers, then moved to script object
   const pendingInspectors = new Map();
 
+  // Pending session links: pid → sessionId (script launched against a session)
+  const pendingSessionLinks = new Map();
+
+  // Pending post-actions: pid → { sessionId, actions[] } (execute after script completes)
+  const pendingPostActions = new Map();
+
   // File watcher: echo suppression for writes we initiated
   const fileWatcherIgnore = new Set();
   const fileWatcherDebounce = new Map(); // filename → timer
   let fileWatcher = null;
   const FILE_WATCH_DEBOUNCE = 300;
+
+  // ---- Schedule engine ----
+  const schedules = new Map();       // scheduleId → schedule object
+  const scheduleTimers = new Map();  // scheduleId → setInterval handle
+  const SCHEDULES_FILE = pathResolve(homedir(), '.contextual-recall', 'schedules.json');
+
+  async function loadSchedules() {
+    try {
+      const data = await readFile(SCHEDULES_FILE, 'utf8');
+      const arr = JSON.parse(data);
+      for (const sched of arr) {
+        schedules.set(sched.id, sched);
+        if (sched.enabled) startScheduleTimer(sched.id);
+      }
+      console.log(`[Bridge] Loaded ${schedules.size} schedule(s)`);
+    } catch {
+      // No file or invalid — start fresh
+    }
+  }
+
+  async function saveSchedules() {
+    const dir = dirname(SCHEDULES_FILE);
+    await mkdir(dir, { recursive: true });
+    await writeFile(SCHEDULES_FILE, JSON.stringify([...schedules.values()], null, 2));
+  }
+
+  function startScheduleTimer(id) {
+    const sched = schedules.get(id);
+    if (!sched || !sched.enabled) return;
+    stopScheduleTimer(id);
+    sched.nextRunAt = Date.now() + sched.intervalMs;
+    const timer = setInterval(() => triggerSchedule(id), sched.intervalMs);
+    scheduleTimers.set(id, timer);
+    console.log(`[Bridge] Schedule timer started: ${sched.name} (every ${sched.intervalMs}ms)`);
+  }
+
+  function stopScheduleTimer(id) {
+    const timer = scheduleTimers.get(id);
+    if (timer) {
+      clearInterval(timer);
+      scheduleTimers.delete(id);
+    }
+    const sched = schedules.get(id);
+    if (sched) sched.nextRunAt = null;
+  }
+
+  async function triggerSchedule(id) {
+    const sched = schedules.get(id);
+    if (!sched) return;
+
+    // maxConcurrent check: skip if previous run still active
+    // Look up by PID since launchId and scriptId differ (launch vs registration)
+    if (sched.maxConcurrent >= 1 && sched.lastRunPid) {
+      for (const [, s] of scripts) {
+        if (s.pid === sched.lastRunPid && ['registered', 'running', 'paused', 'checkpoint'].includes(s.state)) {
+          console.log(`[Bridge] Schedule "${sched.name}" skipped — previous run still active (pid ${s.pid})`);
+          return;
+        }
+      }
+    }
+
+    try {
+      const result = await launchScriptInternal({
+        path: sched.scriptPath,
+        args: sched.args || [],
+        sessionId: sched.sessionId || null,
+        originalPath: sched.originalPath || null,
+      });
+
+      sched.lastRunAt = Date.now();
+      sched.lastRunScriptId = result.launchId;
+      sched.lastRunPid = result.pid;
+      sched.runCount++;
+      sched.nextRunAt = sched.enabled ? Date.now() + sched.intervalMs : null;
+
+      // Keep last 10 runs in history
+      if (!sched.history) sched.history = [];
+      sched.history.push({ launchId: result.launchId, pid: result.pid, at: sched.lastRunAt });
+      if (sched.history.length > 10) sched.history.shift();
+
+      await saveSchedules();
+      console.log(`[Bridge] Schedule "${sched.name}" triggered → launch ${result.launchId}`);
+
+      // Broadcast update
+      broadcast(buildMessage(MSG.BRIDGE_SCHEDULE_UPDATE, { schedule: sched }));
+    } catch (err) {
+      console.error(`[Bridge] Schedule "${sched.name}" trigger failed: ${err.message}`);
+    }
+  }
 
   // Start file watcher on scripts directory
   async function startFileWatcher() {
@@ -215,6 +311,7 @@ function startServer() {
   }
 
   startFileWatcher();
+  loadSchedules();
 
   const wss = new WebSocketServer({ port: PORT });
 
@@ -274,11 +371,9 @@ function startServer() {
             resolve();
           }
           console.log(`[Bridge] Script disconnected: ${script.name} (${scriptId})`);
-          broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
-            scriptId, name: script.name, state: 'disconnected',
-            step: script.step, total: script.totalSteps, errors: script.errors,
-            checkpoints: script.checkpoints, activeBreakpoints: [], activity: '',
-          }));
+          broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script, {
+            state: 'disconnected', activeBreakpoints: [],
+          })));
         }
       }
     });
@@ -301,6 +396,259 @@ function startServer() {
       if (script.pid === pid) return scriptId;
     }
     return null;
+  }
+
+  /**
+   * Build a standard script progress payload, always including sessionId.
+   */
+  function scriptProgressPayload(scriptId, script, overrides = {}) {
+    return {
+      scriptId,
+      name: script.name,
+      state: script.state,
+      step: script.step,
+      total: script.totalSteps,
+      label: script.label,
+      errors: script.errors,
+      checkpoints: script.checkpoints || [],
+      activeBreakpoints: Array.from(script.breakpoints || []),
+      activity: script.activity || '',
+      sessionId: script.sessionId || null,
+      poll: script.poll || null,
+      ...overrides,
+    };
+  }
+
+  /**
+   * Find nearest node_modules directory by walking up from startDir.
+   * Used to symlink dependencies for scripts launched from the synced scripts dir.
+   */
+  async function findNearestNodeModules(startDir) {
+    let dir = startDir;
+    while (true) {
+      const candidate = pathResolve(dir, 'node_modules');
+      try {
+        const s = await stat(candidate);
+        if (s.isDirectory()) return candidate;
+      } catch {}
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    return null;
+  }
+
+  /**
+   * Launch a script process. Reusable by both BRIDGE_SCRIPT_LAUNCH and schedule triggers.
+   * @param {object} payload - { path, args, breakpoints, lineBreakpoints, debug, sessionId, originalPath }
+   * @returns {Promise<{ success: true, launchId: string, pid: number, v8Debug: boolean }>}
+   * @throws {Error} on validation or launch failures
+   */
+  async function launchScriptInternal(payload) {
+    const { path: scriptPath, args: scriptArgs = [], breakpoints: preBreakpoints, lineBreakpoints, debug, sessionId: launchSessionId, originalPath, preActions, postActions } = payload;
+
+    const useV8Debug = debug || (Array.isArray(lineBreakpoints) && lineBreakpoints.length > 0);
+    const nodeArgs = useV8Debug ? ['--inspect-brk=0', scriptPath, ...scriptArgs] : [scriptPath, ...scriptArgs];
+    const launchEnv = { ...process.env };
+
+    // Session linking
+    if (launchSessionId) {
+      const linkedSession = getSession(launchSessionId);
+      if (!linkedSession) throw new Error(`Session not found: ${launchSessionId}`);
+      const sessionInfo = linkedSession.getInfo();
+      if (!sessionInfo.cdpEndpoint) throw new Error(`Session "${linkedSession.name}" has no CDP endpoint (browser may not be running)`);
+      for (const [, s] of scripts) {
+        if (s.sessionId === launchSessionId && ['registered', 'running', 'paused', 'checkpoint'].includes(s.state)) {
+          throw new Error(`Session "${linkedSession.name}" already has an active script: ${s.name}`);
+        }
+      }
+      launchEnv.BRIDGE_CDP_ENDPOINT = sessionInfo.cdpEndpoint;
+      console.log(`[Bridge] Script will connect to session "${linkedSession.name}" via CDP (${sessionInfo.cdpEndpoint})`);
+    }
+
+    // Auth state merge
+    try {
+      const scriptBaseName = scriptPath.split('/').pop().replace(/\.(mjs|js)$/, '');
+      const allFiles = await readdir(AUTH_DIR).catch(() => []);
+      const authFiles = [];
+      const scriptAuthPath = pathResolve(AUTH_DIR, `${scriptBaseName}.json`);
+      try { await stat(scriptAuthPath); authFiles.push(scriptAuthPath); } catch {}
+      for (const f of allFiles) {
+        if (!f.endsWith('.json')) continue;
+        if (f.startsWith('_')) continue;
+        const base = f.slice(0, -5);
+        if (base === scriptBaseName) continue;
+        if (base.includes('.')) authFiles.push(pathResolve(AUTH_DIR, f));
+      }
+      if (authFiles.length > 0) {
+        const merged = { cookies: [], origins: [] };
+        for (const af of authFiles) {
+          try {
+            const s = JSON.parse(await readFile(af, 'utf8'));
+            merged.cookies.push(...(s.cookies || []));
+            merged.origins.push(...(s.origins || []));
+          } catch {}
+        }
+        const seen = new Map();
+        for (const c of merged.cookies) seen.set(`${c.name}|${c.domain}|${c.path}`, c);
+        merged.cookies = [...seen.values()];
+        const mergedPath = pathResolve(AUTH_DIR, `_merged_${scriptBaseName}.json`);
+        await writeFile(mergedPath, JSON.stringify(merged));
+        launchEnv.PLAYWRIGHT_AUTH_STATE = mergedPath;
+        console.log(`[Bridge] Auth state merged (${authFiles.length} file(s)): ${authFiles.map(f => f.split('/').pop()).join(', ')}`);
+      }
+    } catch (err) { console.warn(`[Bridge] Auth state merge failed: ${err.message}`); }
+
+    // Dependency resolution
+    let launchCwd = undefined;
+    if (originalPath) {
+      const originalDir = dirname(originalPath);
+      launchCwd = originalDir;
+      try {
+        const nodeModulesPath = await findNearestNodeModules(originalDir);
+        if (nodeModulesPath) {
+          const symlinkDest = pathResolve(SCRIPTS_DIR, 'node_modules');
+          try {
+            const existing = await lstat(symlinkDest);
+            if (existing.isSymbolicLink()) {
+              const currentTarget = await readlink(symlinkDest);
+              if (currentTarget !== nodeModulesPath) {
+                await unlink(symlinkDest);
+                await symlink(nodeModulesPath, symlinkDest, 'dir');
+              }
+            }
+          } catch {
+            await symlink(nodeModulesPath, symlinkDest, 'dir');
+          }
+          console.log(`[Bridge] node_modules symlink: ${SCRIPTS_DIR}/node_modules → ${nodeModulesPath}`);
+        }
+      } catch (err) {
+        console.warn(`[Bridge] node_modules symlink failed (non-fatal): ${err.message}`);
+      }
+    }
+
+    // Execute pre-actions on the linked session before spawning the script
+    if (Array.isArray(preActions) && preActions.length > 0 && launchSessionId) {
+      const session = getSession(launchSessionId);
+      if (!session) throw new Error(`Pre-actions: session not found: ${launchSessionId}`);
+      for (let i = 0; i < preActions.length; i++) {
+        const action = preActions[i];
+        try {
+          const { command, cmdArgs } = actionToCommandArgs(action);
+          console.log(`[Bridge] Pre-action ${i + 1}/${preActions.length}: ${command} ${cmdArgs.join(' ')}`);
+          await session.sendCommand(command, cmdArgs);
+        } catch (err) {
+          throw new Error(`Pre-action failed (${action.command}): ${err.message}`);
+        }
+      }
+    }
+
+    console.log(`[Bridge] Launching script: node ${nodeArgs.join(' ')}${useV8Debug ? ' [V8 DEBUG]' : ''}${launchCwd ? ` [cwd: ${launchCwd}]` : ''}`);
+    const child = spawn('node', nodeArgs, {
+      detached: false,
+      stdio: 'pipe',
+      env: launchEnv,
+      ...(launchCwd && { cwd: launchCwd }),
+    });
+    const launchId = `launch_${Date.now()}`;
+
+    if (Array.isArray(preBreakpoints) && preBreakpoints.length > 0 && child.pid) {
+      pendingBreakpoints.set(child.pid, preBreakpoints);
+      console.log(`[Bridge] Pre-breakpoints queued for PID ${child.pid}: ${preBreakpoints.join(', ')}`);
+    }
+    if (launchSessionId && child.pid) {
+      pendingSessionLinks.set(child.pid, launchSessionId);
+    }
+    if (Array.isArray(postActions) && postActions.length > 0 && launchSessionId && child.pid) {
+      pendingPostActions.set(child.pid, { sessionId: launchSessionId, actions: postActions });
+    }
+
+    child.stdout.on('data', d => console.log(`[Script:${launchId}] ${d.toString().trim()}`));
+
+    if (useV8Debug) {
+      let inspectorConnected = false;
+      child.stderr.on('data', async (d) => {
+        const text = d.toString().trim();
+        console.error(`[Script:${launchId}] ERR: ${text}`);
+        if (inspectorConnected) return;
+        const inspectorUrl = parseInspectorUrl(text);
+        if (!inspectorUrl) return;
+        inspectorConnected = true;
+        console.log(`[Bridge] V8 Inspector URL: ${inspectorUrl}`);
+        try {
+          const inspector = new InspectorClient(inspectorUrl);
+          await inspector.connect();
+          await inspector.enable();
+          pendingInspectors.set(child.pid, inspector);
+          if (Array.isArray(lineBreakpoints)) {
+            const fileUrl = `file://${scriptPath}`;
+            for (const line of lineBreakpoints) {
+              try {
+                const bp = await inspector.setBreakpoint(fileUrl, line);
+                console.log(`[Bridge] V8 breakpoint set: line ${bp.actualLine} (requested ${line})`);
+              } catch (err) {
+                console.warn(`[Bridge] V8 breakpoint failed at line ${line}: ${err.message}`);
+              }
+            }
+          }
+          let firstPauseHandled = false;
+          inspector.onPaused(async (data) => {
+            console.log(`[Bridge] V8 paused: ${data.file}:${data.line} (${data.reason})`);
+            if (!firstPauseHandled) {
+              firstPauseHandled = true;
+              if (data.reason === 'Break on start' || (!data.file && data.line === 1)) {
+                console.log(`[Bridge] Auto-resuming past ESM entry pause`);
+                try { await inspector.resume(); } catch {}
+                return;
+              }
+            }
+            const scriptId = findScriptIdByPid(child.pid);
+            broadcast(buildMessage(MSG.BRIDGE_DBG_PAUSED, {
+              scriptId, pid: child.pid,
+              line: data.line, file: data.file, column: data.column,
+              reason: data.reason, callFrames: data.callFrames,
+            }));
+          });
+          inspector.onResumed(() => {
+            const scriptId = findScriptIdByPid(child.pid);
+            broadcast(buildMessage(MSG.BRIDGE_DBG_RESUMED, { scriptId, pid: child.pid }));
+          });
+          try {
+            await inspector.runIfWaitingForDebugger();
+            console.log(`[Bridge] V8 Inspector attached, initial breakpoints set, script running`);
+          } catch (resumeErr) {
+            console.warn(`[Bridge] V8 initial runIfWaitingForDebugger failed: ${resumeErr.message}`);
+          }
+        } catch (err) {
+          console.error(`[Bridge] V8 Inspector connect failed: ${err.message}`);
+        }
+      });
+    } else {
+      child.stderr.on('data', d => console.error(`[Script:${launchId}] ERR: ${d.toString().trim()}`));
+    }
+
+    child.on('error', err => {
+      console.error(`[Bridge] Script launch error: ${err.message}`);
+      broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+        scriptId: launchId, name: scriptPath, state: 'error',
+        label: err.message, step: 0, total: 0, errors: 1,
+      }));
+    });
+    child.on('exit', (code) => {
+      console.log(`[Bridge] Script exited: ${scriptPath} (code ${code})`);
+      if (pendingInspectors.has(child.pid)) {
+        pendingInspectors.get(child.pid).disconnect();
+        pendingInspectors.delete(child.pid);
+      }
+      for (const [, script] of scripts) {
+        if (script.pid === child.pid && script.inspector) {
+          script.inspector.disconnect();
+          script.inspector = null;
+        }
+      }
+    });
+
+    return { success: true, launchId, pid: child.pid, v8Debug: useV8Debug };
   }
 
   /**
@@ -422,6 +770,27 @@ function startServer() {
           sendTo(ws, buildError('Session not found', msg.id));
           return;
         }
+
+        // Cancel any active scripts linked to this session
+        for (const [scriptId, s] of scripts) {
+          if (s.sessionId === session.id && ['registered', 'running', 'paused', 'checkpoint'].includes(s.state)) {
+            s.state = 'cancelled';
+            if (s.ws && s.ws.readyState === WebSocket.OPEN) {
+              sendTo(s.ws, buildMessage(MSG.BRIDGE_SCRIPT_CANCEL, { scriptId, reason: 'Session destroyed' }));
+            }
+            broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
+              scriptId, name: s.name, state: 'cancelled',
+              step: s.step, total: s.totalSteps,
+              label: 'Session destroyed', errors: s.errors,
+              checkpoints: s.checkpoints,
+              activeBreakpoints: Array.from(s.breakpoints),
+              activity: '',
+              sessionId: s.sessionId,
+            }));
+            console.log(`[Bridge] Cancelled script "${s.name}" (linked to destroyed session "${session.name}")`);
+          }
+        }
+
         await session.destroy();
         sessions.delete(session.id);
         sendTo(ws, buildReply(msg, { success: true }));
@@ -656,12 +1025,20 @@ function startServer() {
           return;
         }
         const scriptId = `script_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        // Resolve session link from pending map (set at launch time)
+        let sessionId = null;
+        if (pid && pendingSessionLinks.has(pid)) {
+          sessionId = pendingSessionLinks.get(pid);
+          pendingSessionLinks.delete(pid);
+          console.log(`[Bridge] Script linked to session: ${name} → ${sessionId}`);
+        }
         scripts.set(scriptId, {
           ws, name, totalSteps: totalSteps || 0,
           step: 0, label: '', errors: 0, activity: '',
           state: 'registered', metadata: metadata || {},
           startedAt: Date.now(),
           pid: pid || null,
+          sessionId,                          // linked session (null if standalone)
           checkpoints: checkpoints || [],     // available checkpoint names (for UI display)
           breakpoints: new Set(),             // active breakpoints (user-toggled)
           stepOnce: false,                    // true = pause at next checkpoint (Step button)
@@ -670,8 +1047,13 @@ function startServer() {
           pages: new Map(),                   // pageId → { url, title } (from playwright-shim)
           inspector: null,                    // InspectorClient (V8 debugger)
         });
-        // Attach V8 inspector if one was pending for this PID
+        // Transfer post-actions from pending map
         const script = scripts.get(scriptId);
+        if (pid && pendingPostActions.has(pid)) {
+          script.postActions = pendingPostActions.get(pid);
+          pendingPostActions.delete(pid);
+        }
+        // Attach V8 inspector if one was pending for this PID
         if (pid && pendingInspectors.has(pid)) {
           script.inspector = pendingInspectors.get(pid);
           pendingInspectors.delete(pid);
@@ -695,6 +1077,7 @@ function startServer() {
           checkpoints: checkpoints || [],
           activeBreakpoints: Array.from(script.breakpoints),
           activity: '',
+          sessionId: script.sessionId || null,
         }));
         break;
       }
@@ -712,14 +1095,7 @@ function startServer() {
         script.errors = errors ?? script.errors;
         script.activity = activity ?? script.activity;
         script.state = 'running';
-        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
-          scriptId, name: script.name, state: 'running',
-          step: script.step, total: script.totalSteps,
-          label: script.label, errors: script.errors,
-          activity: script.activity,
-          checkpoints: script.checkpoints,
-          activeBreakpoints: Array.from(script.breakpoints),
-        }));
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script)));
         break;
       }
 
@@ -737,15 +1113,31 @@ function startServer() {
         script.duration = duration || (Date.now() - script.startedAt);
         console.log(`[Bridge] Script complete: ${script.name} (${script.duration}ms, ${script.errors} errors)`);
         sendTo(ws, buildReply(msg, { success: true, scriptId }));
-        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
-          scriptId, name: script.name, state: 'complete',
-          step: script.totalSteps, total: script.totalSteps,
-          label: 'Complete', errors: script.errors,
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script, {
+          step: script.totalSteps, label: 'Complete',
           results, duration: script.duration,
-          checkpoints: script.checkpoints,
           activeBreakpoints: [],
-          activity: '',
-        }));
+        })));
+
+        // Execute post-actions (errors logged but don't affect script result)
+        if (script.postActions) {
+          const { sessionId: paSessionId, actions } = script.postActions;
+          const paSession = getSession(paSessionId);
+          if (paSession) {
+            for (let i = 0; i < actions.length; i++) {
+              try {
+                const { command, cmdArgs } = actionToCommandArgs(actions[i]);
+                console.log(`[Bridge] Post-action ${i + 1}/${actions.length}: ${command} ${cmdArgs.join(' ')}`);
+                await paSession.sendCommand(command, cmdArgs);
+              } catch (err) {
+                console.warn(`[Bridge] Post-action failed (${actions[i].command}): ${err.message}`);
+              }
+            }
+          } else {
+            console.warn(`[Bridge] Post-actions skipped: session ${paSessionId} not found`);
+          }
+          script.postActions = null;
+        }
         break;
       }
 
@@ -763,14 +1155,7 @@ function startServer() {
           sendTo(script.ws, buildMessage(MSG.BRIDGE_SCRIPT_PAUSE, { scriptId, reason }));
         }
         sendTo(ws, buildReply(msg, { success: true, scriptId, state: 'paused' }));
-        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
-          scriptId, name: script.name, state: 'paused',
-          step: script.step, total: script.totalSteps,
-          label: script.label, errors: script.errors,
-          activity: script.activity,
-          checkpoints: script.checkpoints,
-          activeBreakpoints: Array.from(script.breakpoints),
-        }));
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script)));
         break;
       }
 
@@ -787,14 +1172,7 @@ function startServer() {
           sendTo(script.ws, buildMessage(MSG.BRIDGE_SCRIPT_RESUME, { scriptId }));
         }
         sendTo(ws, buildReply(msg, { success: true, scriptId, state: 'running' }));
-        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
-          scriptId, name: script.name, state: 'running',
-          step: script.step, total: script.totalSteps,
-          label: script.label, errors: script.errors,
-          activity: script.activity,
-          checkpoints: script.checkpoints,
-          activeBreakpoints: Array.from(script.breakpoints),
-        }));
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script)));
         break;
       }
 
@@ -825,12 +1203,9 @@ function startServer() {
           script.state = 'killed';
           script.pid = null;
           sendTo(ws, buildReply(msg, { success: true, scriptId, state: 'killed' }));
-          broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
-            scriptId, name: script.name, state: 'killed',
-            step: script.step, total: script.totalSteps,
-            label: 'Force killed', errors: script.errors,
-            checkpoints: script.checkpoints, activeBreakpoints: [], activity: '',
-          }));
+          broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script, {
+            label: 'Force killed', activeBreakpoints: [],
+          })));
           return;
         }
 
@@ -841,14 +1216,9 @@ function startServer() {
           sendTo(script.ws, buildMessage(MSG.BRIDGE_SCRIPT_CANCEL, { scriptId, reason }));
         }
         sendTo(ws, buildReply(msg, { success: true, scriptId, state: 'cancelled' }));
-        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
-          scriptId, name: script.name, state: 'cancelled',
-          step: script.step, total: script.totalSteps,
-          label: `Cancelled: ${reason || ''}`, errors: script.errors,
-          checkpoints: script.checkpoints,
-          activeBreakpoints: Array.from(script.breakpoints),
-          activity: '',
-        }));
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script, {
+          label: `Cancelled: ${reason || ''}`,
+        })));
         break;
       }
 
@@ -868,6 +1238,8 @@ function startServer() {
               name: s.currentCheckpoint.name,
               context: s.currentCheckpoint.context,
             } : null,
+            sessionId: s.sessionId || null,
+            poll: s.poll || null,
           });
         }
         sendTo(ws, buildReply(msg, { success: true, scripts: scriptList }));
@@ -941,15 +1313,9 @@ function startServer() {
         script.currentCheckpoint = { name, context, timestamp: Date.now() };
         console.log(`[Bridge] Script paused at checkpoint "${name}": ${script.name}`);
 
-        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
-          scriptId, name: script.name, state: 'checkpoint',
-          step: script.step, total: script.totalSteps,
-          label: script.label, errors: script.errors,
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script, {
           checkpoint: { name, context },
-          checkpoints: script.checkpoints,
-          activeBreakpoints: Array.from(script.breakpoints),
-          activity: script.activity,
-        }));
+        })));
 
         // Block until user clicks Step/Continue or script is cancelled
         await new Promise((resolve) => { script.pendingStep = resolve; });
@@ -963,14 +1329,7 @@ function startServer() {
         script.state = 'running';
         script.currentCheckpoint = null;
 
-        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
-          scriptId, name: script.name, state: 'running',
-          step: script.step, total: script.totalSteps,
-          label: script.label, errors: script.errors,
-          checkpoints: script.checkpoints,
-          activeBreakpoints: Array.from(script.breakpoints),
-          activity: script.activity,
-        }));
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script)));
 
         sendTo(ws, buildReply(msg, { proceed: true, name }));
         break;
@@ -1019,163 +1378,27 @@ function startServer() {
           success: true, scriptId, name, active,
           activeBreakpoints: Array.from(script.breakpoints),
         }));
-        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
-          scriptId, name: script.name, state: script.state,
-          step: script.step, total: script.totalSteps,
-          label: script.label, errors: script.errors,
-          checkpoints: script.checkpoints,
-          activeBreakpoints: Array.from(script.breakpoints),
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script, {
           checkpoint: script.currentCheckpoint ? {
             name: script.currentCheckpoint.name,
             context: script.currentCheckpoint.context,
           } : null,
-          activity: script.activity,
-        }));
+        })));
         break;
       }
 
       case MSG.BRIDGE_SCRIPT_LAUNCH: {
-        const { path: scriptPath, args: scriptArgs = [], breakpoints: preBreakpoints, lineBreakpoints, debug } = msg.payload || {};
-        if (!scriptPath) {
+        const payload = msg.payload || {};
+        if (!payload.path) {
           sendTo(ws, buildError('Script path required', msg.id));
           break;
         }
-
-        // V8 debug mode: launch with --inspect-brk when lineBreakpoints or debug flag is set
-        const useV8Debug = debug || (Array.isArray(lineBreakpoints) && lineBreakpoints.length > 0);
-        const nodeArgs = useV8Debug ? ['--inspect-brk=0', scriptPath, ...scriptArgs] : [scriptPath, ...scriptArgs];
-
-        // Check for saved auth state and inject as env var
-        const launchEnv = { ...process.env };
         try {
-          const scriptBaseName = scriptPath.split('/').pop().replace(/\.(mjs|js)$/, '');
-          const authFilePath = pathResolve(AUTH_DIR, `${scriptBaseName}.json`);
-          await stat(authFilePath);
-          launchEnv.PLAYWRIGHT_AUTH_STATE = authFilePath;
-          console.log(`[Bridge] Auth state found: ${authFilePath}`);
-        } catch { /* no auth file — that's fine */ }
-
-        console.log(`[Bridge] Launching script: node ${nodeArgs.join(' ')}${useV8Debug ? ' [V8 DEBUG]' : ''}`);
-        const child = spawn('node', nodeArgs, {
-          detached: false,
-          stdio: 'pipe',
-          env: launchEnv,
-        });
-        const launchId = `launch_${Date.now()}`;
-
-        // Store checkpoint-level pre-breakpoints (existing system)
-        if (Array.isArray(preBreakpoints) && preBreakpoints.length > 0 && child.pid) {
-          pendingBreakpoints.set(child.pid, preBreakpoints);
-          console.log(`[Bridge] Pre-breakpoints queued for PID ${child.pid}: ${preBreakpoints.join(', ')}`);
+          const result = await launchScriptInternal(payload);
+          sendTo(ws, buildReply(msg, result));
+        } catch (err) {
+          sendTo(ws, buildError(err.message, msg.id));
         }
-
-        sendTo(ws, buildReply(msg, { success: true, launchId, pid: child.pid, v8Debug: useV8Debug }));
-        child.stdout.on('data', d => console.log(`[Script:${launchId}] ${d.toString().trim()}`));
-
-        // V8 Inspector: parse debugger URL from stderr and connect
-        if (useV8Debug) {
-          let inspectorConnected = false;
-          child.stderr.on('data', async (d) => {
-            const text = d.toString().trim();
-            console.error(`[Script:${launchId}] ERR: ${text}`);
-
-            if (inspectorConnected) return;
-            const inspectorUrl = parseInspectorUrl(text);
-            if (!inspectorUrl) return;
-
-            inspectorConnected = true;
-            console.log(`[Bridge] V8 Inspector URL: ${inspectorUrl}`);
-
-            try {
-              const inspector = new InspectorClient(inspectorUrl);
-              await inspector.connect();
-              await inspector.enable();
-
-              // Store inspector keyed by PID (script hasn't registered yet, so no scriptId)
-              pendingInspectors.set(child.pid, inspector);
-
-              // Set initial line breakpoints
-              if (Array.isArray(lineBreakpoints)) {
-                const fileUrl = `file://${scriptPath}`;
-                for (const line of lineBreakpoints) {
-                  try {
-                    const bp = await inspector.setBreakpoint(fileUrl, line);
-                    console.log(`[Bridge] V8 breakpoint set: line ${bp.actualLine} (requested ${line})`);
-                  } catch (err) {
-                    console.warn(`[Bridge] V8 breakpoint failed at line ${line}: ${err.message}`);
-                  }
-                }
-              }
-
-              let firstPauseHandled = false;
-              // Wire paused/resumed events
-              inspector.onPaused(async (data) => {
-                console.log(`[Bridge] V8 paused: ${data.file}:${data.line} (${data.reason})`);
-                // ESM modules cause a "Break on start" pause after runIfWaitingForDebugger().
-                // Auto-resume only the FIRST pause (the module entry pause at line 1).
-                if (!firstPauseHandled) {
-                  firstPauseHandled = true;
-                  if (data.reason === 'Break on start' || (!data.file && data.line === 1)) {
-                    console.log(`[Bridge] Auto-resuming past ESM entry pause`);
-                    try { await inspector.resume(); } catch {}
-                    return;
-                  }
-                }
-                const scriptId = findScriptIdByPid(child.pid);
-                broadcast(buildMessage(MSG.BRIDGE_DBG_PAUSED, {
-                  scriptId,
-                  pid: child.pid,
-                  line: data.line,
-                  file: data.file,
-                  column: data.column,
-                  reason: data.reason,
-                  callFrames: data.callFrames,
-                }));
-              });
-
-              inspector.onResumed(() => {
-                const scriptId = findScriptIdByPid(child.pid);
-                broadcast(buildMessage(MSG.BRIDGE_DBG_RESUMED, { scriptId, pid: child.pid }));
-              });
-
-              // Unblock the --inspect-brk initial pause (Runtime-level, not Debugger-level)
-              try {
-                await inspector.runIfWaitingForDebugger();
-                console.log(`[Bridge] V8 Inspector attached, initial breakpoints set, script running`);
-              } catch (resumeErr) {
-                console.warn(`[Bridge] V8 initial runIfWaitingForDebugger failed: ${resumeErr.message}`);
-              }
-
-            } catch (err) {
-              console.error(`[Bridge] V8 Inspector connect failed: ${err.message}`);
-            }
-          });
-        } else {
-          child.stderr.on('data', d => console.error(`[Script:${launchId}] ERR: ${d.toString().trim()}`));
-        }
-
-        child.on('error', err => {
-          console.error(`[Bridge] Script launch error: ${err.message}`);
-          broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
-            scriptId: launchId, name: scriptPath, state: 'error',
-            label: err.message, step: 0, total: 0, errors: 1,
-          }));
-        });
-        child.on('exit', (code) => {
-          console.log(`[Bridge] Script exited: ${scriptPath} (code ${code})`);
-          // Clean up inspector
-          if (pendingInspectors.has(child.pid)) {
-            pendingInspectors.get(child.pid).disconnect();
-            pendingInspectors.delete(child.pid);
-          }
-          // Also check script-keyed inspectors
-          for (const [scriptId, script] of scripts) {
-            if (script.pid === child.pid && script.inspector) {
-              script.inspector.disconnect();
-              script.inspector = null;
-            }
-          }
-        });
         break;
       }
 
@@ -1226,15 +1449,9 @@ function startServer() {
         }
         sendTo(ws, buildReply(msg, { success: true }));
         // Broadcast updated checkpoint list so UIs show the new toggle immediately
-        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
-          scriptId, name: script.name, state: script.state,
-          step: script.step, total: script.totalSteps,
-          label: script.label, errors: script.errors,
-          checkpoints: script.checkpoints,
-          activeBreakpoints: Array.from(script.breakpoints),
-          activity: script.activity,
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script, {
           pages: Object.fromEntries(script.pages),
-        }));
+        })));
         break;
       }
 
@@ -1244,15 +1461,20 @@ function startServer() {
         if (!script) return; // fire-and-forget, no error reply needed
         script.pages.set(pageId, { url: url || '', title: title || '' });
         // Broadcast so UIs can label the intercept toggles with the current URL
-        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, {
-          scriptId, name: script.name, state: script.state,
-          step: script.step, total: script.totalSteps,
-          label: script.label, errors: script.errors,
-          checkpoints: script.checkpoints,
-          activeBreakpoints: Array.from(script.breakpoints),
-          activity: script.activity,
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script, {
           pages: Object.fromEntries(script.pages),
-        }));
+        })));
+        break;
+      }
+
+      // ---- Poll state (fire-and-forget, like PAGE_STATUS) ----
+
+      case MSG.BRIDGE_SCRIPT_POLL_STATE: {
+        const { scriptId, ...pollData } = msg.payload || {};
+        const script = scripts.get(scriptId);
+        if (!script) return;
+        script.poll = pollData;
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script)));
         break;
       }
 
@@ -1391,12 +1613,26 @@ function startServer() {
           break;
         }
         try {
+          // Save by script name (backward compat)
           const authFilePath = pathResolve(AUTH_DIR, `${scriptName}.json`);
           await session.sendCommand('state-save', [authFilePath]);
           console.log(`[Bridge] Auth state saved: ${authFilePath}`);
+
+          // Also save by domain name so any script accessing this domain gets auth
+          let domainPath = null;
+          try {
+            const currentUrl = session.currentUrl;
+            if (currentUrl && currentUrl.startsWith('http')) {
+              const domain = new URL(currentUrl).hostname;
+              domainPath = pathResolve(AUTH_DIR, `${domain}.json`);
+              await session.sendCommand('state-save', [domainPath]);
+              console.log(`[Bridge] Auth state saved by domain: ${domainPath}`);
+            }
+          } catch {}
+
           await session.destroy();
           sessions.delete(sessionId);
-          sendTo(ws, buildReply(msg, { success: true, path: authFilePath }));
+          sendTo(ws, buildReply(msg, { success: true, path: authFilePath, domainPath }));
         } catch (err) {
           sendTo(ws, buildError(`Auth save failed: ${err.message}`, msg.id));
         }
@@ -1447,6 +1683,95 @@ function startServer() {
         } catch (err) {
           sendTo(ws, buildError(`Kill failed: ${err.message}`, msg.id));
         }
+        break;
+      }
+
+      // ---- Scheduling ----
+
+      case MSG.BRIDGE_SCHEDULE_CREATE: {
+        const { name, scriptPath, scriptName, args = [], sessionId = null, intervalMs, runOnStartup = false, maxConcurrent = 1, runNow = false, originalPath = null } = msg.payload || {};
+        if (!scriptPath || !intervalMs) {
+          sendTo(ws, buildError('scriptPath and intervalMs required', msg.id));
+          break;
+        }
+        const id = `sched_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const schedule = {
+          id, name: name || scriptName || scriptPath.split('/').pop(),
+          scriptPath, scriptName: scriptName || null,
+          originalPath,
+          args, sessionId, intervalMs, enabled: true,
+          runOnStartup, maxConcurrent,
+          createdAt: Date.now(), lastRunAt: null, lastRunScriptId: null,
+          nextRunAt: Date.now() + intervalMs,
+          runCount: 0, history: [],
+        };
+        schedules.set(id, schedule);
+        startScheduleTimer(id);
+        await saveSchedules();
+        sendTo(ws, buildReply(msg, { success: true, schedule }));
+        broadcast(buildMessage(MSG.BRIDGE_SCHEDULE_UPDATE, { schedule }));
+        if (runNow) triggerSchedule(id);
+        break;
+      }
+
+      case MSG.BRIDGE_SCHEDULE_UPDATE: {
+        const { scheduleId, ...updates } = msg.payload || {};
+        const sched = schedules.get(scheduleId);
+        if (!sched) {
+          sendTo(ws, buildError(`Schedule not found: ${scheduleId}`, msg.id));
+          break;
+        }
+        // Apply allowed updates
+        for (const key of ['name', 'intervalMs', 'args', 'sessionId', 'maxConcurrent', 'runOnStartup']) {
+          if (updates[key] !== undefined) sched[key] = updates[key];
+        }
+        if (updates.enabled !== undefined) {
+          sched.enabled = updates.enabled;
+          if (sched.enabled) {
+            startScheduleTimer(scheduleId);
+          } else {
+            stopScheduleTimer(scheduleId);
+          }
+        }
+        if (updates.intervalMs !== undefined && sched.enabled) {
+          // Restart timer with new interval
+          startScheduleTimer(scheduleId);
+        }
+        await saveSchedules();
+        sendTo(ws, buildReply(msg, { success: true, schedule: sched }));
+        broadcast(buildMessage(MSG.BRIDGE_SCHEDULE_UPDATE, { schedule: sched }));
+        break;
+      }
+
+      case MSG.BRIDGE_SCHEDULE_DELETE: {
+        const { scheduleId } = msg.payload || {};
+        const sched = schedules.get(scheduleId);
+        if (!sched) {
+          sendTo(ws, buildError(`Schedule not found: ${scheduleId}`, msg.id));
+          break;
+        }
+        stopScheduleTimer(scheduleId);
+        schedules.delete(scheduleId);
+        await saveSchedules();
+        sendTo(ws, buildReply(msg, { success: true, scheduleId }));
+        broadcast(buildMessage('BRIDGE_SCHEDULE_DELETED', { scheduleId }));
+        break;
+      }
+
+      case MSG.BRIDGE_SCHEDULE_LIST: {
+        sendTo(ws, buildReply(msg, { success: true, schedules: [...schedules.values()] }));
+        break;
+      }
+
+      case MSG.BRIDGE_SCHEDULE_TRIGGER: {
+        const { scheduleId } = msg.payload || {};
+        const sched = schedules.get(scheduleId);
+        if (!sched) {
+          sendTo(ws, buildError(`Schedule not found: ${scheduleId}`, msg.id));
+          break;
+        }
+        sendTo(ws, buildReply(msg, { success: true, scheduleId }));
+        triggerSchedule(scheduleId);
         break;
       }
 
@@ -1510,6 +1835,9 @@ function startServer() {
    */
   async function shutdown() {
     console.log('[Bridge] Shutting down...');
+
+    // Stop all schedule timers
+    for (const [id] of scheduleTimers) stopScheduleTimer(id);
 
     // Stop file watcher
     if (fileWatcher) {

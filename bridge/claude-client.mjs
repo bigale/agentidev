@@ -341,6 +341,11 @@ const CLI_COMMANDS = {
   'script:step':        (p) => _sendRequest(MSG.BRIDGE_SCRIPT_STEP, p),
   'script:breakpoint':  (p) => _sendRequest(MSG.BRIDGE_SCRIPT_SET_BREAKPOINT, p),
   'script:save':        (p) => _sendRequest(MSG.BRIDGE_SCRIPT_SAVE, p),
+  'schedule:list':      () => _sendRequest(MSG.BRIDGE_SCHEDULE_LIST, {}),
+  'schedule:create':    (p) => _sendRequest(MSG.BRIDGE_SCHEDULE_CREATE, p),
+  'schedule:update':    (p) => _sendRequest(MSG.BRIDGE_SCHEDULE_UPDATE, p),
+  'schedule:delete':    (p) => _sendRequest(MSG.BRIDGE_SCHEDULE_DELETE, p),
+  'schedule:trigger':   (p) => _sendRequest(MSG.BRIDGE_SCHEDULE_TRIGGER, p),
 };
 
 async function runCLI() {

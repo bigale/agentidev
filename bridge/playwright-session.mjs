@@ -5,15 +5,20 @@
  * Each command spawns `playwright-cli -s=<name> <command> [args]`,
  * captures stdout, and returns when the process exits.
  * Commands are queued and serialized per session.
+ *
+ * After spawn(), reads the daemon's .session file to extract the
+ * auto-assigned cdpPort, exposing it as cdpEndpoint for script linking.
  */
 
 import { execFile } from 'child_process';
-import { readFile } from 'fs/promises';
+import { readFile, readdir } from 'fs/promises';
 import { resolve as pathResolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { homedir } from 'os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const AUTOMATION_CONFIG = pathResolve(__dirname, 'playwright-automation.config.json');
+const DAEMON_BASE = pathResolve(homedir(), '.cache', 'ms-playwright', 'daemon');
 
 // Session states
 export const SESSION_STATE = {
@@ -41,6 +46,7 @@ export class PlaywrightSession {
     this.currentUrl = null;
     this.lastSnapshot = null;
     this.lastError = null;
+    this._cdpEndpoint = null; // http://localhost:<cdpPort> for script connections
 
     // Command queue for serialization
     this._commandQueue = [];
@@ -123,11 +129,44 @@ export class PlaywrightSession {
       this._setState(SESSION_STATE.READY);
       console.log(`[Session ${this.name}] Opened (id: ${this.id})`);
       console.log(`[Session ${this.name}] ${result}`);
+
+      // Extract cdpPort from daemon session file for script linking
+      await this._resolveCdpEndpoint();
+
       return true;
     } catch (err) {
       this.lastError = err.message;
       this._setState(SESSION_STATE.ERROR, { error: err.message });
       throw err;
+    }
+  }
+
+  /**
+   * Read the playwright-cli daemon's .session file to extract the cdpPort.
+   * The daemon auto-assigns a --remote-debugging-port for every Chromium session
+   * and stores it in: ~/.cache/ms-playwright/daemon/<hash>/<name>.session
+   */
+  async _resolveCdpEndpoint() {
+    try {
+      const hashDirs = await readdir(DAEMON_BASE).catch(() => []);
+      for (const hash of hashDirs) {
+        const sessionFile = pathResolve(DAEMON_BASE, hash, `${this.name}.session`);
+        try {
+          const raw = await readFile(sessionFile, 'utf-8');
+          const data = JSON.parse(raw);
+          const cdpPort = data?.resolvedConfig?.browser?.launchOptions?.cdpPort;
+          if (cdpPort) {
+            this._cdpEndpoint = `http://localhost:${cdpPort}`;
+            console.log(`[Session ${this.name}] CDP endpoint: ${this._cdpEndpoint}`);
+            return;
+          }
+        } catch {
+          // Not in this hash dir, try next
+        }
+      }
+      console.warn(`[Session ${this.name}] Could not find cdpPort in daemon session files`);
+    } catch (err) {
+      console.warn(`[Session ${this.name}] Failed to resolve CDP endpoint: ${err.message}`);
     }
   }
 
@@ -294,6 +333,7 @@ export class PlaywrightSession {
     } else {
       console.log(`[Session ${this.name}] Already dead, cleaning up`);
     }
+    this._cdpEndpoint = null;
     this._setState(SESSION_STATE.DESTROYED);
     this._commandQueue = [];
   }
@@ -311,6 +351,7 @@ export class PlaywrightSession {
       hasSnapshot: !!this.lastSnapshot,
       snapshotLines: this.lastSnapshot ? this.lastSnapshot.split('\n').length : 0,
       lastError: this.lastError,
+      cdpEndpoint: this._cdpEndpoint,
     };
   }
 }
