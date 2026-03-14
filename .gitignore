@@ -35,3 +35,13 @@ coverage/
 # Temporary files
 tmp/
 temp/
+
+# Playwright CLI config
+.playwright-cli/
+
+# AI toolkit
+.aikit/
+
+# Screenshots & data files
+Capture.PNG
+twinspires-races.txt
