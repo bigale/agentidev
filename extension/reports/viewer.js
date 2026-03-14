@@ -15,11 +15,21 @@ const errorEl = document.getElementById('viewer-error');
 let currentContent = null;
 let pollTimer = null;
 
-// Strip reload patterns that would blank an srcdoc iframe
-function stripReload(html) {
-  return html
+// Script injected into srcdoc to fix anchor links (sandbox blocks normal # navigation)
+const ANCHOR_FIX = `<script>document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var id=a.getAttribute('href').slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});});window.addEventListener('message',function(e){if(e.data&&e.data.type==='scroll-to'){var el=document.getElementById(e.data.id)||document.querySelector('[name="'+e.data.id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});}});<\/script>`;
+
+// Strip reload patterns that would blank an srcdoc iframe, inject anchor fix
+function cleanHtml(html) {
+  let cleaned = html
     .replace(/setTimeout\s*\([^)]*location\.reload[^)]*\)\s*;?/g, '/* reload stripped */')
     .replace(/location\.reload\s*\([^)]*\)\s*;?/g, '/* reload stripped */');
+  // Inject anchor fix before </body> or at end
+  if (cleaned.includes('</body>')) {
+    cleaned = cleaned.replace('</body>', ANCHOR_FIX + '</body>');
+  } else {
+    cleaned += ANCHOR_FIX;
+  }
+  return cleaned;
 }
 
 function showError(msg) {
@@ -49,7 +59,7 @@ async function loadReport() {
       return;
     }
 
-    const html = stripReload(response.source);
+    const html = cleanHtml(response.source);
 
     // Only update iframe if content actually changed
     if (html !== currentContent) {
@@ -57,6 +67,13 @@ async function loadReport() {
       frame.srcdoc = html;
       frame.style.display = 'block';
       errorEl.style.display = 'none';
+      // Scroll to fragment from parent URL after iframe loads
+      const hash = location.hash.slice(1);
+      if (hash) {
+        frame.addEventListener('load', () => {
+          frame.contentWindow.postMessage({ type: 'scroll-to', id: hash }, '*');
+        }, { once: true });
+      }
     }
     updateTimestamp();
   } catch (err) {
