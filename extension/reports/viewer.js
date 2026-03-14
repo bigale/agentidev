@@ -16,7 +16,8 @@ let currentContent = null;
 let pollTimer = null;
 
 // Script injected into srcdoc to fix anchor links (sandbox blocks normal # navigation)
-const ANCHOR_FIX = `<script>document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var id=a.getAttribute('href').slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});});window.addEventListener('message',function(e){if(e.data&&e.data.type==='scroll-to'){var el=document.getElementById(e.data.id)||document.querySelector('[name="'+e.data.id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});}});<\/script>`;
+// Rewrites all #anchor hrefs to use JS scrollIntoView via onclick, removing the href entirely
+const ANCHOR_FIX = `<script>(function(){document.querySelectorAll('a[href^="#"]').forEach(function(a){var id=a.getAttribute('href').slice(1);a.removeAttribute('href');a.style.cursor='pointer';a.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});});});window.addEventListener('message',function(e){if(e.data&&e.data.type==='scroll-to'){var el=document.getElementById(e.data.id)||document.querySelector('[name="'+e.data.id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});}});})();<\/script>`;
 
 // Strip reload patterns that would blank an srcdoc iframe, inject anchor fix
 function cleanHtml(html) {
