@@ -9,6 +9,8 @@ import { state } from '../init-state.js';
 
 // Command log: circular buffer for tracking all bridge commands
 const commandLog = [];
+
+export function getCommandLog() { return commandLog; }
 const MAX_LOG = 200;
 
 function logCommand(type, sessionId, request, source = 'extension') {
