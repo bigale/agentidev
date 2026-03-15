@@ -4,10 +4,39 @@
   <meta charset="UTF-8">
   <title>SmartClient — Contextual Recall</title>
   <style>
-    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; box-sizing: border-box; }
+    body { padding-top: 48px; }
+  #ai-prompt-bar {
+    position: fixed; top: 0; left: 0; right: 0; height: 44px; z-index: 999999;
+    background: #1e1e2e; border-bottom: 1px solid #444;
+    display: flex; align-items: center; padding: 0 12px; gap: 8px;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  #ai-prompt-bar input {
+    flex: 1; height: 28px; padding: 0 8px;
+    background: #2a2a3e; border: 1px solid #555; border-radius: 4px;
+    color: #e0e0e0; font-size: 13px; outline: none;
+  }
+  #ai-prompt-bar input:focus { border-color: #7c8aff; }
+  #ai-prompt-bar button {
+    height: 28px; padding: 0 14px;
+    background: #5865f2; border: none; border-radius: 4px;
+    color: #fff; font-size: 13px; cursor: pointer; white-space: nowrap;
+  }
+  #ai-prompt-bar button:hover { background: #4752c4; }
+  #ai-prompt-bar button:disabled { opacity: 0.5; cursor: default; }
+  #ai-prompt-bar #ai-status {
+    color: #888; font-size: 12px; white-space: nowrap; min-width: 60px;
+  }
   </style>
 </head>
 <body>
+
+<div id="ai-prompt-bar">
+  <input id="ai-prompt" type="text" placeholder="Describe a UI... e.g. Todo list with title, status, and due date" />
+  <button id="ai-generate">Generate</button>
+  <span id="ai-status"></span>
+</div>
 
 <!-- Sandbox shims: cookie/localStorage/sessionStorage blocked without allow-same-origin -->
 <script>
@@ -53,6 +82,9 @@
 
 <!-- Obsidian skin -->
 <script src="../smartclient/skins/Obsidian/load_skin.js"></script>
+
+<!-- AI renderer (before app.js so functions are available) -->
+<script src="renderer.js"></script>
 
 <!-- App logic -->
 <script src="app.js"></script>

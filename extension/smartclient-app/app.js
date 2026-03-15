@@ -2,6 +2,9 @@
  * SmartClient POC — Notes CRUD with IndexedDB via extension proxy.
  * Runs inside sandbox (eval allowed, no chrome.* APIs).
  * Communicates with wrapper.html via postMessage.
+ *
+ * AI integration: prompt bar sends descriptions to Gemini Nano,
+ * renderer.js creates SmartClient components from JSON configs.
  */
 
 // Pending DS requests awaiting response
@@ -25,20 +28,80 @@ function sendDSRequest(dsRequest) {
   });
 }
 
+function sendAIRequest(prompt) {
+  window.parent.postMessage({
+    source: 'smartclient-ai',
+    prompt: prompt,
+  }, '*');
+}
+
 window.addEventListener('message', (event) => {
   const msg = event.data;
-  if (msg && msg.source === 'smartclient-ds-response' && pendingRequests[msg.id]) {
+  if (!msg) return;
+
+  // DS response
+  if (msg.source === 'smartclient-ds-response' && pendingRequests[msg.id]) {
     pendingRequests[msg.id](msg);
     delete pendingRequests[msg.id];
+    return;
+  }
+
+  // AI response
+  if (msg.source === 'smartclient-ai-response') {
+    handleAIResponse(msg);
   }
 });
 
-// ---- Wait for SmartClient framework ----
+// ---- AI response handling ----
 
-isc.Page.setEvent('load', function () {
+function handleAIResponse(msg) {
+  var btn = document.getElementById('ai-generate');
+  if (btn) btn.disabled = false;
 
-  // ---- DataSource ----
+  if (msg.success && msg.config) {
+    setStatus('Rendering...');
+    try {
+      clearNotesApp();
+      renderConfig(msg.config);
+      setStatus('Done');
+      setTimeout(function () { setStatus(''); }, 2000);
+    } catch (err) {
+      setStatus('Render error: ' + err.message);
+      console.error('[App] Render error:', err);
+    }
+  } else {
+    setStatus('Error: ' + (msg.error || 'Unknown error'));
+    console.error('[App] AI error:', msg.error);
+  }
+}
 
+function setStatus(text) {
+  var el = document.getElementById('ai-status');
+  if (el) el.textContent = text;
+}
+
+// Track Notes app components for cleanup when AI generates new UI
+var notesAppComponents = [];
+
+function clearNotesApp() {
+  for (var i = notesAppComponents.length - 1; i >= 0; i--) {
+    try {
+      if (notesAppComponents[i] && notesAppComponents[i].destroy) {
+        notesAppComponents[i].destroy();
+      }
+    } catch (e) { /* already destroyed by parent */ }
+  }
+  notesAppComponents = [];
+  // Also destroy the DataSource
+  try {
+    var ds = isc.DataSource.get('NotesDS');
+    if (ds) ds.destroy();
+  } catch (e) { /* ignore */ }
+}
+
+// ---- Default Notes app ----
+
+function loadNotesApp() {
   isc.DataSource.create({
     ID: 'NotesDS',
     dataProtocol: 'clientCustom',
@@ -49,17 +112,15 @@ isc.Page.setEvent('load', function () {
       { name: 'createdAt', type: 'datetime', title: 'Created', canEdit: false },
     ],
     transformRequest: function (dsRequest) {
-      sendDSRequest(dsRequest).then((resp) => {
+      sendDSRequest(dsRequest).then(function (resp) {
         this.processResponse(dsRequest.requestId, {
           status: resp.status || 0,
           data: resp.data,
           totalRows: resp.totalRows,
         });
-      });
+      }.bind(this));
     },
   });
-
-  // ---- UI Components ----
 
   isc.ListGrid.create({
     ID: 'notesGrid',
@@ -129,7 +190,7 @@ isc.Page.setEvent('load', function () {
     ],
   });
 
-  isc.VLayout.create({
+  var mainLayout = isc.VLayout.create({
     width: '100%',
     height: '100%',
     members: [notesGrid, notesForm, buttonBar],
@@ -137,4 +198,38 @@ isc.Page.setEvent('load', function () {
     layoutMargin: 12,
   });
 
+  notesAppComponents.push(mainLayout);
+}
+
+// ---- Prompt bar event handlers ----
+
+function initPromptBar() {
+  var input = document.getElementById('ai-prompt');
+  var btn = document.getElementById('ai-generate');
+
+  if (!input || !btn) return;
+
+  btn.addEventListener('click', function () {
+    var prompt = input.value.trim();
+    if (!prompt) return;
+    btn.disabled = true;
+    setStatus('Generating...');
+    sendAIRequest(prompt);
+  });
+
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      btn.click();
+    }
+  });
+}
+
+// ---- Wait for SmartClient framework ----
+
+isc.Page.setEvent('load', function () {
+  // Load default Notes app
+  loadNotesApp();
+
+  // Bind prompt bar
+  initPromptBar();
 });
