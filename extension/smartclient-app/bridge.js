@@ -136,6 +136,30 @@ function escapeHtml(str) {
   return el.innerHTML;
 }
 
+// --- Broadcast → DataSource invalidation ---
+// Forward bridge broadcasts to the sandbox so grids auto-refresh.
+
+const BROADCAST_DS_MAP = {
+  AUTO_BROADCAST_SCRIPT: 'BridgeScripts',
+  AUTO_BROADCAST_STATUS: 'BridgeSessions',
+  AUTO_BROADCAST_SCHEDULE: 'BridgeSchedules',
+  AUTO_COMMAND_UPDATE: 'BridgeCommands',
+};
+
+chrome.runtime.onMessage.addListener((message) => {
+  const dsId = BROADCAST_DS_MAP[message.type];
+  if (dsId) {
+    try {
+      iframe.contentWindow.postMessage({
+        source: 'smartclient-ds-update',
+        dataSource: dsId,
+      }, '*');
+    } catch (e) {
+      // iframe may not be loaded yet — safe to ignore
+    }
+  }
+});
+
 // --- DataSource CRUD and AI message forwarding ---
 
 window.addEventListener('message', async (event) => {

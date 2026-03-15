@@ -173,6 +173,26 @@ function clearGeneratedUI() {
   }
 }
 
+// ---- Real-time DS invalidation (SC-3) ----
+
+var _dsDebounceTimers = {};
+
+function invalidateDSCaches(dsId) {
+  if (_dsDebounceTimers[dsId]) return;           // already scheduled
+  _dsDebounceTimers[dsId] = setTimeout(function () {
+    delete _dsDebounceTimers[dsId];
+    var ds = isc.DataSource.get(dsId);
+    if (!ds) return;
+    for (var i = 0; i < generatedComponents.length; i++) {
+      var comp = generatedComponents[i];
+      if (comp && !comp.destroyed && comp.getDataSource
+          && comp.getDataSource() === ds && comp.invalidateCache) {
+        comp.invalidateCache();
+      }
+    }
+  }, 500);
+}
+
 // ---- Entry point ----
 
 function renderConfig(config) {

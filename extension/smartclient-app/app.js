@@ -39,6 +39,12 @@ window.addEventListener('message', (event) => {
   const msg = event.data;
   if (!msg) return;
 
+  // DS cache invalidation from bridge broadcasts
+  if (msg.source === 'smartclient-ds-update') {
+    invalidateDSCaches(msg.dataSource);
+    return;
+  }
+
   // DS response
   if (msg.source === 'smartclient-ds-response' && pendingRequests[msg.id]) {
     pendingRequests[msg.id](msg);
