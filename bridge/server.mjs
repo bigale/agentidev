@@ -1807,18 +1807,32 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
         console.log('[Bridge] SC_GENERATE_UI: spawning claude -p for:', prompt.trim().slice(0, 80));
         try {
           const result = await new Promise((resolve, reject) => {
-            const child = execFile('claude', [
+            const child = spawn('claude', [
               '-p',
               '--model', 'haiku',
               '--output-format', 'json',
               '--no-session-persistence',
-              `${SC_SYSTEM_PROMPT}\n\nUser request: ${prompt.trim()}`,
-            ], { timeout: 60000, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
-              if (err) {
-                reject(new Error(`claude process failed: ${err.message}`));
-                return;
+              '--system-prompt', SC_SYSTEM_PROMPT,
+              `User request: ${prompt.trim()}`,
+            ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+            let stdout = '';
+            let stderr = '';
+            child.stdout.on('data', (d) => { stdout += d; });
+            child.stderr.on('data', (d) => { stderr += d; });
+
+            const timer = setTimeout(() => {
+              child.kill();
+              reject(new Error('claude process timed out after 60s'));
+            }, 60000);
+
+            child.on('close', (code) => {
+              clearTimeout(timer);
+              if (code !== 0) {
+                reject(new Error(`claude process exited with code ${code}: ${stderr || stdout}`));
+              } else {
+                resolve(stdout);
               }
-              resolve(stdout);
             });
           });
 
