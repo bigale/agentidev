@@ -34,10 +34,14 @@
       Object.defineProperty(window, 'sessionStorage', { value: new FakeStorage(), configurable: true });
     }
   })();
+
+  // chrome-extension:// not in SmartClient's default protocolURLs — without it,
+  // getProtocol() returns "" and combineURLs() treats all extension URLs as relative
+  window.isc_protocolURLs = ["http://","https://","file://","mailto:","app-resource:","data:","chrome-extension://"];
 </script>
 
-<!-- SmartClient isomorphic dir (absolute path — sandbox URL resolution breaks with relative) -->
-<script>window.isomorphicDir = "/smartclient/";</script>
+<!-- SmartClient isomorphic dir -->
+<script>window.isomorphicDir = "../smartclient/";</script>
 
 <!-- Core modules (order matters) -->
 <script src="../smartclient/system/modules/ISC_Core.js"></script>
@@ -47,11 +51,8 @@
 <script src="../smartclient/system/modules/ISC_Forms.js"></script>
 <script src="../smartclient/system/modules/ISC_DataBinding.js"></script>
 
-<!-- Obsidian skin: preload CSS (load_skin.js builds broken URLs in sandbox) -->
-<link rel="stylesheet" href="../smartclient/skins/Obsidian/skin_styles.css">
-<script>isc.Page.setSkinDir("/smartclient/skins/Obsidian/");</script>
+<!-- Obsidian skin -->
 <script src="../smartclient/skins/Obsidian/load_skin.js"></script>
-<script>isc.Page.setSkinDir("/smartclient/skins/Obsidian/");</script>
 
 <!-- App logic -->
 <script src="app.js"></script>
