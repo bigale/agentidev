@@ -30,6 +30,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SHIM_PATH = pathResolve(__dirname, 'playwright-shim.mjs');
 const SCRIPTS_DIR = pathResolve(homedir(), '.contextual-recall', 'scripts');
 const AUTH_DIR = pathResolve(homedir(), '.contextual-recall', 'auth');
+const CLONES_DIR = pathResolve(homedir(), '.contextual-recall', 'clones');
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -2044,13 +2045,15 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
 
         const cloneModel = model || 'sonnet';
         const cloneTs = Date.now();
-        const cloneTmpDir = pathResolve(tmpdir(), `sc-clone-${sessionId}-${cloneTs}`);
+        const cloneRand = Math.random().toString(36).slice(2, 6);
+        const cloneId = `clone_${cloneTs}_${cloneRand}`;
+        const cloneDir = pathResolve(CLONES_DIR, cloneId);
 
-        console.log(`[Bridge] SC_CLONE_PAGE: session=${sessionId}, url=${url || '(current page)'}, model=${cloneModel}`);
+        console.log(`[Bridge] SC_CLONE_PAGE: session=${sessionId}, url=${url || '(current page)'}, model=${cloneModel}, cloneId=${cloneId}`);
 
         try {
-          // Create temp directory for captures
-          await mkdir(cloneTmpDir, { recursive: true });
+          // Create persistent clone directory
+          await mkdir(cloneDir, { recursive: true });
 
           // Navigate if URL provided, then wait for page settle
           if (url) {
@@ -2063,7 +2066,7 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           console.log('[Bridge] SC_CLONE_PAGE: capturing snapshot...');
           const snapshotYaml = await cloneSession.snapshot();
 
-          const screenshotPath = pathResolve(cloneTmpDir, 'page.png');
+          const screenshotPath = pathResolve(cloneDir, 'page.png');
           console.log('[Bridge] SC_CLONE_PAGE: capturing screenshot...');
           await cloneSession.screenshotToFile(screenshotPath);
 
@@ -2082,11 +2085,21 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           const filteredNetwork = filterNetworkForClone(networkOutput);
           const prompt = buildClonePrompt(pageUrl, truncatedSnapshot, filteredNetwork, screenshotPath);
 
+          // Persist raw materials
+          await writeFile(pathResolve(cloneDir, 'snapshot.yaml'), snapshotYaml);
+          await writeFile(pathResolve(cloneDir, 'network.txt'), networkOutput);
+          await writeFile(pathResolve(cloneDir, 'meta.json'), JSON.stringify({
+            url: pageUrl,
+            timestamp: new Date(cloneTs).toISOString(),
+            snapshotLines: snapshotYaml.split('\n').length,
+            networkEntries: filteredNetwork.split('\n').length,
+          }, null, 2));
+
           console.log(`[Bridge] SC_CLONE_PAGE: snapshot=${snapshotYaml.split('\n').length} lines, network=${filteredNetwork.split('\n').length} lines`);
           console.log('[Bridge] SC_CLONE_PAGE: spawning claude -p (model:', cloneModel, ')...');
 
           const raw = await spawnClaude(cloneModel, SC_CLONE_SYSTEM_PROMPT, prompt, {
-            addDir: cloneTmpDir,
+            addDir: cloneDir,
             allowedTools: 'Read',
             timeout: 120000,
           });
@@ -2098,6 +2111,7 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           sendTo(ws, buildReply(msg, {
             success: true,
             config,
+            cloneId,
             sources: {
               url: pageUrl,
               snapshotLines: snapshotYaml.split('\n').length,
@@ -2108,13 +2122,28 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
         } catch (err) {
           console.error('[Bridge] SC_CLONE_PAGE error:', err.message);
           sendTo(ws, buildReply(msg, { success: false, error: err.message }));
-        } finally {
-          // Cleanup temp directory
+          // Cleanup on failure only
           try {
-            await rm(cloneTmpDir, { recursive: true, force: true });
-          } catch (cleanErr) {
-            console.warn('[Bridge] SC_CLONE_PAGE: temp dir cleanup failed:', cleanErr.message);
-          }
+            await rm(cloneDir, { recursive: true, force: true });
+          } catch {}
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_SC_DELETE_CLONE_ARTIFACTS: {
+        const { cloneId } = msg.payload || {};
+        if (!cloneId || !/^clone_\d+_[a-z0-9]+$/.test(cloneId)) {
+          sendTo(ws, buildError('Invalid cloneId', msg.id));
+          break;
+        }
+        const clonePath = pathResolve(CLONES_DIR, cloneId);
+        try {
+          await rm(clonePath, { recursive: true, force: true });
+          console.log(`[Bridge] Deleted clone artifacts: ${cloneId}`);
+          sendTo(ws, buildReply(msg, { success: true, cloneId }));
+        } catch (err) {
+          console.error(`[Bridge] Failed to delete clone ${cloneId}:`, err.message);
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
         }
         break;
       }

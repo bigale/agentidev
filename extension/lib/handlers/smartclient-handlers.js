@@ -4,6 +4,7 @@
  * subprocess to generate SmartClient JSON configs that renderer.js instantiates.
  */
 import * as bridgeClient from '../bridge-client.js';
+import { saveApp } from './app-persistence.js';
 
 function validateConfig(config) {
   if (!config.dataSources || !Array.isArray(config.dataSources)) {
@@ -18,6 +19,23 @@ function validateConfig(config) {
       throw new Error(`DataSource ${ds.ID} must have fields array`);
     }
   }
+}
+
+/**
+ * Derive a short app name from a prompt string or URL.
+ */
+function deriveName(input) {
+  if (!input) return 'Untitled App';
+  // URL: extract hostname
+  try {
+    const url = new URL(input);
+    return url.hostname.replace(/^www\./, '');
+  } catch {
+    // Not a URL — use first ~40 chars of prompt
+  }
+  const trimmed = input.trim();
+  if (trimmed.length <= 40) return trimmed;
+  return trimmed.slice(0, 40).replace(/\s+\S*$/, '') + '...';
 }
 
 async function handleGenerateUI(message) {
@@ -42,7 +60,25 @@ async function handleGenerateUI(message) {
     validateConfig(result.config);
 
     console.log('[SmartClient AI] Valid config:', result.config.dataSources.length, 'dataSources,', result.config.layout._type, 'layout');
-    return { success: true, config: result.config };
+
+    // Auto-save (non-fatal)
+    let appId;
+    try {
+      const app = await saveApp({
+        name: deriveName(prompt),
+        type: 'generate',
+        config: result.config,
+        prompt,
+        sourceUrl: null,
+        cloneId: null,
+      });
+      appId = app.id;
+      console.log('[SmartClient AI] Saved app:', appId);
+    } catch (e) {
+      console.warn('[SmartClient AI] Auto-save failed (non-fatal):', e.message);
+    }
+
+    return { success: true, config: result.config, appId };
   } catch (err) {
     console.error('[SmartClient AI] Generation failed:', err);
     return { success: false, error: err.message };
@@ -71,7 +107,25 @@ async function handleClonePage(message) {
     validateConfig(result.config);
 
     console.log('[SmartClient AI] Clone valid config:', result.config.dataSources.length, 'dataSources,', result.config.layout._type, 'layout');
-    return { success: true, config: result.config, sources: result.sources };
+
+    // Auto-save (non-fatal)
+    let appId;
+    try {
+      const app = await saveApp({
+        name: deriveName(result.sources?.url || url),
+        type: 'clone',
+        config: result.config,
+        prompt: null,
+        sourceUrl: result.sources?.url || url || null,
+        cloneId: result.cloneId || null,
+      });
+      appId = app.id;
+      console.log('[SmartClient AI] Saved clone app:', appId);
+    } catch (e) {
+      console.warn('[SmartClient AI] Auto-save failed (non-fatal):', e.message);
+    }
+
+    return { success: true, config: result.config, sources: result.sources, appId };
   } catch (err) {
     console.error('[SmartClient AI] Clone failed:', err);
     return { success: false, error: err.message };

@@ -1269,6 +1269,10 @@ document.getElementById('dash-smartclient-btn').addEventListener('click', () => 
   chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html') });
 });
 
+document.getElementById('dash-apps-btn').addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html') });
+});
+
 // Site Clone — clone active session's current page to SmartClient
 const siteCloneBtn = document.getElementById('dash-site-clone-btn');
 const cloneStatus = document.getElementById('dash-clone-status');
@@ -1283,9 +1287,14 @@ siteCloneBtn.addEventListener('click', () => {
     siteCloneBtn.disabled = !state.activeSessionId || !state.connected;
     if (response?.success) {
       cloneStatus.textContent = '';
-      chrome.storage.session.set({ sc_clone_config: response.config }, () => {
-        chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html?clone=1') });
-      });
+      if (response.appId) {
+        chrome.tabs.create({ url: chrome.runtime.getURL(`smartclient-app/wrapper.html?app=${response.appId}`) });
+      } else {
+        // Fallback: ephemeral clone (backward compat)
+        chrome.storage.session.set({ sc_clone_config: response.config }, () => {
+          chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html?clone=1') });
+        });
+      }
     } else {
       cloneStatus.textContent = response?.error || 'Clone failed';
     }

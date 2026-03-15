@@ -438,6 +438,15 @@ export function clonePageToSmartClient(sessionId, options = {}) {
   return _sendRequest('BRIDGE_SC_CLONE_PAGE', { sessionId, url: options.url, model: options.model }, 120000);
 }
 
+/**
+ * Delete persisted clone artifacts from disk.
+ * @param {string} cloneId - Clone ID (e.g. 'clone_1710500000000_a3xk')
+ * @returns {Promise<{ success: boolean, cloneId: string }>}
+ */
+export function deleteCloneArtifacts(cloneId) {
+  return _sendRequest('BRIDGE_SC_DELETE_CLONE_ARTIFACTS', { cloneId }, 10000);
+}
+
 // ---- System process management ----
 
 export function getSystemProcesses() {
