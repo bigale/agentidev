@@ -45,6 +45,17 @@ window.addEventListener('message', (event) => {
     return;
   }
 
+  // Dashboard mode: action responses and broadcasts handled by dashboard-app.js
+  if (msg.source === 'smartclient-action-response' || msg.source === 'smartclient-broadcast') {
+    return;
+  }
+
+  // Dashboard mode: load dashboard layout
+  if (msg.source === 'smartclient-load-dashboard') {
+    if (typeof loadDashboard === 'function') loadDashboard();
+    return;
+  }
+
   // DS response
   if (msg.source === 'smartclient-ds-response' && pendingRequests[msg.id]) {
     pendingRequests[msg.id](msg);

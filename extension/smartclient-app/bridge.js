@@ -53,7 +53,14 @@ else if (urlParams.get('clone') === '1') {
   });
 }
 
-// --- Mode 3: Gallery (no params) ---
+// --- Mode 3: Dashboard (PortalLayout) ---
+else if (urlParams.get('mode') === 'dashboard') {
+  iframe.addEventListener('load', function () {
+    iframe.contentWindow.postMessage({ source: 'smartclient-load-dashboard' }, '*');
+  }, { once: true });
+}
+
+// --- Mode 4: Gallery (no params) ---
 else {
   buildGallery();
 }
@@ -158,6 +165,19 @@ chrome.runtime.onMessage.addListener((message) => {
       // iframe may not be loaded yet — safe to ignore
     }
   }
+
+  // Forward full broadcast payloads for dashboard-app.js
+  if (message.type && (message.type.startsWith('AUTO_BROADCAST_') || message.type === 'AUTO_COMMAND_UPDATE')) {
+    try {
+      iframe.contentWindow.postMessage({
+        source: 'smartclient-broadcast',
+        type: message.type,
+        payload: message,
+      }, '*');
+    } catch (e) {
+      // iframe may not be loaded yet
+    }
+  }
 });
 
 // --- DataSource CRUD and AI message forwarding ---
@@ -165,6 +185,25 @@ chrome.runtime.onMessage.addListener((message) => {
 window.addEventListener('message', async (event) => {
   const msg = event.data;
   if (!msg) return;
+
+  // Action proxy — forward arbitrary chrome.runtime.sendMessage calls from sandbox
+  if (msg.source === 'smartclient-action') {
+    chrome.runtime.sendMessage(
+      { type: msg.messageType, ...msg.payload },
+      (response) => {
+        try {
+          iframe.contentWindow.postMessage({
+            source: 'smartclient-action-response',
+            id: msg.id,
+            response: response,
+          }, '*');
+        } catch (e) {
+          // ignore
+        }
+      }
+    );
+    return;
+  }
 
   // DataSource CRUD operations
   if (msg.source === 'smartclient-ds') {
