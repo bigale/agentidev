@@ -14,11 +14,11 @@
 
 import { WebSocketServer, WebSocket } from 'ws';
 import { spawn, execFile } from 'child_process';
-import { readFile, writeFile, mkdir, stat, readdir, symlink, lstat, unlink, readlink } from 'fs/promises';
+import { readFile, writeFile, mkdir, stat, readdir, symlink, lstat, unlink, readlink, rm } from 'fs/promises';
 import { watch } from 'fs';
 import { resolve as pathResolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { homedir } from 'os';
+import { homedir, tmpdir } from 'os';
 import { MSG, buildMessage, buildReply, buildError, ROLES } from './protocol.mjs';
 import { PlaywrightSession, SESSION_STATE } from './playwright-session.mjs';
 import { InspectorClient, parseInspectorUrl } from './inspector-client.mjs';
@@ -124,6 +124,216 @@ function discoverBrowserProcesses(scripts) {
     });
   });
 }
+
+// ─── SmartClient helpers ─────────────────────────────────────
+
+/**
+ * Spawn `claude -p` and return stdout as a string.
+ * Reusable for sc:generate, sc:clone, and future SmartClient AI commands.
+ * @param {string} model - Claude model name (haiku, sonnet, opus)
+ * @param {string} systemPrompt - System prompt text
+ * @param {string} userPrompt - User prompt text
+ * @param {object} [options]
+ * @param {string} [options.addDir] - Directory to add via --add-dir
+ * @param {string} [options.allowedTools] - Tools to allow (triggers --dangerously-skip-permissions)
+ * @param {number} [options.timeout=60000] - Process timeout in ms
+ * @returns {Promise<string>} Raw stdout from claude process
+ */
+function spawnClaude(model, systemPrompt, userPrompt, options = {}) {
+  const timeout = options.timeout || 60000;
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-p',
+      '--model', model,
+      '--output-format', 'json',
+      '--no-session-persistence',
+      '--system-prompt', systemPrompt,
+    ];
+    if (options.addDir) {
+      args.push('--add-dir', options.addDir);
+    }
+    if (options.allowedTools) {
+      args.push('--allowedTools', options.allowedTools, '--dangerously-skip-permissions');
+    }
+    args.push(userPrompt);
+
+    const child = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`claude process timed out after ${timeout / 1000}s`));
+    }, timeout);
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        reject(new Error(`claude process exited with code ${code}: ${stderr || stdout}`));
+      } else {
+        resolve(stdout);
+      }
+    });
+  });
+}
+
+/**
+ * Parse claude --output-format json output, extract the inner result,
+ * then find and parse the JSON object from the response text.
+ * @param {string} raw - Raw stdout from spawnClaude
+ * @returns {object} Parsed JSON object
+ */
+function parseClaudeJsonResponse(raw) {
+  let responseText;
+  try {
+    const jsonOutput = JSON.parse(raw);
+    responseText = jsonOutput.result || raw;
+  } catch {
+    responseText = raw;
+  }
+
+  let cleaned = responseText.trim();
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('No JSON object found in Claude response');
+  }
+  return JSON.parse(jsonMatch[0]);
+}
+
+/**
+ * Validate a SmartClient config object.
+ * @param {object} config
+ * @throws {Error} If config is invalid
+ */
+function validateSmartClientConfig(config) {
+  if (!config.dataSources || !Array.isArray(config.dataSources)) {
+    throw new Error('Config must have dataSources array');
+  }
+  if (!config.layout || !config.layout._type) {
+    throw new Error('Config must have layout with _type');
+  }
+  for (const ds of config.dataSources) {
+    if (!ds.ID) throw new Error('Each dataSource must have an ID');
+    if (!ds.fields || !Array.isArray(ds.fields)) throw new Error(`DataSource ${ds.ID} must have fields array`);
+  }
+}
+
+/**
+ * Truncate a YAML snapshot to fit in a prompt, keeping semantic structure.
+ * Keeps the first 80% and last 10% of lines, noting the omitted count.
+ * @param {string} yaml - Full YAML snapshot
+ * @param {number} [maxLines=300] - Maximum number of lines to keep
+ * @returns {string} Truncated YAML
+ */
+function truncateSnapshot(yaml, maxLines = 300) {
+  const lines = yaml.split('\n');
+  if (lines.length <= maxLines) return yaml;
+
+  const headCount = Math.floor(maxLines * 0.8);
+  const tailCount = Math.floor(maxLines * 0.1);
+  const omitted = lines.length - headCount - tailCount;
+
+  return [
+    ...lines.slice(0, headCount),
+    `# ... ${omitted} lines omitted for brevity ...`,
+    ...lines.slice(lines.length - tailCount),
+  ].join('\n');
+}
+
+/**
+ * Filter network request output for clone purposes.
+ * Drops static assets (css, js, fonts, images, analytics), keeps API calls.
+ * @param {string} output - Raw network output from playwright-cli
+ * @param {number} [maxLines=200] - Maximum lines to keep
+ * @returns {string} Filtered network output
+ */
+function filterNetworkForClone(output, maxLines = 200) {
+  if (!output || !output.trim()) return '(no network requests captured)';
+
+  const staticPatterns = [
+    /\.(css|js|woff2?|ttf|eot|svg|png|jpe?g|gif|ico|webp|avif)(\?|$)/i,
+    /google-analytics|googletagmanager|doubleclick|facebook\.net|analytics/i,
+    /fonts\.googleapis|cdnjs\.cloudflare|unpkg\.com|cdn\.jsdelivr/i,
+  ];
+
+  const lines = output.split('\n');
+  const filtered = lines.filter(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return false;
+    return !staticPatterns.some(p => p.test(trimmed));
+  });
+
+  if (filtered.length === 0) return '(no API requests detected — only static assets)';
+  if (filtered.length > maxLines) {
+    return filtered.slice(0, maxLines).join('\n') + `\n# ... ${filtered.length - maxLines} more entries truncated`;
+  }
+  return filtered.join('\n');
+}
+
+/**
+ * Build the user prompt for sc:clone.
+ * @param {string} url - Page URL
+ * @param {string} snapshot - Truncated accessibility snapshot (YAML)
+ * @param {string} network - Filtered network request list
+ * @param {string} screenshotPath - Absolute path to screenshot PNG
+ * @returns {string} Assembled user prompt
+ */
+function buildClonePrompt(url, snapshot, network, screenshotPath) {
+  return `Clone this web page into a SmartClient config.
+
+URL: ${url}
+
+SCREENSHOT: Read the file at ${screenshotPath} to see the visual layout, colors, spacing, and component arrangement.
+
+ACCESSIBILITY SNAPSHOT (YAML — semantic structure):
+\`\`\`yaml
+${snapshot}
+\`\`\`
+
+NETWORK REQUESTS (API calls — infer data model from endpoints and response patterns):
+\`\`\`
+${network}
+\`\`\`
+
+Based on ALL three inputs (screenshot for visual layout, snapshot for semantic structure, network for data model), produce a SmartClient JSON config that replicates this page.`;
+}
+
+const SC_CLONE_SYSTEM_PROMPT = `You are a SmartClient UI cloner. Given a live web page's screenshot, accessibility snapshot, and network requests, you produce a SmartClient JSON config that replicates the page.
+
+INSTRUCTIONS:
+1. Use the Read tool to read the screenshot file to see visual layout, colors, spacing, and component arrangement.
+2. Map the accessibility snapshot roles to SmartClient component types:
+   - table/grid -> ListGrid
+   - form/input fields -> DynamicForm
+   - tabs -> TabSet with Tab members
+   - sections/headings -> SectionStack
+   - navigation -> ToolStrip with ToolStripButton
+   - standalone text/HTML -> HTMLFlow or Label
+3. Infer DataSource field schemas from network response URL patterns and the snapshot data.
+4. Match visual proportions from the screenshot (widths, heights, spacing).
+5. Wire interactions: grid selection -> form detail, buttons -> CRUD actions.
+
+OUTPUT FORMAT — same as sc:generate:
+{"dataSources":[...],"layout":{...}}
+
+Rules:
+- dataSources: array of {ID, fields:[{name,type,primaryKey,hidden,title,required,length,valueMap,canEdit}]}
+  - ID must end with DS, always include {name:"id",type:"integer",primaryKey:true,hidden:true}
+  - Field types: text, integer, float, date, datetime, boolean
+  - For dropdowns use valueMap as an array of strings
+- layout: component tree with _type and members[]
+  - Allowed _type values: VLayout, HLayout, ListGrid, DynamicForm, Button, Label, TabSet, Tab, DetailViewer, SectionStack, HTMLFlow, Window, ToolStrip, ToolStripButton
+  - ListGrid: set dataSource, autoFetchData:true, fields array with name and width
+  - DynamicForm: set dataSource, fields with name and optionally editorType
+  - Button: use _action for behavior: "new","save","delete". Set _targetForm and _targetGrid
+  - ListGrid recordClick: set _action:"select" and _targetForm to auto-wire
+  - Give components an ID string so buttons can reference them
+
+Output ONLY the JSON object. No explanation, no markdown fences.`;
 
 function startServer() {
   // Connected clients: Map<WebSocket, { role, id, connectedAt }>
@@ -1782,7 +1992,7 @@ function startServer() {
           break;
         }
 
-        const SC_SYSTEM_PROMPT = `You are a SmartClient UI generator. Given a user description, output ONLY a JSON object with this structure:
+        const SC_GENERATE_SYSTEM_PROMPT = `You are a SmartClient UI generator. Given a user description, output ONLY a JSON object with this structure:
 
 {"dataSources":[...],"layout":{...}}
 
@@ -1806,75 +2016,105 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
 
         console.log('[Bridge] SC_GENERATE_UI: spawning claude -p for:', prompt.trim().slice(0, 80));
         try {
-          const result = await new Promise((resolve, reject) => {
-            const child = spawn('claude', [
-              '-p',
-              '--model', 'haiku',
-              '--output-format', 'json',
-              '--no-session-persistence',
-              '--system-prompt', SC_SYSTEM_PROMPT,
-              `User request: ${prompt.trim()}`,
-            ], { stdio: ['ignore', 'pipe', 'pipe'] });
-
-            let stdout = '';
-            let stderr = '';
-            child.stdout.on('data', (d) => { stdout += d; });
-            child.stderr.on('data', (d) => { stderr += d; });
-
-            const timer = setTimeout(() => {
-              child.kill();
-              reject(new Error('claude process timed out after 60s'));
-            }, 60000);
-
-            child.on('close', (code) => {
-              clearTimeout(timer);
-              if (code !== 0) {
-                reject(new Error(`claude process exited with code ${code}: ${stderr || stdout}`));
-              } else {
-                resolve(stdout);
-              }
-            });
-          });
-
-          // --output-format json wraps output in { result: "..." }
-          let responseText;
-          try {
-            const jsonOutput = JSON.parse(result);
-            responseText = jsonOutput.result || result;
-          } catch {
-            responseText = result;
-          }
-
-          // Parse and validate the SmartClient config from the response
-          let cleaned = responseText.trim();
-          cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
-          const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-          if (!jsonMatch) {
-            sendTo(ws, buildReply(msg, { success: false, error: 'No JSON object found in Claude response' }));
-            break;
-          }
-
-          const config = JSON.parse(jsonMatch[0]);
-
-          // Validate
-          if (!config.dataSources || !Array.isArray(config.dataSources)) {
-            sendTo(ws, buildReply(msg, { success: false, error: 'Config must have dataSources array' }));
-            break;
-          }
-          if (!config.layout || !config.layout._type) {
-            sendTo(ws, buildReply(msg, { success: false, error: 'Config must have layout with _type' }));
-            break;
-          }
-          for (const ds of config.dataSources) {
-            if (!ds.ID) throw new Error(`Each dataSource must have an ID`);
-            if (!ds.fields || !Array.isArray(ds.fields)) throw new Error(`DataSource ${ds.ID} must have fields array`);
-          }
+          const raw = await spawnClaude('haiku', SC_GENERATE_SYSTEM_PROMPT, `User request: ${prompt.trim()}`);
+          const config = parseClaudeJsonResponse(raw);
+          validateSmartClientConfig(config);
 
           console.log('[Bridge] SC_GENERATE_UI: valid config with', config.dataSources.length, 'dataSources');
           sendTo(ws, buildReply(msg, { success: true, config }));
         } catch (err) {
           console.error('[Bridge] SC_GENERATE_UI error:', err.message);
           sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_SC_CLONE_PAGE: {
+        const { sessionId, url, model } = msg.payload || {};
+        if (!sessionId) {
+          sendTo(ws, buildError('sessionId is required', msg.id));
+          break;
+        }
+
+        const cloneSession = getSession(sessionId);
+        if (!cloneSession) {
+          sendTo(ws, buildError(`Session not found: ${sessionId}`, msg.id));
+          break;
+        }
+
+        const cloneModel = model || 'sonnet';
+        const cloneTs = Date.now();
+        const cloneTmpDir = pathResolve(tmpdir(), `sc-clone-${sessionId}-${cloneTs}`);
+
+        console.log(`[Bridge] SC_CLONE_PAGE: session=${sessionId}, url=${url || '(current page)'}, model=${cloneModel}`);
+
+        try {
+          // Create temp directory for captures
+          await mkdir(cloneTmpDir, { recursive: true });
+
+          // Navigate if URL provided, then wait for page settle
+          if (url) {
+            console.log(`[Bridge] SC_CLONE_PAGE: navigating to ${url}`);
+            await cloneSession.navigate(url);
+            await new Promise(r => setTimeout(r, 3000));
+          }
+
+          // Capture: snapshot, screenshot, network (sequentially via session queue)
+          console.log('[Bridge] SC_CLONE_PAGE: capturing snapshot...');
+          const snapshotYaml = await cloneSession.snapshot();
+
+          const screenshotPath = pathResolve(cloneTmpDir, 'page.png');
+          console.log('[Bridge] SC_CLONE_PAGE: capturing screenshot...');
+          await cloneSession.screenshotToFile(screenshotPath);
+
+          console.log('[Bridge] SC_CLONE_PAGE: capturing network requests...');
+          let networkOutput;
+          try {
+            networkOutput = await cloneSession.networkRequests();
+          } catch (netErr) {
+            console.warn('[Bridge] SC_CLONE_PAGE: network capture failed (non-fatal):', netErr.message);
+            networkOutput = '(network capture unavailable)';
+          }
+
+          // Process captures
+          const pageUrl = url || cloneSession.currentUrl || '(unknown)';
+          const truncatedSnapshot = truncateSnapshot(snapshotYaml);
+          const filteredNetwork = filterNetworkForClone(networkOutput);
+          const prompt = buildClonePrompt(pageUrl, truncatedSnapshot, filteredNetwork, screenshotPath);
+
+          console.log(`[Bridge] SC_CLONE_PAGE: snapshot=${snapshotYaml.split('\n').length} lines, network=${filteredNetwork.split('\n').length} lines`);
+          console.log('[Bridge] SC_CLONE_PAGE: spawning claude -p (model:', cloneModel, ')...');
+
+          const raw = await spawnClaude(cloneModel, SC_CLONE_SYSTEM_PROMPT, prompt, {
+            addDir: cloneTmpDir,
+            allowedTools: 'Read',
+            timeout: 120000,
+          });
+
+          const config = parseClaudeJsonResponse(raw);
+          validateSmartClientConfig(config);
+
+          console.log('[Bridge] SC_CLONE_PAGE: valid config with', config.dataSources.length, 'dataSources');
+          sendTo(ws, buildReply(msg, {
+            success: true,
+            config,
+            sources: {
+              url: pageUrl,
+              snapshotLines: snapshotYaml.split('\n').length,
+              networkEntries: filteredNetwork.split('\n').length,
+              screenshotPath,
+            },
+          }));
+        } catch (err) {
+          console.error('[Bridge] SC_CLONE_PAGE error:', err.message);
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        } finally {
+          // Cleanup temp directory
+          try {
+            await rm(cloneTmpDir, { recursive: true, force: true });
+          } catch (cleanErr) {
+            console.warn('[Bridge] SC_CLONE_PAGE: temp dir cleanup failed:', cleanErr.message);
+          }
         }
         break;
       }

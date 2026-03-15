@@ -92,6 +92,7 @@ export const MSG = {
 
   // SmartClient AI (route through Claude Code)
   BRIDGE_SC_GENERATE_UI: 'BRIDGE_SC_GENERATE_UI',            // generate SmartClient UI config via claude -p
+  BRIDGE_SC_CLONE_PAGE: 'BRIDGE_SC_CLONE_PAGE',              // clone a live page to SmartClient config via snapshot+screenshot+network
 };
 
 /**

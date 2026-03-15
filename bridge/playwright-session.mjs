@@ -295,6 +295,44 @@ export class PlaywrightSession {
   }
 
   /**
+   * Take a screenshot and save to a file path
+   * @param {string} filePath - Absolute path for the output PNG
+   * @param {object} [options]
+   * @param {boolean} [options.fullPage=true] - Capture full page
+   * @returns {Promise<string>} The file path
+   */
+  async screenshotToFile(filePath, options = {}) {
+    const args = ['--filename', filePath];
+    if (options.fullPage !== false) args.push('--full-page');
+    await this.sendCommand('screenshot', args);
+    return filePath;
+  }
+
+  /**
+   * Get network requests captured by the session
+   * @returns {Promise<string>} Network request log output
+   */
+  async networkRequests() {
+    return this.sendCommand('network', []);
+  }
+
+  /**
+   * Start tracing (captures HAR, DOM snapshots, console logs)
+   * @returns {Promise<string>} Tracing start result
+   */
+  async tracingStart() {
+    return this.sendCommand('tracing-start', []);
+  }
+
+  /**
+   * Stop tracing and save trace.zip
+   * @returns {Promise<string>} Tracing stop result (includes file path)
+   */
+  async tracingStop() {
+    return this.sendCommand('tracing-stop', []);
+  }
+
+  /**
    * Check if the playwright-cli session is still alive
    * @returns {Promise<boolean>}
    */

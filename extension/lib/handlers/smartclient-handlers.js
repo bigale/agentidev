@@ -49,6 +49,36 @@ async function handleGenerateUI(message) {
   }
 }
 
+async function handleClonePage(message) {
+  const { sessionId, url, model } = message;
+  if (!sessionId) {
+    return { success: false, error: 'sessionId is required' };
+  }
+
+  if (!bridgeClient.isConnected()) {
+    return { success: false, error: 'Bridge server not connected' };
+  }
+
+  try {
+    console.log('[SmartClient AI] Cloning page via bridge, session:', sessionId, url ? `url: ${url}` : '(current page)');
+    const result = await bridgeClient.clonePageToSmartClient(sessionId, { url, model });
+
+    if (!result.success) {
+      return { success: false, error: result.error || 'Clone failed' };
+    }
+
+    // Safety net: re-validate config from bridge
+    validateConfig(result.config);
+
+    console.log('[SmartClient AI] Clone valid config:', result.config.dataSources.length, 'dataSources,', result.config.layout._type, 'layout');
+    return { success: true, config: result.config, sources: result.sources };
+  } catch (err) {
+    console.error('[SmartClient AI] Clone failed:', err);
+    return { success: false, error: err.message };
+  }
+}
+
 export function register(handlers) {
   handlers['SC_GENERATE_UI'] = (msg) => handleGenerateUI(msg);
+  handlers['SC_CLONE_PAGE'] = (msg) => handleClonePage(msg);
 }

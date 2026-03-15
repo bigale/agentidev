@@ -426,6 +426,18 @@ export function generateSmartClientUI(prompt) {
   return _sendRequest('BRIDGE_SC_GENERATE_UI', { prompt }, 60000);
 }
 
+/**
+ * Clone a live web page to a SmartClient config via snapshot + screenshot + network analysis.
+ * @param {string} sessionId - Session name or ID
+ * @param {object} [options]
+ * @param {string} [options.url] - URL to navigate to before cloning (optional, uses current page if omitted)
+ * @param {string} [options.model] - Claude model to use (default: sonnet)
+ * @returns {Promise<{ success: boolean, config?: object, sources?: object, error?: string }>}
+ */
+export function clonePageToSmartClient(sessionId, options = {}) {
+  return _sendRequest('BRIDGE_SC_CLONE_PAGE', { sessionId, url: options.url, model: options.model }, 120000);
+}
+
 // ---- System process management ----
 
 export function getSystemProcesses() {

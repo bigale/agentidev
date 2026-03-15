@@ -347,6 +347,7 @@ const CLI_COMMANDS = {
   'schedule:delete':    (p) => _sendRequest(MSG.BRIDGE_SCHEDULE_DELETE, p),
   'schedule:trigger':   (p) => _sendRequest(MSG.BRIDGE_SCHEDULE_TRIGGER, p),
   'sc:generate':        (p) => _sendRequest(MSG.BRIDGE_SC_GENERATE_UI, p, 60000),
+  'sc:clone':           (p) => _sendRequest(MSG.BRIDGE_SC_CLONE_PAGE, p, 120000),
 };
 
 async function runCLI() {
