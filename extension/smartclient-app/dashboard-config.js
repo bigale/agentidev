@@ -151,6 +151,32 @@ window._dashboardConfig = {
             _messagePayload: { force: true },
           },
           { _type: 'ToolStripSeparator' },
+
+          // V8 debug controls
+          {
+            _type: 'ToolStripButton',
+            ID: 'tbDebug',
+            title: 'Debug',
+            disabled: true,
+            _action: 'debugLaunch',
+          },
+          {
+            _type: 'ToolStripButton',
+            ID: 'tbStepInto',
+            title: 'Step Into',
+            disabled: true,
+            _action: 'dispatch',
+            _messageType: 'DBG_STEP_INTO',
+          },
+          {
+            _type: 'ToolStripButton',
+            ID: 'tbStepOut',
+            title: 'Step Out',
+            disabled: true,
+            _action: 'dispatch',
+            _messageType: 'DBG_STEP_OUT',
+          },
+          { _type: 'ToolStripSeparator' },
         ],
       },
 
@@ -310,7 +336,7 @@ window._dashboardConfig = {
             ],
           },
 
-          // ==== Column 1: Source (placeholder) ====
+          // ==== Column 1: Source (Monaco editor) ====
           {
             _type: 'Portlet',
             _column: 1,
@@ -319,12 +345,17 @@ window._dashboardConfig = {
             height: '100%',
             members: [
               {
-                _type: 'HTMLFlow',
+                _type: 'Canvas',
                 ID: 'sourcePanel',
                 width: '100%',
                 height: '100%',
-                contents: '<div style="padding:24px;color:#888;font-family:monospace;font-size:13px;">'
-                  + 'Source editor placeholder.<br>Monaco integration planned for SC-4c.</div>',
+                contents: '<style>'
+                  + '.monaco-bp-active { background: url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'14\' height=\'14\'%3E%3Ccircle cx=\'7\' cy=\'7\' r=\'5\' fill=\'%23e05252\'/%3E%3C/svg%3E") center/12px no-repeat; }'
+                  + '.monaco-bp-inactive { background: url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'14\' height=\'14\'%3E%3Ccircle cx=\'7\' cy=\'7\' r=\'5\' fill=\'none\' stroke=\'%23555\' stroke-width=\'1.5\'/%3E%3C/svg%3E") center/12px no-repeat; }'
+                  + '.monaco-bp-current { background: url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'14\' height=\'14\'%3E%3Cpolygon points=\'2,3 12,7 2,11\' fill=\'%23f9ab00\'/%3E%3C/svg%3E") center/12px no-repeat; }'
+                  + '.monaco-line-current { background: rgba(249, 171, 0, 0.12) !important; }'
+                  + '</style>'
+                  + '<div id="monaco-host" style="width:100%;height:100%;"></div>',
               },
             ],
           },
@@ -400,11 +431,78 @@ window._dashboardConfig = {
             ],
           },
 
-          // ==== Column 2: Activity ====
+          // ==== Column 2: Evaluate ====
           {
             _type: 'Portlet',
             _column: 2,
             _row: 1,
+            title: 'Evaluate',
+            height: 220,
+            visibility: 'hidden',
+            ID: 'evalPortlet',
+            members: [
+              {
+                _type: 'VLayout',
+                width: '100%',
+                height: '100%',
+                membersMargin: 4,
+                layoutMargin: 4,
+                members: [
+                  {
+                    _type: 'DynamicForm',
+                    ID: 'evalForm',
+                    width: '100%',
+                    numCols: 1,
+                    fields: [
+                      {
+                        name: 'callFrame',
+                        title: 'Frame',
+                        editorType: 'SelectItem',
+                        ID: 'evalFrameSelect',
+                        width: '*',
+                      },
+                      {
+                        name: 'expression',
+                        title: 'Expr',
+                        editorType: 'TextAreaItem',
+                        ID: 'evalInput',
+                        width: '*',
+                        height: 60,
+                      },
+                    ],
+                  },
+                  {
+                    _type: 'HLayout',
+                    height: 28,
+                    membersMargin: 4,
+                    members: [
+                      {
+                        _type: 'Button',
+                        ID: 'evalRunBtn',
+                        title: 'Run',
+                        width: 60,
+                        _action: 'evalExpression',
+                      },
+                    ],
+                  },
+                  {
+                    _type: 'HTMLFlow',
+                    ID: 'evalResult',
+                    width: '100%',
+                    height: '*',
+                    overflow: 'auto',
+                    contents: '<div style="padding:4px;color:#888;font-family:monospace;font-size:11px;">Result will appear here</div>',
+                  },
+                ],
+              },
+            ],
+          },
+
+          // ==== Column 2: Activity ====
+          {
+            _type: 'Portlet',
+            _column: 2,
+            _row: 2,
             title: 'Activity',
             height: 360,
             members: [

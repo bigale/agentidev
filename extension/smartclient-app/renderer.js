@@ -171,6 +171,12 @@ var ACTION_MAP = {
       dispatchAction('BRIDGE_DISCONNECT', {});
     };
   },
+  'debugLaunch': function (component) {
+    // Wired dynamically in dashboard-app.js loadDashboard()
+  },
+  'evalExpression': function (component) {
+    // Wired dynamically in dashboard-app.js loadDashboard()
+  },
 };
 
 function wireAction(component, node) {

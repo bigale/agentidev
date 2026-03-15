@@ -235,6 +235,27 @@ window.addEventListener('message', async (event) => {
     return;
   }
 
+  // Layout persistence — save
+  if (msg.source === 'smartclient-save-layout') {
+    chrome.storage.local.set({ sc_dashboard_layout: msg.layout });
+    return;
+  }
+
+  // Layout persistence — load
+  if (msg.source === 'smartclient-load-layout') {
+    chrome.storage.local.get('sc_dashboard_layout', (result) => {
+      try {
+        iframe.contentWindow.postMessage({
+          source: 'smartclient-layout-loaded',
+          layout: result?.sc_dashboard_layout || null,
+        }, '*');
+      } catch (e) {
+        // iframe may not be ready
+      }
+    });
+    return;
+  }
+
   // AI UI generation
   if (msg.source === 'smartclient-ai') {
     try {
