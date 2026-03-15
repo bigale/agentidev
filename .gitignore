@@ -42,6 +42,9 @@ temp/
 # AI toolkit
 .aikit/
 
+# SmartClient runtime (external symlink, ~260MB)
+extension/smartclient
+
 # Screenshots & data files
 Capture.PNG
 twinspires-races.txt

@@ -31,6 +31,7 @@ import * as bridgeClient from './lib/bridge-client.js';
 import { register as registerSnapshot, handleSnapshotStorage } from './lib/handlers/snapshot-handlers.js';
 import { register as registerAutomation } from './lib/handlers/automation-handlers.js';
 import { register as registerScript } from './lib/handlers/script-handlers.js';
+import { register as registerDataSource } from './lib/handlers/datasource-handlers.js';
 
 console.log('Contextual Recall: Background service worker started');
 console.log('[Background] Note: Extension reload = re-initialize (models are cached, not re-downloaded)');
@@ -184,6 +185,7 @@ registerBridge(handlers);
 registerSnapshot(handlers);
 registerAutomation(handlers);
 registerScript(handlers);
+registerDataSource(handlers);
 
 chrome.runtime.onMessage.addListener(createMessageRouter(handlers));
 

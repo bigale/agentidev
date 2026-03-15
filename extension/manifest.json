@@ -44,6 +44,9 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
+  "sandbox": {
+    "pages": ["smartclient-app/app.html"]
+  },
   "web_accessible_resources": [
     {
       "resources": ["lib/*.js", "lib/*.wasm", "lib/transformers/*.js", "pkg/*.js", "pkg/*.wasm", "examples/*.mjs"],

@@ -1263,6 +1263,10 @@ function loadLibraryScript(name) {
 }
 
 openBtn.addEventListener('click', openModal);
+
+document.getElementById('dash-smartclient-btn').addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html') });
+});
 document.getElementById('dash-modal-close').addEventListener('click', closeModal);
 document.getElementById('dash-modal-cancel').addEventListener('click', closeModal);
 modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeModal(); });
