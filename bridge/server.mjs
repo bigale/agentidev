@@ -1775,6 +1775,96 @@ function startServer() {
         break;
       }
 
+      case MSG.BRIDGE_SC_GENERATE_UI: {
+        const { prompt } = msg.payload || {};
+        if (!prompt || !prompt.trim()) {
+          sendTo(ws, buildError('Prompt is required', msg.id));
+          break;
+        }
+
+        const SC_SYSTEM_PROMPT = `You are a SmartClient UI generator. Given a user description, output ONLY a JSON object with this structure:
+
+{"dataSources":[...],"layout":{...}}
+
+Rules:
+- dataSources: array of {ID, fields:[{name,type,primaryKey,hidden,title,required,length,valueMap,canEdit}]}
+  - ID must end with DS, always include {name:"id",type:"integer",primaryKey:true,hidden:true}
+  - Field types: text, integer, float, date, datetime, boolean
+  - For dropdowns use valueMap as an array of strings
+- layout: component tree with _type and members[]
+  - Allowed _type values: VLayout, HLayout, ListGrid, DynamicForm, Button, Label, TabSet, Tab, DetailViewer, SectionStack, HTMLFlow, Window, ToolStrip, ToolStripButton
+  - ListGrid: set dataSource, autoFetchData:true, fields array with name and width
+  - DynamicForm: set dataSource, fields with name and optionally editorType (TextItem, TextAreaItem, SelectItem, DateItem, CheckboxItem, SpinnerItem)
+  - Button: use _action for behavior: "new","save","delete". Set _targetForm and _targetGrid to reference component IDs
+  - ListGrid recordClick: set _action:"select" and _targetForm to auto-wire
+  - Give components an ID string so buttons can reference them
+
+Example for a task tracker:
+{"dataSources":[{"ID":"TaskDS","fields":[{"name":"id","type":"integer","primaryKey":true,"hidden":true},{"name":"title","type":"text","required":true,"title":"Title","length":200},{"name":"status","type":"text","title":"Status","valueMap":["Todo","In Progress","Done"]},{"name":"dueDate","type":"date","title":"Due Date"}]}],"layout":{"_type":"VLayout","width":"100%","height":"100%","membersMargin":8,"layoutMargin":12,"members":[{"_type":"ListGrid","ID":"taskGrid","width":"100%","height":"*","dataSource":"TaskDS","autoFetchData":true,"canEdit":false,"selectionType":"single","_action":"select","_targetForm":"taskForm","fields":[{"name":"title","width":"*"},{"name":"status","width":120},{"name":"dueDate","width":120}]},{"_type":"DynamicForm","ID":"taskForm","width":"100%","dataSource":"TaskDS","numCols":2,"colWidths":[120,"*"],"fields":[{"name":"title","editorType":"TextItem"},{"name":"status","editorType":"SelectItem"},{"name":"dueDate","editorType":"DateItem"}]},{"_type":"HLayout","height":30,"membersMargin":8,"members":[{"_type":"Button","title":"New","width":80,"_action":"new","_targetForm":"taskForm"},{"_type":"Button","title":"Save","width":80,"_action":"save","_targetForm":"taskForm","_targetGrid":"taskGrid"},{"_type":"Button","title":"Delete","width":80,"_action":"delete","_targetGrid":"taskGrid"}]}]}}
+
+Output ONLY the JSON object. No explanation, no markdown fences.`;
+
+        console.log('[Bridge] SC_GENERATE_UI: spawning claude -p for:', prompt.trim().slice(0, 80));
+        try {
+          const result = await new Promise((resolve, reject) => {
+            const child = execFile('claude', [
+              '-p',
+              '--model', 'haiku',
+              '--output-format', 'json',
+              '--no-session-persistence',
+              `${SC_SYSTEM_PROMPT}\n\nUser request: ${prompt.trim()}`,
+            ], { timeout: 60000, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
+              if (err) {
+                reject(new Error(`claude process failed: ${err.message}`));
+                return;
+              }
+              resolve(stdout);
+            });
+          });
+
+          // --output-format json wraps output in { result: "..." }
+          let responseText;
+          try {
+            const jsonOutput = JSON.parse(result);
+            responseText = jsonOutput.result || result;
+          } catch {
+            responseText = result;
+          }
+
+          // Parse and validate the SmartClient config from the response
+          let cleaned = responseText.trim();
+          cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
+          const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) {
+            sendTo(ws, buildReply(msg, { success: false, error: 'No JSON object found in Claude response' }));
+            break;
+          }
+
+          const config = JSON.parse(jsonMatch[0]);
+
+          // Validate
+          if (!config.dataSources || !Array.isArray(config.dataSources)) {
+            sendTo(ws, buildReply(msg, { success: false, error: 'Config must have dataSources array' }));
+            break;
+          }
+          if (!config.layout || !config.layout._type) {
+            sendTo(ws, buildReply(msg, { success: false, error: 'Config must have layout with _type' }));
+            break;
+          }
+          for (const ds of config.dataSources) {
+            if (!ds.ID) throw new Error(`Each dataSource must have an ID`);
+            if (!ds.fields || !Array.isArray(ds.fields)) throw new Error(`DataSource ${ds.ID} must have fields array`);
+          }
+
+          console.log('[Bridge] SC_GENERATE_UI: valid config with', config.dataSources.length, 'dataSources');
+          sendTo(ws, buildReply(msg, { success: true, config }));
+        } catch (err) {
+          console.error('[Bridge] SC_GENERATE_UI error:', err.message);
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
       case 'BRIDGE_SHUTDOWN': {
         console.log('[Bridge] Shutdown requested');
         await shutdown();

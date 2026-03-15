@@ -415,6 +415,17 @@ export function onScheduleUpdate(cb) {
   callbacks.onScheduleUpdate.push(cb);
 }
 
+// ---- SmartClient AI ----
+
+/**
+ * Generate SmartClient UI config via Claude Code (bridge spawns claude -p).
+ * @param {string} prompt - Natural language UI description
+ * @returns {Promise<{ success: boolean, config?: object, error?: string }>}
+ */
+export function generateSmartClientUI(prompt) {
+  return _sendRequest('BRIDGE_SC_GENERATE_UI', { prompt }, 60000);
+}
+
 // ---- System process management ----
 
 export function getSystemProcesses() {

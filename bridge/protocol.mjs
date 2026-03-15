@@ -89,6 +89,9 @@ export const MSG = {
   // System process management
   BRIDGE_SYSTEM_PROCESSES: 'BRIDGE_SYSTEM_PROCESSES',        // discover running Playwright browser processes
   BRIDGE_KILL_PROCESS: 'BRIDGE_KILL_PROCESS',                // kill a process by PID
+
+  // SmartClient AI (route through Claude Code)
+  BRIDGE_SC_GENERATE_UI: 'BRIDGE_SC_GENERATE_UI',            // generate SmartClient UI config via claude -p
 };
 
 /**

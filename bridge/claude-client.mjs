@@ -346,6 +346,7 @@ const CLI_COMMANDS = {
   'schedule:update':    (p) => _sendRequest(MSG.BRIDGE_SCHEDULE_UPDATE, p),
   'schedule:delete':    (p) => _sendRequest(MSG.BRIDGE_SCHEDULE_DELETE, p),
   'schedule:trigger':   (p) => _sendRequest(MSG.BRIDGE_SCHEDULE_TRIGGER, p),
+  'sc:generate':        (p) => _sendRequest(MSG.BRIDGE_SC_GENERATE_UI, p, 60000),
 };
 
 async function runCLI() {
@@ -369,11 +370,16 @@ async function runCLI() {
 
   let payload = {};
   if (payloadStr) {
-    try {
-      payload = JSON.parse(payloadStr);
-    } catch (err) {
-      console.error(`Invalid JSON payload: ${err.message}`);
-      process.exit(1);
+    // sc:generate accepts a plain-text prompt (not JSON)
+    if (command === 'sc:generate') {
+      payload = { prompt: payloadStr };
+    } else {
+      try {
+        payload = JSON.parse(payloadStr);
+      } catch (err) {
+        console.error(`Invalid JSON payload: ${err.message}`);
+        process.exit(1);
+      }
     }
   }
 
