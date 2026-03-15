@@ -758,6 +758,7 @@ function renderSessions() {
   const totalCount = state.sessions.length + state.processes.length;
   document.getElementById('sessions-count').textContent = totalCount;
   destroySessionBtn.disabled = !state.activeSessionId || !state.connected;
+  document.getElementById('dash-site-clone-btn').disabled = !state.activeSessionId || !state.connected;
 
   let html = '';
 
@@ -1266,6 +1267,29 @@ openBtn.addEventListener('click', openModal);
 
 document.getElementById('dash-smartclient-btn').addEventListener('click', () => {
   chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html') });
+});
+
+// Site Clone — clone active session's current page to SmartClient
+const siteCloneBtn = document.getElementById('dash-site-clone-btn');
+const cloneStatus = document.getElementById('dash-clone-status');
+siteCloneBtn.addEventListener('click', () => {
+  if (!state.activeSessionId) {
+    cloneStatus.textContent = 'No session selected';
+    return;
+  }
+  siteCloneBtn.disabled = true;
+  cloneStatus.textContent = 'Cloning...';
+  chrome.runtime.sendMessage({ type: 'SC_CLONE_PAGE', sessionId: state.activeSessionId }, (response) => {
+    siteCloneBtn.disabled = !state.activeSessionId || !state.connected;
+    if (response?.success) {
+      cloneStatus.textContent = '';
+      chrome.storage.session.set({ sc_clone_config: response.config }, () => {
+        chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html?clone=1') });
+      });
+    } else {
+      cloneStatus.textContent = response?.error || 'Clone failed';
+    }
+  });
 });
 document.getElementById('dash-modal-close').addEventListener('click', closeModal);
 document.getElementById('dash-modal-cancel').addEventListener('click', closeModal);

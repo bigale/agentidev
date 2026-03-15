@@ -6,6 +6,29 @@
 
 const iframe = document.getElementById('sc-frame');
 
+// Clone mode: auto-load config from storage when opened with ?clone=1
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('clone') === '1') {
+  chrome.storage.session.get('sc_clone_config', (result) => {
+    const config = result?.sc_clone_config;
+    if (!config) return;
+    chrome.storage.session.remove('sc_clone_config');
+    const sendConfig = () => {
+      iframe.contentWindow.postMessage({
+        source: 'smartclient-ai-response',
+        success: true,
+        config,
+      }, '*');
+    };
+    // iframe may already be loaded if storage callback was slow
+    if (iframe.contentDocument?.readyState === 'complete') {
+      sendConfig();
+    } else {
+      iframe.addEventListener('load', sendConfig, { once: true });
+    }
+  });
+}
+
 window.addEventListener('message', async (event) => {
   const msg = event.data;
   if (!msg) return;
