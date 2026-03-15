@@ -9,8 +9,35 @@
 </head>
 <body>
 
-<!-- SmartClient isomorphic dir (relative to this file) -->
-<script>window.isomorphicDir = "../smartclient/";</script>
+<!-- Sandbox shims: cookie/localStorage/sessionStorage blocked without allow-same-origin -->
+<script>
+  Object.defineProperty(document, 'cookie', {
+    get: function() { return ''; }, set: function() {}, configurable: true
+  });
+
+  // In-memory Storage polyfill for sandbox
+  (function() {
+    function FakeStorage() { this._data = {}; }
+    FakeStorage.prototype.getItem = function(k) { return this._data.hasOwnProperty(k) ? this._data[k] : null; };
+    FakeStorage.prototype.setItem = function(k, v) { this._data[k] = String(v); };
+    FakeStorage.prototype.removeItem = function(k) { delete this._data[k]; };
+    FakeStorage.prototype.clear = function() { this._data = {}; };
+    FakeStorage.prototype.key = function(i) { return Object.keys(this._data)[i] || null; };
+    Object.defineProperty(FakeStorage.prototype, 'length', {
+      get: function() { return Object.keys(this._data).length; }
+    });
+
+    try { localStorage.getItem('_'); } catch(e) {
+      Object.defineProperty(window, 'localStorage', { value: new FakeStorage(), configurable: true });
+    }
+    try { sessionStorage.getItem('_'); } catch(e) {
+      Object.defineProperty(window, 'sessionStorage', { value: new FakeStorage(), configurable: true });
+    }
+  })();
+</script>
+
+<!-- SmartClient isomorphic dir (absolute path — sandbox URL resolution breaks with relative) -->
+<script>window.isomorphicDir = "/smartclient/";</script>
 
 <!-- Core modules (order matters) -->
 <script src="../smartclient/system/modules/ISC_Core.js"></script>
@@ -20,8 +47,11 @@
 <script src="../smartclient/system/modules/ISC_Forms.js"></script>
 <script src="../smartclient/system/modules/ISC_DataBinding.js"></script>
 
-<!-- Obsidian skin -->
+<!-- Obsidian skin: preload CSS (load_skin.js builds broken URLs in sandbox) -->
+<link rel="stylesheet" href="../smartclient/skins/Obsidian/skin_styles.css">
+<script>isc.Page.setSkinDir("/smartclient/skins/Obsidian/");</script>
 <script src="../smartclient/skins/Obsidian/load_skin.js"></script>
+<script>isc.Page.setSkinDir("/smartclient/skins/Obsidian/");</script>
 
 <!-- App logic -->
 <script src="app.js"></script>
