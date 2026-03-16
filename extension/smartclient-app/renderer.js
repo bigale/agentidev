@@ -12,7 +12,7 @@ const ALLOWED_TYPES = new Set([
   'TabSet', 'Tab', 'DetailViewer', 'SectionStack', 'HTMLFlow',
   'Window', 'ToolStrip', 'ToolStripButton',
   'PortalLayout', 'Portlet', 'Canvas', 'Progressbar', 'ImgButton',
-  'ToolStripSeparator', 'ToolStripMenuButton',
+  'ToolStripSeparator', 'ToolStripMenuButton', 'Menu',
 ]);
 
 // Track created components for cleanup

@@ -455,6 +455,9 @@ export function getSystemProcesses() {
 export function killProcess(pid) {
   return _sendRequest('BRIDGE_KILL_PROCESS', { pid });
 }
+export function filePicker(options = {}) {
+  return _sendRequest('BRIDGE_FILE_PICKER', options, 120000);
+}
 
 /**
  * Get the shim path provided by the bridge server at connect time.

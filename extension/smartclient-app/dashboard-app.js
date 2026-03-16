@@ -106,6 +106,14 @@ function loadDashboard() {
     });
   }, 500);
 
+  // Wire File menu
+  var fileMenu = resolveRef('tbFileMenu');
+  if (fileMenu && fileMenu.menu) {
+    fileMenu.menu.itemClick = function (item) {
+      if (item.title === 'Open Script...') showOpenScriptDialog();
+    };
+  }
+
   // Request initial connection status
   dispatchAction('BRIDGE_STATUS', {});
 
@@ -536,6 +544,105 @@ function launchSelectedScript(debug) {
       }
     });
   });
+}
+
+// ---- Open Script dialog ----
+
+function showOpenScriptDialog() {
+  // Use local refs instead of global IDs to avoid collisions on re-open
+  var pathForm = isc.DynamicForm.create({
+    width: '100%',
+    numCols: 3,
+    colWidths: [90, '*', 70],
+    fields: [
+      {
+        name: 'path',
+        title: 'Script path',
+        editorType: 'TextItem',
+        width: '*',
+        colSpan: 1,
+        hint: '/home/user/scripts/my-script.mjs',
+        showHintInField: true,
+      },
+      {
+        name: '_browse',
+        editorType: 'ButtonItem',
+        title: 'Browse',
+        width: 65,
+        startRow: false,
+        click: function () {
+          statusLabel.setContents('<span style="color:#888;">Opening file dialog...</span>');
+          dispatchActionAsync('FILE_PICKER', {
+            title: 'Open Script',
+            filter: 'JavaScript files (*.mjs;*.js)|*.mjs;*.js|All files (*.*)|*.*',
+          }).then(function (result) {
+            if (result && result.success && result.path) {
+              pathForm.setValue('path', result.path);
+              statusLabel.setContents('');
+            } else if (result && result.cancelled) {
+              statusLabel.setContents('');
+            } else {
+              statusLabel.setContents('<span style="color:#FF9800;">File browser not available — type path manually</span>');
+            }
+          }).catch(function () {
+            statusLabel.setContents('<span style="color:#FF9800;">File browser not available — type path manually</span>');
+          });
+        },
+      },
+    ],
+  });
+
+  var statusLabel = isc.Label.create({
+    width: '100%',
+    height: 20,
+    contents: '',
+  });
+
+  var dlg = isc.Dialog.create({
+    title: 'Open Script',
+    width: 520,
+    height: 200,
+    isModal: true,
+    showModalMask: true,
+    autoCenter: true,
+    items: [pathForm, statusLabel],
+    buttons: [
+      isc.Button.create({
+        title: 'Import',
+        click: function () {
+          var path = (pathForm.getValue('path') || '').trim();
+          if (!path) {
+            statusLabel.setContents('<span style="color:#f44336;">Please enter a file path</span>');
+            return;
+          }
+          statusLabel.setContents('<span style="color:#888;">Importing...</span>');
+          console.log('[Dashboard] SCRIPT_IMPORT:', path);
+
+          dispatchActionAsync('SCRIPT_IMPORT', { path: path }).then(function (response) {
+            console.log('[Dashboard] SCRIPT_IMPORT response:', JSON.stringify(response));
+            if (response && response.success) {
+              dlg.destroy();
+              var grid = resolveRef('scriptsGrid');
+              if (grid && grid.invalidateCache) grid.invalidateCache();
+              var scriptName = (response.script && response.script.name) || response.name;
+              if (scriptName) loadScriptIntoEditor(scriptName);
+            } else {
+              var err = (response && response.error) || 'Import failed';
+              statusLabel.setContents('<span style="color:#f44336;">' + escapeHtmlDash(err) + '</span>');
+            }
+          }).catch(function (e) {
+            console.error('[Dashboard] SCRIPT_IMPORT error:', e);
+            statusLabel.setContents('<span style="color:#f44336;">Import error: ' + escapeHtmlDash(e.message || String(e)) + '</span>');
+          });
+        },
+      }),
+      isc.Button.create({
+        title: 'Cancel',
+        click: function () { dlg.destroy(); },
+      }),
+    ],
+  });
+  dlg.show();
 }
 
 // ---- Async dispatch ----

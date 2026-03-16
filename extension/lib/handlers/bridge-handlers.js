@@ -70,6 +70,7 @@ export function register(handlers) {
     );
     return { success: true, ...result };
   };
+  handlers['SESSION_CREATE'] = handlers['BRIDGE_CREATE_SESSION'];
 
   handlers['BRIDGE_DESTROY_SESSION'] = async (msg) => {
     const result = await tracked('destroy_session', msg.sessionId, {}, () =>
@@ -77,6 +78,7 @@ export function register(handlers) {
     );
     return { success: true, ...result };
   };
+  handlers['SESSION_DESTROY'] = handlers['BRIDGE_DESTROY_SESSION'];
 
   handlers['BRIDGE_LIST_SESSIONS'] = async () => {
     const result = await bridgeClient.listSessions();
@@ -155,6 +157,15 @@ export function register(handlers) {
       return { success: false, error: 'Not connected to bridge' };
     }
     const result = await bridgeClient.killProcess(msg.pid);
+    return { success: true, ...result };
+  };
+
+  // Native file picker (via bridge → powershell.exe)
+  handlers['FILE_PICKER'] = async (msg) => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge' };
+    }
+    const result = await bridgeClient.filePicker({ title: msg.title, filter: msg.filter });
     return { success: true, ...result };
   };
 

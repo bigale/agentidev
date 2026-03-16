@@ -63,6 +63,20 @@ window._dashboardConfig = {
         height: 44,
         membersMargin: 4,
         members: [
+          // File menu
+          {
+            _type: 'ToolStripMenuButton',
+            ID: 'tbFileMenu',
+            title: 'File',
+            menu: {
+              _type: 'Menu',
+              data: [
+                { title: 'Open Script...' },
+              ],
+            },
+          },
+          { _type: 'ToolStripSeparator' },
+
           // Bridge status
           {
             _type: 'Canvas',

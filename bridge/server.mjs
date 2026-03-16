@@ -1897,6 +1897,52 @@ function startServer() {
         break;
       }
 
+      case MSG.BRIDGE_FILE_PICKER: {
+        const { filter, title } = msg.payload || {};
+        const dlgTitle = title || 'Open Script';
+        const dlgFilter = filter || 'JavaScript files (*.mjs;*.js)|*.mjs;*.js|All files (*.*)|*.*';
+        const psScript = [
+          'Add-Type -AssemblyName System.Windows.Forms;',
+          '$f = New-Object System.Windows.Forms.OpenFileDialog;',
+          `$f.Filter = '${dlgFilter.replace(/'/g, "''")}';`,
+          `$f.Title = '${dlgTitle.replace(/'/g, "''")}';`,
+          // Create a topmost owner form so the dialog appears in front of the browser
+          '$owner = New-Object System.Windows.Forms.Form;',
+          '$owner.TopMost = $true;',
+          '$owner.ShowInTaskbar = $false;',
+          '$owner.Width = 0; $owner.Height = 0;',
+          '$owner.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual;',
+          '$owner.Location = New-Object System.Drawing.Point(-1000,-1000);',
+          '$owner.Show(); $owner.Hide();',
+          "if ($f.ShowDialog($owner) -eq 'OK') { Write-Output $f.FileName } else { Write-Output '' }",
+          '$owner.Dispose();',
+        ].join(' ');
+        try {
+          const selected = await new Promise((resolve, reject) => {
+            execFile('powershell.exe', ['-NoProfile', '-Command', psScript], { timeout: 120000 }, (err, stdout) => {
+              if (err) return reject(err);
+              resolve(stdout.trim());
+            });
+          });
+          if (!selected) {
+            sendTo(ws, buildReply(msg, { cancelled: true }));
+          } else {
+            // Convert Windows path to WSL path
+            const wslPath = await new Promise((resolve, reject) => {
+              execFile('wslpath', ['-u', selected], (err, stdout) => {
+                if (err) return resolve(selected); // fallback to raw path
+                resolve(stdout.trim());
+              });
+            });
+            console.log(`[Bridge] File picker: ${wslPath}`);
+            sendTo(ws, buildReply(msg, { success: true, path: wslPath, windowsPath: selected }));
+          }
+        } catch (err) {
+          sendTo(ws, buildError(`File picker failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
       // ---- Scheduling ----
 
       case MSG.BRIDGE_SCHEDULE_CREATE: {
