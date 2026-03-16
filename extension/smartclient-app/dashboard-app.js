@@ -122,7 +122,7 @@ function loadDashboard() {
     };
   }
 
-  // Wire schedules grid: master-detail selection loads run history + formatCellValue
+  // Wire schedules grid: master-detail selection, formatting, and inline edit save
   var schedulesGrid = resolveRef('schedulesGrid');
   if (schedulesGrid) {
     schedulesGrid.recordClick = function (viewer, record) {
@@ -147,6 +147,49 @@ function loadDashboard() {
         return 'in ' + diff + 's';
       }
       return value;
+    };
+
+    // Show raw seconds when entering edit mode for intervalMs
+    schedulesGrid.editorEnter = function (record, editValues, rowNum, colNum) {
+      var fieldName = this.getFieldName(colNum);
+      if (fieldName === 'intervalMs') {
+        var ms = editValues.intervalMs != null ? editValues.intervalMs : (record && record.intervalMs);
+        if (typeof ms === 'number') {
+          this.setEditValue(rowNum, colNum, Math.round(ms / 1000));
+        }
+      }
+    };
+
+    // Persist inline edits to the bridge
+    schedulesGrid.editComplete = function (rowNum, colNum, newValues, oldValues, editCompletionEvent) {
+      var record = this.getRecord(rowNum);
+      if (!record || !record.id) return;
+      var updates = {};
+      var changed = false;
+      if (newValues.name !== undefined && newValues.name !== oldValues.name) {
+        updates.name = newValues.name;
+        changed = true;
+      }
+      if (newValues.intervalMs !== undefined && newValues.intervalMs !== oldValues.intervalMs) {
+        // User typed seconds (or e.g. "30s", "2m") — parse and convert to ms
+        var ms = parseIntervalInput(newValues.intervalMs);
+        if (ms > 0) {
+          updates.intervalMs = ms;
+          this.getRecord(rowNum).intervalMs = ms;
+        }
+        changed = true;
+      }
+      if (newValues.enabled !== undefined && newValues.enabled !== oldValues.enabled) {
+        updates.enabled = !!newValues.enabled;
+        changed = true;
+      }
+      if (changed) {
+        dispatchActionAsync('SCHEDULE_UPDATE', { scheduleId: record.id, ...updates }).then(function (resp) {
+          if (!resp || !resp.success) {
+            console.warn('[Dashboard] Schedule update failed:', resp && resp.error);
+          }
+        });
+      }
     };
   }
 
@@ -569,6 +612,19 @@ function formatDuration(ms) {
   var h = Math.floor(ms / 3600000);
   var m = Math.round((ms % 3600000) / 60000);
   return h + 'h ' + m + 'm';
+}
+
+function parseIntervalInput(val) {
+  var str = String(val).trim().toLowerCase();
+  var match = str.match(/^(\d+(?:\.\d+)?)\s*(ms|s|m|h)?$/);
+  if (!match) return 0;
+  var num = parseFloat(match[1]);
+  var unit = match[2] || 's';
+  if (unit === 'ms') return Math.round(num);
+  if (unit === 's') return Math.round(num * 1000);
+  if (unit === 'm') return Math.round(num * 60000);
+  if (unit === 'h') return Math.round(num * 3600000);
+  return 0;
 }
 
 // ---- Script launch ----
