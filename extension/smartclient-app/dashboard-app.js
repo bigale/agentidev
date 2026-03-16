@@ -395,6 +395,11 @@ function handleV8Paused(payload) {
   _dashState.v8Paused = true;
   _dashState.v8PausedLine = payload.line || null;
   _dashState.v8PausedCallFrames = payload.callFrames || [];
+  // Capture pid and scriptId from broadcast (safety net if launch response was missed)
+  if (payload.pid) _dashState.v8Pid = payload.pid;
+  if (payload.scriptId && !_dashState.selectedScriptId) {
+    _dashState.selectedScriptId = payload.scriptId;
+  }
 
   // Highlight paused line in Monaco
   if (_v8Decorations && _dashState.v8PausedLine && _monacoEditor) {
@@ -885,41 +890,11 @@ function refreshToolbar() {
   setButtonDisabled('dbgContinue', !isCheckpoint && !v8Paused);
   setButtonDisabled('dbgKill', !isActive);
 
-  // Wire scriptId into Step/Continue dispatch payloads
-  var sid = script ? (script.scriptId || script.id) : null;
-  if (sid) {
-    wireStepPayload('tbStep', sid, false);
-    wireStepPayload('tbContinue', sid, true);
-    wireStepPayload('dbgStep', sid, false);
-    wireStepPayload('dbgContinue', sid, true);
-
-    // Wire V8 step buttons with scriptId and pid
-    wireV8StepButton('tbStepInto', 'DBG_STEP_INTO', sid);
-    wireV8StepButton('tbStepOut', 'DBG_STEP_OUT', sid);
-  }
 }
 
 function setButtonDisabled(id, disabled) {
   var btn = resolveRef(id);
   if (btn && btn.setDisabled) {
     btn.setDisabled(disabled);
-  }
-}
-
-function wireStepPayload(id, scriptId, clearAll) {
-  var btn = resolveRef(id);
-  if (btn) {
-    btn.click = function () {
-      dispatchAction('SCRIPT_STEP', { scriptId: scriptId, clearAll: clearAll });
-    };
-  }
-}
-
-function wireV8StepButton(id, messageType, scriptId) {
-  var btn = resolveRef(id);
-  if (btn) {
-    btn.click = function () {
-      dispatchAction(messageType, { scriptId: scriptId, pid: _dashState.v8Pid });
-    };
   }
 }

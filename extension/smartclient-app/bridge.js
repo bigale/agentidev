@@ -188,8 +188,10 @@ window.addEventListener('message', async (event) => {
 
   // Action proxy — forward arbitrary chrome.runtime.sendMessage calls from sandbox
   if (msg.source === 'smartclient-action') {
+    const outMsg = { type: msg.messageType, ...msg.payload };
+    console.log('[Bridge] Action relay:', JSON.stringify(outMsg));
     chrome.runtime.sendMessage(
-      { type: msg.messageType, ...msg.payload },
+      outMsg,
       (response) => {
         try {
           iframe.contentWindow.postMessage({

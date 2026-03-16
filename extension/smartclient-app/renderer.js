@@ -161,6 +161,34 @@ var ACTION_MAP = {
       }
     };
   },
+  'scriptStep': function (component, node) {
+    component.click = function () {
+      var ds = window._dashState;
+      if (!ds) return;
+      var sid = ds.selectedScript
+        ? (ds.selectedScript.scriptId || ds.selectedScript.id)
+        : ds.selectedScriptId;
+      if (!sid) return;
+      var clearAll = (node._messagePayload && node._messagePayload.clearAll) || false;
+      // V8 line-level pause: use DBG commands instead of checkpoint SCRIPT_STEP
+      if (ds.v8Paused) {
+        var msgType = clearAll ? 'DBG_CONTINUE' : 'DBG_STEP_OVER';
+        dispatchAction(msgType, { scriptId: sid, pid: ds.v8Pid });
+      } else {
+        dispatchAction('SCRIPT_STEP', { scriptId: sid, clearAll: clearAll });
+      }
+    };
+  },
+  'v8Step': function (component, node) {
+    component.click = function () {
+      var sid = window._dashState && (window._dashState.selectedScript
+        ? (window._dashState.selectedScript.scriptId || window._dashState.selectedScript.id)
+        : window._dashState.selectedScriptId);
+      var pid = window._dashState && window._dashState.v8Pid;
+      if (!sid) return;
+      dispatchAction(node._messageType, { scriptId: sid, pid: pid });
+    };
+  },
   'bridgeConnect': function (component) {
     component.click = function () {
       dispatchAction('BRIDGE_CONNECT', { port: 9876 });

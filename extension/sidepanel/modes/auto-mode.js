@@ -39,6 +39,8 @@ export function init() {
 
   const dashBtn = document.getElementById('auto-open-dashboard-btn');
   if (dashBtn) dashBtn.addEventListener('click', openDashboard);
+  const scDashBtn = document.getElementById('auto-open-sc-dashboard-btn');
+  if (scDashBtn) scDashBtn.addEventListener('click', openSCDashboard);
 }
 
 export function activate() {
@@ -110,6 +112,10 @@ function refreshSessions() {
 
 function openDashboard() {
   chrome.tabs.create({ url: chrome.runtime.getURL('dashboard/dashboard.html') });
+}
+
+function openSCDashboard() {
+  chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html?mode=dashboard') });
 }
 
 // ---- Scripts ----

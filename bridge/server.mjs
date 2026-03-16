@@ -869,6 +869,7 @@ function startServer() {
   function getInspector(scriptId, pid) {
     if (scriptId) {
       const script = scripts.get(scriptId);
+      console.log(`[getInspector] scriptId=${scriptId} found=${!!script} hasInspector=${!!script?.inspector} pid=${pid} pendingKeys=[${[...pendingInspectors.keys()]}]`);
       if (script?.inspector) return script.inspector;
     }
     // pendingInspectors keys are numeric PIDs; coerce in case payload sent a string
