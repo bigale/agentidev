@@ -625,7 +625,13 @@ function showOpenScriptDialog() {
               var grid = resolveRef('scriptsGrid');
               if (grid && grid.invalidateCache) grid.invalidateCache();
               var scriptName = (response.script && response.script.name) || response.name;
-              if (scriptName) loadScriptIntoEditor(scriptName);
+              if (scriptName) {
+                // Select the imported script so Run/Debug buttons enable
+                _dashState.selectedScriptId = scriptName;
+                _dashState.selectedScript = { id: scriptName, name: scriptName };
+                loadScriptIntoEditor(scriptName);
+                refreshToolbar();
+              }
             } else {
               var err = (response && response.error) || 'Import failed';
               statusLabel.setContents('<span style="color:#f44336;">' + escapeHtmlDash(err) + '</span>');
@@ -765,8 +771,15 @@ function handleBroadcast(type, payload) {
 }
 
 function handleScriptBroadcast(payload) {
-  // Track selected script state
-  if (_dashState.selectedScriptId && payload.scriptId === _dashState.selectedScriptId) {
+  // Track selected script state — match by scriptId or by name (after import, selectedScriptId is the name)
+  var matches = _dashState.selectedScriptId
+    && (payload.scriptId === _dashState.selectedScriptId
+        || (payload.name && payload.name === _dashState.selectedScriptId));
+  if (matches) {
+    // Lock onto the real bridge scriptId once known
+    if (payload.scriptId && payload.scriptId !== _dashState.selectedScriptId) {
+      _dashState.selectedScriptId = payload.scriptId;
+    }
     _dashState.selectedScript = payload;
 
     // Update debug viewer
@@ -873,15 +886,16 @@ function refreshToolbar() {
   setButtonDisabled('dbgKill', !isActive);
 
   // Wire scriptId into Step/Continue dispatch payloads
-  if (script && script.id) {
-    wireStepPayload('tbStep', script.id, false);
-    wireStepPayload('tbContinue', script.id, true);
-    wireStepPayload('dbgStep', script.id, false);
-    wireStepPayload('dbgContinue', script.id, true);
+  var sid = script ? (script.scriptId || script.id) : null;
+  if (sid) {
+    wireStepPayload('tbStep', sid, false);
+    wireStepPayload('tbContinue', sid, true);
+    wireStepPayload('dbgStep', sid, false);
+    wireStepPayload('dbgContinue', sid, true);
 
     // Wire V8 step buttons with scriptId and pid
-    wireV8StepButton('tbStepInto', 'DBG_STEP_INTO', script.id);
-    wireV8StepButton('tbStepOut', 'DBG_STEP_OUT', script.id);
+    wireV8StepButton('tbStepInto', 'DBG_STEP_INTO', sid);
+    wireV8StepButton('tbStepOut', 'DBG_STEP_OUT', sid);
   }
 }
 

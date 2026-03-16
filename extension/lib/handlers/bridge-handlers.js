@@ -73,8 +73,9 @@ export function register(handlers) {
   handlers['SESSION_CREATE'] = handlers['BRIDGE_CREATE_SESSION'];
 
   handlers['BRIDGE_DESTROY_SESSION'] = async (msg) => {
-    const result = await tracked('destroy_session', msg.sessionId, {}, () =>
-      bridgeClient.destroySession(msg.sessionId)
+    const sessionId = msg.sessionId || msg.id;
+    const result = await tracked('destroy_session', sessionId, {}, () =>
+      bridgeClient.destroySession(sessionId)
     );
     return { success: true, ...result };
   };

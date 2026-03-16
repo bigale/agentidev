@@ -28,17 +28,20 @@ export function register(handlers) {
   };
 
   handlers['SCRIPT_PAUSE'] = async (msg) => {
-    const result = await bridgeClient.pauseScript(msg.scriptId, msg.reason);
+    const scriptId = msg.scriptId || msg.id;
+    const result = await bridgeClient.pauseScript(scriptId, msg.reason);
     return { success: true, ...result };
   };
 
   handlers['SCRIPT_RESUME'] = async (msg) => {
-    const result = await bridgeClient.resumeScript(msg.scriptId);
+    const scriptId = msg.scriptId || msg.id;
+    const result = await bridgeClient.resumeScript(scriptId);
     return { success: true, ...result };
   };
 
   handlers['SCRIPT_CANCEL'] = async (msg) => {
-    const result = await bridgeClient.cancelScript(msg.scriptId, msg.reason, msg.force || false);
+    const scriptId = msg.scriptId || msg.id;
+    const result = await bridgeClient.cancelScript(scriptId, msg.reason, msg.force || false);
     return { success: true, ...result };
   };
 
@@ -74,7 +77,7 @@ export function register(handlers) {
     if (!bridgeClient.isConnected()) {
       return { success: false, error: 'Not connected to bridge' };
     }
-    const result = await bridgeClient.stepScript(msg.scriptId, msg.clearAll || false);
+    const result = await bridgeClient.stepScript(msg.scriptId || msg.id, msg.clearAll || false);
     return { success: true, ...result };
   };
 
@@ -82,7 +85,7 @@ export function register(handlers) {
     if (!bridgeClient.isConnected()) {
       return { success: false, error: 'Not connected to bridge' };
     }
-    const result = await bridgeClient.setBreakpoint(msg.scriptId, msg.name, msg.active);
+    const result = await bridgeClient.setBreakpoint(msg.scriptId || msg.id, msg.name, msg.active);
     return { success: true, ...result };
   };
 
@@ -161,12 +164,13 @@ export function register(handlers) {
   };
   handlers['SCHEDULE_UPDATE'] = async (msg) => {
     if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
-    const { scheduleId, ...updates } = msg;
+    const scheduleId = msg.scheduleId || msg.id;
+    const { scheduleId: _sid, id: _id, type: _type, ...updates } = msg;
     return { success: true, ...(await bridgeClient.updateSchedule(scheduleId, updates)) };
   };
   handlers['SCHEDULE_DELETE'] = async (msg) => {
     if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
-    return { success: true, ...(await bridgeClient.deleteSchedule(msg.scheduleId)) };
+    return { success: true, ...(await bridgeClient.deleteSchedule(msg.scheduleId || msg.id)) };
   };
   handlers['SCHEDULE_LIST'] = async () => {
     if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge', schedules: [] };
@@ -174,7 +178,7 @@ export function register(handlers) {
   };
   handlers['SCHEDULE_TRIGGER'] = async (msg) => {
     if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
-    return { success: true, ...(await bridgeClient.triggerSchedule(msg.scheduleId)) };
+    return { success: true, ...(await bridgeClient.triggerSchedule(msg.scheduleId || msg.id)) };
   };
 
   // ---- Script Library (chrome.storage.local) ----
