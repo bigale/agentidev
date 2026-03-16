@@ -125,7 +125,12 @@ var ACTION_MAP = {
         var source = resolveRef(node._payloadFrom);
         if (source) {
           if (source.getSelectedRecord) {
-            Object.assign(payload, source.getSelectedRecord() || {});
+            var record = source.getSelectedRecord();
+            if (!record) {
+              console.warn('[Renderer] No record selected in', node._payloadFrom, '— skipping', node._messageType);
+              return;
+            }
+            Object.assign(payload, record);
           } else if (source.getValues) {
             Object.assign(payload, source.getValues() || {});
           }
@@ -198,6 +203,12 @@ var ACTION_MAP = {
     component.click = function () {
       dispatchAction('BRIDGE_DISCONNECT', {});
     };
+  },
+  'newSession': function (component) {
+    // Wired dynamically in dashboard-app.js loadDashboard()
+  },
+  'newSchedule': function (component) {
+    // Wired dynamically in dashboard-app.js loadDashboard()
   },
   'debugLaunch': function (component) {
     // Wired dynamically in dashboard-app.js loadDashboard()

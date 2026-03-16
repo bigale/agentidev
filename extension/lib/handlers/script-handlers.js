@@ -180,6 +180,10 @@ export function register(handlers) {
     if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
     return { success: true, ...(await bridgeClient.triggerSchedule(msg.scheduleId || msg.id)) };
   };
+  handlers['SCHEDULE_HISTORY'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
+    return { success: true, ...(await bridgeClient.scheduleHistory(msg.scheduleId || msg.id)) };
+  };
 
   // ---- Script Library (chrome.storage.local) ----
 

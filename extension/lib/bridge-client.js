@@ -410,6 +410,9 @@ export function listSchedules() {
 export function triggerSchedule(scheduleId) {
   return _sendRequest('BRIDGE_SCHEDULE_TRIGGER', { scheduleId });
 }
+export function scheduleHistory(scheduleId) {
+  return _sendRequest('BRIDGE_SCHEDULE_HISTORY', { scheduleId });
+}
 
 export function onScheduleUpdate(cb) {
   callbacks.onScheduleUpdate.push(cb);

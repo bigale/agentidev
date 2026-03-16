@@ -379,10 +379,24 @@ function startServer() {
     try {
       const data = await readFile(SCHEDULES_FILE, 'utf8');
       const arr = JSON.parse(data);
+      let cleaned = false;
       for (const sched of arr) {
+        // Close out stale "running" entries from previous server instance
+        if (sched.history) {
+          for (const h of sched.history) {
+            if (h.state === 'running' && !h.completedAt) {
+              h.completedAt = Date.now();
+              h.durationMs = h.completedAt - h.startedAt;
+              h.state = 'failed';
+              h.error = 'Server restarted (process lost)';
+              cleaned = true;
+            }
+          }
+        }
         schedules.set(sched.id, sched);
         if (sched.enabled) startScheduleTimer(sched.id);
       }
+      if (cleaned) await saveSchedules();
       console.log(`[Bridge] Loaded ${schedules.size} schedule(s)`);
     } catch {
       // No file or invalid — start fresh
@@ -444,9 +458,16 @@ function startServer() {
       sched.runCount++;
       sched.nextRunAt = sched.enabled ? Date.now() + sched.intervalMs : null;
 
-      // Keep last 10 runs in history
       if (!sched.history) sched.history = [];
-      sched.history.push({ launchId: result.launchId, pid: result.pid, at: sched.lastRunAt });
+      sched.history.push({
+        launchId: result.launchId,
+        pid: result.pid,
+        startedAt: Date.now(),
+        completedAt: null,
+        durationMs: null,
+        state: 'running',
+        error: null,
+      });
       if (sched.history.length > 10) sched.history.shift();
 
       await saveSchedules();
@@ -855,6 +876,21 @@ function startServer() {
         if (script.pid === child.pid && script.inspector) {
           script.inspector.disconnect();
           script.inspector = null;
+        }
+      }
+      // Close out schedule history for scripts that crashed before registering
+      if (code !== 0) {
+        for (const [, sched] of schedules) {
+          const entry = sched.history?.find(h => h.pid === child.pid && !h.completedAt);
+          if (entry) {
+            entry.completedAt = Date.now();
+            entry.durationMs = entry.completedAt - entry.startedAt;
+            entry.state = 'failed';
+            entry.error = `Process exited with code ${code}`;
+            saveSchedules();
+            broadcast(buildMessage(MSG.BRIDGE_SCHEDULE_UPDATE, { schedule: sched }));
+            break;
+          }
         }
       }
     });
@@ -1318,6 +1354,7 @@ function startServer() {
           sendTo(ws, buildError('Script not found', msg.id));
           return;
         }
+        const completedPid = script.pid;
         script.state = 'complete';
         script.errors = errors ?? script.errors;
         script.results = results;
@@ -1330,6 +1367,22 @@ function startServer() {
           results, duration: script.duration,
           activeBreakpoints: [],
         })));
+
+        // Close out schedule history entry — match by PID (launchId and scriptId differ)
+        if (completedPid) {
+          for (const [, sched] of schedules) {
+            const entry = sched.history?.find(h => h.pid === completedPid && !h.completedAt);
+            if (entry) {
+              entry.completedAt = Date.now();
+              entry.durationMs = entry.completedAt - entry.startedAt;
+              entry.state = (errors && errors > 0) ? 'failed' : 'completed';
+              entry.error = (errors && errors > 0) ? `${errors} error(s)` : null;
+              saveSchedules();
+              broadcast(buildMessage(MSG.BRIDGE_SCHEDULE_UPDATE, { schedule: sched }));
+              break;
+            }
+          }
+        }
 
         // Execute post-actions (errors logged but don't affect script result)
         if (script.postActions) {
@@ -2032,6 +2085,17 @@ function startServer() {
         }
         sendTo(ws, buildReply(msg, { success: true, scheduleId }));
         triggerSchedule(scheduleId);
+        break;
+      }
+
+      case MSG.BRIDGE_SCHEDULE_HISTORY: {
+        const { scheduleId } = msg.payload || {};
+        const sched = schedules.get(scheduleId);
+        if (!sched) {
+          sendTo(ws, buildError(`Schedule not found: ${scheduleId}`, msg.id));
+          break;
+        }
+        sendTo(ws, buildReply(msg, { success: true, history: sched.history || [] }));
         break;
       }
 

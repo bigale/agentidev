@@ -32,11 +32,12 @@ window._dashboardConfig = {
     {
       ID: 'BridgeSchedules',
       fields: [
-        { name: 'id',       type: 'text',    primaryKey: true, hidden: true },
-        { name: 'name',     type: 'text',    title: 'Name',     width: '*' },
-        { name: 'cron',     type: 'text',    title: 'Cron',     width: 100 },
-        { name: 'enabled',  type: 'boolean', title: 'Enabled',  width: 60 },
-        { name: 'lastRun',  type: 'text',    title: 'Last Run', width: 100 },
+        { name: 'id',         type: 'text',    primaryKey: true, hidden: true },
+        { name: 'name',       type: 'text',    title: 'Name',     width: '*' },
+        { name: 'intervalMs', type: 'integer', title: 'Interval', width: 70 },
+        { name: 'enabled',    type: 'boolean', title: 'On',       width: 35 },
+        { name: 'runCount',   type: 'integer', title: 'Runs',     width: 45 },
+        { name: 'nextRunAt',  type: 'integer', title: 'Next Run', width: 80 },
       ],
     },
     {
@@ -243,11 +244,10 @@ window._dashboardConfig = {
                     members: [
                       {
                         _type: 'Button',
+                        ID: 'btnNewSession',
                         title: 'New',
                         width: 60,
-                        _action: 'dispatch',
-                        _messageType: 'SESSION_CREATE',
-                        _messagePayload: { name: 'Session' },
+                        _action: 'newSession',
                       },
                       {
                         _type: 'Button',
@@ -299,7 +299,7 @@ window._dashboardConfig = {
             _column: 0,
             _row: 2,
             title: 'Schedules',
-            height: 200,
+            height: 360,
             members: [
               {
                 _type: 'VLayout',
@@ -316,9 +316,27 @@ window._dashboardConfig = {
                     selectionType: 'single',
                     canEdit: false,
                     fields: [
-                      { name: 'name',    width: '*' },
-                      { name: 'cron',    width: 80 },
-                      { name: 'enabled', width: 50 },
+                      { name: 'name',       width: '*' },
+                      { name: 'intervalMs', width: 60 },
+                      { name: 'enabled',    width: 35 },
+                      { name: 'runCount',   width: 40 },
+                      { name: 'nextRunAt',  width: 75 },
+                    ],
+                  },
+                  {
+                    _type: 'ListGrid',
+                    ID: 'scheduleRunsGrid',
+                    width: '100%',
+                    height: 120,
+                    showHeader: true,
+                    selectionType: 'none',
+                    canEdit: false,
+                    emptyMessage: 'Select a schedule to view run history',
+                    fields: [
+                      { name: 'startedAt',  type: 'integer', title: 'Started',  width: 90 },
+                      { name: 'state',       type: 'text',    title: 'State',    width: 70 },
+                      { name: 'durationMs',  type: 'integer', title: 'Duration', width: 70 },
+                      { name: 'error',       type: 'text',    title: 'Error',    width: '*' },
                     ],
                   },
                   {
@@ -327,6 +345,13 @@ window._dashboardConfig = {
                     membersMargin: 4,
                     layoutMargin: 4,
                     members: [
+                      {
+                        _type: 'Button',
+                        ID: 'btnNewSchedule',
+                        title: 'New',
+                        width: 60,
+                        _action: 'newSchedule',
+                      },
                       {
                         _type: 'Button',
                         title: 'Trigger',

@@ -28,6 +28,7 @@ import { register as registerAgent } from './lib/handlers/agent-handlers.js';
 import { register as registerGrammar } from './lib/handlers/grammar-handlers.js';
 import { register as registerBridge, initBridgeCallbacks } from './lib/handlers/bridge-handlers.js';
 import * as bridgeClient from './lib/bridge-client.js';
+import { upsertShimImport } from './lib/shim-utils.js';
 import { register as registerSnapshot, handleSnapshotStorage } from './lib/handlers/snapshot-handlers.js';
 import { register as registerAutomation } from './lib/handlers/automation-handlers.js';
 import { register as registerScript } from './lib/handlers/script-handlers.js';
@@ -71,9 +72,11 @@ async function ensureExampleScripts() {
       console.log('[Background] ✓ Example scripts loaded into library');
       // Sync new examples to disk if bridge is already connected
       if (bridgeClient.isConnected()) {
+        const shimPath = bridgeClient.getShimPath();
         for (const ex of EXAMPLE_SCRIPTS) {
           if (lib[ex.name]) {
-            try { await bridgeClient.saveScript(ex.name, lib[ex.name].source); } catch {}
+            const src = shimPath ? upsertShimImport(lib[ex.name].source, shimPath) : lib[ex.name].source;
+            try { await bridgeClient.saveScript(ex.name, src); } catch {}
           }
         }
         console.log('[Background] ✓ Example scripts synced to disk');

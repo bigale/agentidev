@@ -234,6 +234,11 @@ function wrapBrowserType(browserType) {
             const browser = await target.connectOverCDP(_bridgeCdpEndpoint);
             return wrapBrowser(browser, true);
           }
+          // Default to headed unless headless is explicitly set
+          const opts = args[0] && typeof args[0] === 'object' ? args[0] : {};
+          if (opts.headless === undefined) {
+            args[0] = { ...opts, headless: false };
+          }
           const browser = await target.launch(...args);
           return wrapBrowser(browser, false);
         };

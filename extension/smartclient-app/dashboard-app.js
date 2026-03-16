@@ -106,6 +106,65 @@ function loadDashboard() {
     });
   }, 500);
 
+  // Wire New Session button
+  var btnNewSession = resolveRef('btnNewSession');
+  if (btnNewSession) {
+    btnNewSession.click = function () {
+      showNewSessionDialog();
+    };
+  }
+
+  // Wire New Schedule button
+  var btnNewSchedule = resolveRef('btnNewSchedule');
+  if (btnNewSchedule) {
+    btnNewSchedule.click = function () {
+      showNewScheduleDialog();
+    };
+  }
+
+  // Wire schedules grid: master-detail selection loads run history + formatCellValue
+  var schedulesGrid = resolveRef('schedulesGrid');
+  if (schedulesGrid) {
+    schedulesGrid.recordClick = function (viewer, record) {
+      var runsGrid = resolveRef('scheduleRunsGrid');
+      if (!record || !record.id) {
+        if (runsGrid) runsGrid.setData([]);
+        return;
+      }
+      dispatchActionAsync('SCHEDULE_HISTORY', { scheduleId: record.id }).then(function (resp) {
+        if (runsGrid && resp && resp.history) {
+          runsGrid.setData(resp.history.slice().reverse());
+        }
+      });
+    };
+    schedulesGrid.formatCellValue = function (value, record, rowNum, colNum) {
+      var fieldName = this.getFieldName(colNum);
+      if (fieldName === 'intervalMs' && typeof value === 'number') {
+        return formatDuration(value);
+      }
+      if (fieldName === 'nextRunAt' && typeof value === 'number') {
+        var diff = Math.max(0, Math.round((value - Date.now()) / 1000));
+        return 'in ' + diff + 's';
+      }
+      return value;
+    };
+  }
+
+  // Wire runs grid formatCellValue
+  var scheduleRunsGrid = resolveRef('scheduleRunsGrid');
+  if (scheduleRunsGrid) {
+    scheduleRunsGrid.formatCellValue = function (value, record, rowNum, colNum) {
+      var fieldName = this.getFieldName(colNum);
+      if (fieldName === 'startedAt' && typeof value === 'number') {
+        return new Date(value).toLocaleTimeString();
+      }
+      if (fieldName === 'durationMs' && typeof value === 'number') {
+        return formatDuration(value);
+      }
+      return value == null ? '' : value;
+    };
+  }
+
   // Wire File menu
   var fileMenu = resolveRef('tbFileMenu');
   if (fileMenu && fileMenu.menu) {
@@ -503,6 +562,15 @@ function escapeHtmlDash(str) {
   return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function formatDuration(ms) {
+  if (ms < 1000) return ms + 'ms';
+  if (ms < 60000) return Math.round(ms / 1000) + 's';
+  if (ms < 3600000) return Math.round(ms / 60000) + 'm';
+  var h = Math.floor(ms / 3600000);
+  var m = Math.round((ms % 3600000) / 60000);
+  return h + 'h ' + m + 'm';
+}
+
 // ---- Script launch ----
 
 function launchSelectedScript(debug) {
@@ -663,6 +731,276 @@ function showOpenScriptDialog() {
     ],
   });
   dlg.show();
+}
+
+// ---- New Session dialog ----
+
+function showNewSessionDialog() {
+  var sessionsGrid = resolveRef('sessionsGrid');
+  var currentCount = sessionsGrid ? sessionsGrid.getTotalRows() : 0;
+  var defaultName = 'session_' + (currentCount + 1);
+
+  var nameForm = isc.DynamicForm.create({
+    width: '100%',
+    numCols: 2,
+    colWidths: [100, '*'],
+    fields: [
+      {
+        name: 'sessionName',
+        title: 'Session name',
+        editorType: 'TextItem',
+        width: '*',
+        defaultValue: defaultName,
+        selectOnFocus: true,
+      },
+    ],
+  });
+
+  var statusLabel = isc.Label.create({
+    width: '100%',
+    height: 20,
+    contents: '',
+  });
+
+  var okBtn = isc.Button.create({
+    title: 'OK',
+    click: function () {
+      var name = (nameForm.getValue('sessionName') || '').trim();
+      if (!name) {
+        statusLabel.setContents('<span style="color:#f44336;">Please enter a session name</span>');
+        return;
+      }
+
+      okBtn.setDisabled(true);
+      cancelBtn.setDisabled(true);
+      nameForm.setDisabled(true);
+      statusLabel.setContents(
+        '<span style="color:#888;">' +
+        '<span style="display:inline-block;width:12px;height:12px;border:2px solid #555;' +
+        'border-top-color:#aaa;border-radius:50%;animation:spin .8s linear infinite;' +
+        'vertical-align:middle;margin-right:6px;"></span>' +
+        'Creating session\u2026</span>'
+      );
+
+      dispatchActionAsync('SESSION_CREATE', { name: name, options: {} }).then(function (resp) {
+        if (resp && resp.success) {
+          dlg.destroy();
+          if (sessionsGrid && sessionsGrid.invalidateCache) sessionsGrid.invalidateCache();
+        } else {
+          okBtn.setDisabled(false);
+          cancelBtn.setDisabled(false);
+          nameForm.setDisabled(false);
+          var err = (resp && resp.error) || 'Failed to create session';
+          statusLabel.setContents('<span style="color:#f44336;">' + escapeHtmlDash(err) + '</span>');
+        }
+      }).catch(function (e) {
+        okBtn.setDisabled(false);
+        cancelBtn.setDisabled(false);
+        nameForm.setDisabled(false);
+        statusLabel.setContents('<span style="color:#f44336;">Error: ' + escapeHtmlDash(e.message || String(e)) + '</span>');
+      });
+    },
+  });
+
+  var cancelBtn = isc.Button.create({
+    title: 'Cancel',
+    click: function () { dlg.destroy(); },
+  });
+
+  var dlg = isc.Dialog.create({
+    title: 'New Session',
+    width: 360,
+    height: 160,
+    isModal: true,
+    showModalMask: true,
+    autoCenter: true,
+    items: [nameForm, statusLabel],
+    buttons: [okBtn, cancelBtn],
+  });
+  dlg.show();
+  nameForm.focusInItem('sessionName');
+}
+
+// ---- New Schedule dialog ----
+
+function showNewScheduleDialog() {
+  var statusLabel = isc.Label.create({
+    width: '100%',
+    height: 20,
+    contents: '<span style="color:#888;">Loading scripts...</span>',
+  });
+
+  var scriptOptions = { '': '-- select script --' };
+
+  var schedForm = isc.DynamicForm.create({
+    width: '100%',
+    numCols: 4,
+    colWidths: [80, '*', 60, 60],
+    fields: [
+      {
+        name: 'name',
+        title: 'Name',
+        editorType: 'TextItem',
+        width: '*',
+        colSpan: 3,
+        hint: 'my-poller',
+        showHintInField: true,
+      },
+      {
+        name: 'scriptName',
+        title: 'Script',
+        editorType: 'SelectItem',
+        width: '*',
+        colSpan: 3,
+        valueMap: scriptOptions,
+        defaultValue: '',
+      },
+      {
+        name: 'interval',
+        title: 'Every',
+        editorType: 'SpinnerItem',
+        width: 60,
+        colSpan: 1,
+        defaultValue: 30,
+        min: 1,
+      },
+      {
+        name: 'unit',
+        title: '',
+        editorType: 'SelectItem',
+        width: 60,
+        colSpan: 1,
+        startRow: false,
+        showTitle: false,
+        valueMap: { '1000': 'sec', '60000': 'min', '3600000': 'hr' },
+        defaultValue: '60000',
+      },
+      {
+        name: 'args',
+        title: 'Args',
+        editorType: 'TextItem',
+        width: '*',
+        colSpan: 3,
+        hint: '--flag=value',
+        showHintInField: true,
+      },
+      {
+        name: 'runNow',
+        title: 'Run now',
+        editorType: 'CheckboxItem',
+        colSpan: 3,
+        defaultValue: false,
+      },
+    ],
+  });
+
+  var okBtn = isc.Button.create({
+    title: 'Create',
+    click: function () {
+      var vals = schedForm.getValues();
+      if (!vals.scriptName) {
+        statusLabel.setContents('<span style="color:#f44336;">Please select a script</span>');
+        return;
+      }
+      var intervalMs = (vals.interval || 30) * parseInt(vals.unit || '60000', 10);
+      var scheduleName = (vals.name || '').trim() || vals.scriptName;
+
+      okBtn.setDisabled(true);
+      cancelBtn.setDisabled(true);
+      schedForm.setDisabled(true);
+      statusLabel.setContents(
+        '<span style="color:#888;">' +
+        '<span style="display:inline-block;width:12px;height:12px;border:2px solid #555;' +
+        'border-top-color:#aaa;border-radius:50%;animation:spin .8s linear infinite;' +
+        'vertical-align:middle;margin-right:6px;"></span>' +
+        'Creating schedule\u2026</span>'
+      );
+
+      dispatchActionAsync('BRIDGE_GET_INFO', {}).then(function (info) {
+        var scriptsDir = (info && info.scriptsDir) || '';
+        var scriptPath = scriptsDir + '/' + vals.scriptName + '.mjs';
+
+        return dispatchActionAsync('SCRIPT_LIBRARY_GET', { name: vals.scriptName }).then(function (libResp) {
+          var originalPath = (libResp && libResp.success) ? (libResp.script && libResp.script.originalPath) : null;
+          var argsArr = vals.args ? vals.args.trim().split(/\s+/) : [];
+
+          return dispatchActionAsync('SCHEDULE_CREATE', {
+            name: scheduleName,
+            scriptPath: scriptPath,
+            scriptName: vals.scriptName,
+            intervalMs: intervalMs,
+            args: argsArr,
+            runNow: !!vals.runNow,
+            originalPath: originalPath,
+          });
+        });
+      }).then(function (resp) {
+        if (resp && resp.success) {
+          dlg.destroy();
+          var grid = resolveRef('schedulesGrid');
+          if (grid && grid.invalidateCache) grid.invalidateCache();
+        } else {
+          okBtn.setDisabled(false);
+          cancelBtn.setDisabled(false);
+          schedForm.setDisabled(false);
+          var err = (resp && resp.error) || 'Failed to create schedule';
+          statusLabel.setContents('<span style="color:#f44336;">' + escapeHtmlDash(err) + '</span>');
+        }
+      }).catch(function (e) {
+        okBtn.setDisabled(false);
+        cancelBtn.setDisabled(false);
+        schedForm.setDisabled(false);
+        statusLabel.setContents('<span style="color:#f44336;">Error: ' + escapeHtmlDash(e.message || String(e)) + '</span>');
+      });
+    },
+  });
+
+  var cancelBtn = isc.Button.create({
+    title: 'Cancel',
+    click: function () { dlg.destroy(); },
+  });
+
+  var dlg = isc.Dialog.create({
+    title: 'New Schedule',
+    width: 420,
+    height: 300,
+    isModal: true,
+    showModalMask: true,
+    autoCenter: true,
+    items: [schedForm, statusLabel],
+    buttons: [okBtn, cancelBtn],
+  });
+  dlg.show();
+
+  // Populate script dropdown from library + bridge scripts (deduplicated)
+  var seen = {};
+  dispatchActionAsync('SCRIPT_LIBRARY_LIST', {}).then(function (libResp) {
+    if (libResp && libResp.success) {
+      for (var i = 0; i < (libResp.scripts || []).length; i++) {
+        var s = libResp.scripts[i];
+        if (!seen[s.name]) {
+          seen[s.name] = true;
+          scriptOptions[s.name] = s.name;
+        }
+      }
+    }
+    return dispatchActionAsync('SCRIPT_LIST', {});
+  }).then(function (scriptResp) {
+    if (scriptResp && scriptResp.success) {
+      for (var j = 0; j < (scriptResp.scripts || []).length; j++) {
+        var s = scriptResp.scripts[j];
+        var sName = (s.name || '').replace(/\.(mjs|js)$/, '');
+        if (sName && !seen[sName]) {
+          seen[sName] = true;
+          scriptOptions[sName] = sName;
+        }
+      }
+    }
+    schedForm.getField('scriptName').setValueMap(scriptOptions);
+    statusLabel.setContents('');
+  }).catch(function () {
+    statusLabel.setContents('<span style="color:#FF9800;">Could not load scripts — type name manually</span>');
+  });
 }
 
 // ---- Async dispatch ----
@@ -871,6 +1209,10 @@ function refreshToolbar() {
   var isPaused = scriptState === 'paused';
   var isCheckpoint = scriptState === 'checkpoint';
   var v8Paused = _dashState.v8Paused;
+
+  // New Session / New Schedule: enabled when connected
+  setButtonDisabled('btnNewSession', !connected);
+  setButtonDisabled('btnNewSchedule', !connected);
 
   // Run: enabled when selected, connected, NOT active
   setButtonDisabled('tbRun', !hasSelected || !connected || isActive);
