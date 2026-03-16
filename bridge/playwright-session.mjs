@@ -18,7 +18,13 @@ import { homedir } from 'os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const AUTOMATION_CONFIG = pathResolve(__dirname, 'playwright-automation.config.json');
-const DAEMON_BASE = pathResolve(homedir(), '.cache', 'ms-playwright', 'daemon');
+const DAEMON_BASE = (() => {
+  if (process.env.PLAYWRIGHT_DAEMON_SESSION_DIR) return process.env.PLAYWRIGHT_DAEMON_SESSION_DIR;
+  const home = homedir();
+  if (process.platform === 'win32') return pathResolve(process.env.LOCALAPPDATA || pathResolve(home, 'AppData', 'Local'), 'ms-playwright', 'daemon');
+  if (process.platform === 'darwin') return pathResolve(home, 'Library', 'Caches', 'ms-playwright', 'daemon');
+  return pathResolve(process.env.XDG_CACHE_HOME || pathResolve(home, '.cache'), 'ms-playwright', 'daemon');
+})();
 
 // Session states
 export const SESSION_STATE = {
