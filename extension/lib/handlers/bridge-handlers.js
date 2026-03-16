@@ -232,12 +232,32 @@ export function initBridgeCallbacks(snapshotStorageFn) {
       try {
         const stored = await chrome.storage.local.get('bridge-scripts');
         const lib = stored['bridge-scripts'] || {};
+        let dirty = false;
+
+        // Migrate corrupted entries where name is a full path (Windows .split('/') bug)
+        for (const name of Object.keys(lib)) {
+          if (name.includes('/') || name.includes('\\')) {
+            const safeName = name.split(/[/\\]/).pop().replace(/\.(mjs|js)$/, '');
+            console.log(`[Background] Migrating corrupted library entry: "${name}" → "${safeName}"`);
+            const entry = lib[name];
+            entry.name = safeName;
+            const shimPath = bridgeClient.getShimPath();
+            if (shimPath) entry.source = upsertShimImport(entry.source, shimPath);
+            lib[safeName] = entry;
+            delete lib[name];
+            dirty = true;
+          }
+        }
+        if (dirty) await chrome.storage.local.set({ 'bridge-scripts': lib });
+
         const names = Object.keys(lib);
         if (names.length > 0) {
           console.log(`[Background] Auto-syncing ${names.length} library scripts to bridge...`);
+          const shimPath = bridgeClient.getShimPath();
           for (const name of names) {
             try {
-              await bridgeClient.saveScript(name, lib[name].source);
+              const source = shimPath ? upsertShimImport(lib[name].source, shimPath) : lib[name].source;
+              await bridgeClient.saveScript(name, source);
             } catch (err) {
               console.warn(`[Background] Failed to sync ${name}:`, err.message);
             }

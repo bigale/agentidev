@@ -98,6 +98,7 @@ export class PlaywrightSession {
         cwd: process.cwd(),
         env: { ...process.env },
         maxBuffer: 10 * 1024 * 1024, // 10MB for large snapshots
+        shell: process.platform === 'win32',
       }, (err, stdout, stderr) => {
         if (stderr) {
           console.error(`[Session ${this.name}] stderr: ${stderr.trim()}`);
@@ -341,6 +342,7 @@ export class PlaywrightSession {
       const stdout = await new Promise((resolve, reject) => {
         execFile('playwright-cli', ['list'], {
           timeout: 5000,
+          shell: process.platform === 'win32',
         }, (err, stdout) => {
           if (err) reject(err);
           else resolve(stdout);

@@ -57,7 +57,7 @@ export function register(handlers) {
     // Look up originalPath from library so server can derive CWD for dependencies
     let originalPath = null;
     try {
-      const scriptName = (msg.path || '').split('/').pop().replace(/\.(mjs|js)$/, '');
+      const scriptName = (msg.path || '').split(/[/\\]/).pop().replace(/\.(mjs|js)$/, '');
       const lib = await getLibrary();
       if (lib[scriptName]?.originalPath) {
         originalPath = lib[scriptName].originalPath;
@@ -152,7 +152,7 @@ export function register(handlers) {
     // Look up originalPath from library so scheduled triggers can derive CWD for dependencies
     if (!msg.originalPath && msg.scriptPath) {
       try {
-        const scriptName = msg.scriptPath.split('/').pop().replace(/\.(mjs|js)$/, '');
+        const scriptName = msg.scriptPath.split(/[/\\]/).pop().replace(/\.(mjs|js)$/, '');
         const lib = await getLibrary();
         if (lib[scriptName]?.originalPath) {
           msg.originalPath = lib[scriptName].originalPath;
@@ -194,8 +194,8 @@ export function register(handlers) {
     if (!fileResult?.source) {
       return { success: false, error: 'Could not read file' };
     }
-    // Derive name from filename
-    const name = scriptPath.split('/').pop().replace(/\.(mjs|js)$/, '');
+    // Derive name from filename (handle both / and \ separators)
+    const name = scriptPath.split(/[/\\]/).pop().replace(/\.(mjs|js)$/, '');
     // Auto-upsert shim import
     const shimPath = bridgeClient.getShimPath();
     const source = upsertShimImport(fileResult.source, shimPath);

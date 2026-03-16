@@ -6,8 +6,9 @@
 
 export function upsertShimImport(source, shimPath) {
   if (!shimPath) return source;
-  const esmPattern = /^(import\s+\{[^}]+\}\s+from\s+)(['"])playwright\2/m;
-  const cjsPattern = /^((const|let|var)\s+\{[^}]+\}\s*=\s*require\s*\(\s*)(['"])playwright\3/m;
+  // Match `from 'playwright'` OR any existing shim path (stale absolute paths from other machines)
+  const esmPattern = /^(import\s+\{[^}]+\}\s+from\s+)(['"])(?:playwright|[^'"]*playwright-shim\.mjs)\2/m;
+  const cjsPattern = /^((const|let|var)\s+\{[^}]+\}\s*=\s*require\s*\(\s*)(['"])(?:playwright|[^'"]*playwright-shim\.mjs)\3/m;
   if (esmPattern.test(source)) {
     return source.replace(esmPattern, `$1$2${shimPath}$2`);
   }

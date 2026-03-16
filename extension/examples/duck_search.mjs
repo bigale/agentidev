@@ -7,7 +7,7 @@
  * Uses playwright-shim for bridge integration + named checkpoints.
  */
 
-import { chromium, client } from '/home/bigale/repos/contextual-recall/bridge/playwright-shim.mjs';
+import { chromium, client } from '../../bridge/playwright-shim.mjs';
 
 const QUERY = 'playwright browser automation';
 

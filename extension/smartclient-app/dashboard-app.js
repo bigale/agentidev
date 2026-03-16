@@ -544,8 +544,17 @@ function launchSelectedScript(debug) {
     }
 
     dispatchActionAsync('SCRIPT_LAUNCH', payload).then(function (resp) {
-      if (resp && resp.success && debug && resp.pid) {
-        _dashState.v8Pid = resp.pid;
+      if (resp && resp.success) {
+        // Track the new script instance so step/continue use the right scriptId
+        if (resp.launchId) {
+          _dashState.selectedScriptId = resp.launchId;
+          _dashState.selectedScript = Object.assign({}, _dashState.selectedScript, {
+            id: resp.launchId, scriptId: resp.launchId,
+          });
+        }
+        if (debug && resp.pid) {
+          _dashState.v8Pid = resp.pid;
+        }
       }
     });
   });
@@ -776,10 +785,12 @@ function handleBroadcast(type, payload) {
 }
 
 function handleScriptBroadcast(payload) {
-  // Track selected script state — match by scriptId or by name (after import, selectedScriptId is the name)
+  // Track selected script state — match by scriptId, by name, or by known script name
+  var selectedName = _dashState.selectedScript ? _dashState.selectedScript.name : null;
   var matches = _dashState.selectedScriptId
     && (payload.scriptId === _dashState.selectedScriptId
-        || (payload.name && payload.name === _dashState.selectedScriptId));
+        || (payload.name && payload.name === _dashState.selectedScriptId)
+        || (payload.name && selectedName && payload.name === selectedName));
   if (matches) {
     // Lock onto the real bridge scriptId once known
     if (payload.scriptId && payload.scriptId !== _dashState.selectedScriptId) {

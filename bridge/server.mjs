@@ -17,7 +17,7 @@ import { spawn, execFile } from 'child_process';
 import { readFile, writeFile, mkdir, stat, readdir, symlink, lstat, unlink, readlink, rm } from 'fs/promises';
 import { watch } from 'fs';
 import { resolve as pathResolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { homedir, tmpdir } from 'os';
 import { MSG, buildMessage, buildReply, buildError, ROLES } from './protocol.mjs';
 import { PlaywrightSession, SESSION_STATE } from './playwright-session.mjs';
@@ -679,7 +679,7 @@ function startServer() {
 
     // Auth state merge
     try {
-      const scriptBaseName = scriptPath.split('/').pop().replace(/\.(mjs|js)$/, '');
+      const scriptBaseName = scriptPath.split(/[/\\]/).pop().replace(/\.(mjs|js)$/, '');
       const allFiles = await readdir(AUTH_DIR).catch(() => []);
       const authFiles = [];
       const scriptAuthPath = pathResolve(AUTH_DIR, `${scriptBaseName}.json`);
@@ -706,7 +706,7 @@ function startServer() {
         const mergedPath = pathResolve(AUTH_DIR, `_merged_${scriptBaseName}.json`);
         await writeFile(mergedPath, JSON.stringify(merged));
         launchEnv.PLAYWRIGHT_AUTH_STATE = mergedPath;
-        console.log(`[Bridge] Auth state merged (${authFiles.length} file(s)): ${authFiles.map(f => f.split('/').pop()).join(', ')}`);
+        console.log(`[Bridge] Auth state merged (${authFiles.length} file(s)): ${authFiles.map(f => f.split(/[/\\]/).pop()).join(', ')}`);
       }
     } catch (err) { console.warn(`[Bridge] Auth state merge failed: ${err.message}`); }
 
@@ -792,7 +792,7 @@ function startServer() {
           await inspector.enable();
           pendingInspectors.set(child.pid, inspector);
           if (Array.isArray(lineBreakpoints)) {
-            const fileUrl = `file://${scriptPath}`;
+            const fileUrl = pathToFileURL(scriptPath).href;
             for (const line of lineBreakpoints) {
               try {
                 const bp = await inspector.setBreakpoint(fileUrl, line);
@@ -1615,11 +1615,13 @@ function startServer() {
       }
 
       case MSG.BRIDGE_SCRIPT_SAVE: {
-        const { name, source } = msg.payload || {};
-        if (!name || !source) {
+        const { name: rawName, source } = msg.payload || {};
+        if (!rawName || !source) {
           sendTo(ws, buildError('name and source required', msg.id));
           return;
         }
+        // Sanitize name: extract filename if a full path was sent (Windows compat)
+        const name = rawName.split(/[/\\]/).pop().replace(/\.(mjs|js)$/, '');
         try {
           await mkdir(SCRIPTS_DIR, { recursive: true });
           const filePath = pathResolve(SCRIPTS_DIR, `${name}.mjs`);
@@ -1954,7 +1956,7 @@ function startServer() {
         }
         const id = `sched_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
         const schedule = {
-          id, name: name || scriptName || scriptPath.split('/').pop(),
+          id, name: name || scriptName || scriptPath.split(/[/\\]/).pop(),
           scriptPath, scriptName: scriptName || null,
           originalPath,
           args, sessionId, intervalMs, enabled: true,
