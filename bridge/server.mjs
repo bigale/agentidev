@@ -14,6 +14,7 @@
 
 import { WebSocketServer, WebSocket } from 'ws';
 import { spawn, execFile } from 'child_process';
+import http from 'http';
 import { readFile, writeFile, mkdir, stat, readdir, symlink, lstat, unlink, readlink, rm } from 'fs/promises';
 import { watch } from 'fs';
 import { resolve as pathResolve, dirname } from 'path';
@@ -662,12 +663,74 @@ function startServer() {
   }
 
   /**
+   * Take a screenshot of the session browser's active page via CDP.
+   * Returns a Buffer with PNG data, or null on failure.
+   * Picks the most recently active non-blank, non-extension page.
+   */
+  async function cdpScreenshot(cdpEndpoint) {
+    // Fetch page list from CDP
+    const pageList = await new Promise((resolve, reject) => {
+      const url = new URL('/json', cdpEndpoint);
+      http.get(url.toString(), (res) => {
+        let data = '';
+        res.on('data', c => { data += c; });
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)); }
+          catch (e) { reject(e); }
+        });
+      }).on('error', reject);
+    });
+
+    // Find the best page: prefer navigated (http/https) page, skip extensions/devtools
+    const candidates = pageList.filter(p =>
+      p.type === 'page' &&
+      p.url &&
+      !p.url.startsWith('chrome-extension://') &&
+      !p.url.startsWith('devtools://') &&
+      p.url !== 'about:blank'
+    );
+
+    // Sort by most recently active (last in list tends to be newest tab)
+    const target = candidates[candidates.length - 1] || pageList.find(p => p.type === 'page');
+    if (!target || !target.webSocketDebuggerUrl) return null;
+
+    // Connect and call Page.captureScreenshot via CDP
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(target.webSocketDebuggerUrl);
+      const timer = setTimeout(() => { ws.close(); reject(new Error('CDP screenshot timeout')); }, 15000);
+      ws.once('open', () => {
+        ws.send(JSON.stringify({ id: 1, method: 'Page.captureScreenshot', params: { format: 'png', captureBeyondViewport: false } }));
+      });
+      ws.on('message', (data) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          if (msg.id === 1) {
+            clearTimeout(timer);
+            ws.close();
+            if (msg.result && msg.result.data) {
+              resolve(Buffer.from(msg.result.data, 'base64'));
+            } else {
+              reject(new Error('CDP screenshot: no data returned'));
+            }
+          }
+        } catch (e) {
+          clearTimeout(timer);
+          ws.close();
+          reject(e);
+        }
+      });
+      ws.on('error', (e) => { clearTimeout(timer); reject(e); });
+    });
+  }
+
+  /**
    * Capture a screenshot at a checkpoint and store as artifact.
-   * Saves to disk (ARTIFACTS_DIR/<scriptId>/), broadcasts metadata.
+   * Uses CDP directly for the session's active page (playwright-cli
+   * screenshot command only sees its own pages, not CDP-connected ones).
    */
   async function captureCheckpointScreenshot(scriptId, script, checkpointName) {
     const session = getSession(script.sessionId);
-    if (!session) return;
+    if (!session || !session._cdpEndpoint) return;
 
     const timestamp = Date.now();
     const safeName = checkpointName.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -677,10 +740,10 @@ function startServer() {
     const filePath = pathResolve(dir, filename);
 
     try {
-      // Use session.sendCommand to take screenshot to file
-      await session.sendCommand('screenshot', ['--filename', filePath]);
-      const fileStat = await stat(filePath);
-      const size = fileStat.size;
+      const pngBuffer = await cdpScreenshot(session._cdpEndpoint);
+      if (!pngBuffer) throw new Error('No page available for screenshot');
+      await writeFile(filePath, pngBuffer);
+      const size = pngBuffer.length;
 
       const artifact = {
         type: 'screenshot',
