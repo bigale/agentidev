@@ -8,6 +8,14 @@ import * as bridgeClient from '../bridge-client.js';
 import { upsertShimImport } from '../shim-utils.js';
 
 const STORAGE_KEY = 'bridge-scripts';
+const VERSIONS_KEY = 'script-versions';
+
+// Coerce recipeId to integer or null — guards against string "undefined"/"null"
+function sanitizeRecipeId(val) {
+  if (val == null || val === '' || val === 'undefined' || val === 'null') return null;
+  const n = parseInt(val, 10);
+  return isNaN(n) ? null : n;
+}
 
 async function getLibrary() {
   const data = await chrome.storage.local.get(STORAGE_KEY);
@@ -16,6 +24,38 @@ async function getLibrary() {
 
 async function saveLibrary(lib) {
   await chrome.storage.local.set({ [STORAGE_KEY]: lib });
+}
+
+async function getVersions() {
+  const data = await chrome.storage.local.get(VERSIONS_KEY);
+  return data[VERSIONS_KEY] || [];
+}
+
+async function saveVersions(versions) {
+  await chrome.storage.local.set({ [VERSIONS_KEY]: versions });
+}
+
+async function addVersion(scriptName, source, originalPath) {
+  const versions = await getVersions();
+  versions.push({
+    scriptName,
+    modifiedAt: Date.now(),
+    source,
+    originalPath: originalPath || null,
+    size: source.length,
+  });
+  // Prune to latest 20 per scriptName
+  const byName = {};
+  for (const v of versions) {
+    if (!byName[v.scriptName]) byName[v.scriptName] = [];
+    byName[v.scriptName].push(v);
+  }
+  const pruned = [];
+  for (const name in byName) {
+    const arr = byName[name].sort((a, b) => b.modifiedAt - a.modifiedAt);
+    pruned.push(...arr.slice(0, 20));
+  }
+  await saveVersions(pruned);
 }
 
 export function register(handlers) {
@@ -214,6 +254,12 @@ export function register(handlers) {
       size: source.length,
     };
     await saveLibrary(lib);
+    // Create initial version snapshot
+    try {
+      await addVersion(name, source, scriptPath);
+    } catch (err) {
+      console.warn('[ScriptHandlers] Version save failed (non-fatal):', err.message);
+    }
     // Sync to disk via bridge
     try {
       await bridgeClient.saveScript(name, source);
@@ -231,6 +277,7 @@ export function register(handlers) {
       importedAt: s.importedAt,
       modifiedAt: s.modifiedAt,
       size: s.size,
+      recipeId: sanitizeRecipeId(s.recipeId),
     }));
     return { success: true, scripts };
   };
@@ -243,22 +290,38 @@ export function register(handlers) {
   };
 
   handlers['SCRIPT_LIBRARY_SAVE'] = async (msg) => {
-    const { name, source: rawSource, recipe } = msg;
+    const { name, source: rawSource, recipe, recipeId: newRecipeId } = msg;
     if (!name || !rawSource) return { success: false, error: 'name and source required' };
     const lib = await getLibrary();
-    const existing = lib[name];
-    if (!existing) return { success: false, error: 'Script not found in library' };
+    // If script doesn't exist yet (Save As), create a new entry
+    if (!lib[name]) {
+      lib[name] = {
+        name,
+        importedAt: Date.now(),
+      };
+    }
+    const entry = lib[name];
     // Auto-upsert shim import
     const shimPath = bridgeClient.getShimPath();
     const source = upsertShimImport(rawSource, shimPath);
-    existing.source = source;
-    existing.modifiedAt = Date.now();
-    existing.size = source.length;
-    // Persist recipe if provided
+    entry.source = source;
+    entry.modifiedAt = Date.now();
+    entry.size = source.length;
+    // Persist recipe if provided (legacy embedded recipe)
     if (recipe !== undefined) {
-      existing.recipe = recipe;
+      entry.recipe = recipe;
+    }
+    // Persist recipeId if provided
+    if (newRecipeId !== undefined) {
+      entry.recipeId = sanitizeRecipeId(newRecipeId);
     }
     await saveLibrary(lib);
+    // Create version snapshot
+    try {
+      await addVersion(name, source, entry.originalPath);
+    } catch (err) {
+      console.warn('[ScriptHandlers] Version save failed (non-fatal):', err.message);
+    }
     // Sync to disk via bridge
     if (bridgeClient.isConnected()) {
       try {
@@ -267,7 +330,7 @@ export function register(handlers) {
         console.warn('[ScriptHandlers] Sync to disk failed (non-fatal):', err.message);
       }
     }
-    return { success: true, script: existing };
+    return { success: true, script: entry };
   };
 
   handlers['SCRIPT_LIBRARY_REMOVE'] = async (msg) => {
@@ -276,5 +339,43 @@ export function register(handlers) {
     delete lib[msg.name];
     await saveLibrary(lib);
     return { success: true };
+  };
+
+  handlers['SCRIPT_LIBRARY_UPDATE'] = async (msg) => {
+    const { name, recipeId } = msg;
+    if (!name) return { success: false, error: 'name required' };
+    const lib = await getLibrary();
+    const entry = lib[name];
+    if (!entry) return { success: false, error: 'Script not found in library' };
+    if (recipeId !== undefined) {
+      entry.recipeId = sanitizeRecipeId(recipeId);
+    }
+    entry.modifiedAt = Date.now();
+    await saveLibrary(lib);
+    return { success: true, script: entry };
+  };
+
+  // ---- Script Versions (chrome.storage.local) ----
+
+  handlers['SCRIPT_VERSION_LIST'] = async (msg) => {
+    const versions = await getVersions();
+    let filtered = versions;
+    if (msg.scriptName) {
+      filtered = versions.filter(v => v.scriptName === msg.scriptName);
+    }
+    // Return metadata only (no source), sorted by modifiedAt desc
+    const result = filtered
+      .map(v => ({ scriptName: v.scriptName, modifiedAt: v.modifiedAt, size: v.size }))
+      .sort((a, b) => b.modifiedAt - a.modifiedAt);
+    return { success: true, versions: result };
+  };
+
+  handlers['SCRIPT_VERSION_GET'] = async (msg) => {
+    const { scriptName, modifiedAt } = msg;
+    if (!scriptName || !modifiedAt) return { success: false, error: 'scriptName and modifiedAt required' };
+    const versions = await getVersions();
+    const version = versions.find(v => v.scriptName === scriptName && v.modifiedAt === modifiedAt);
+    if (!version) return { success: false, error: 'Version not found' };
+    return { success: true, version: { scriptName: version.scriptName, modifiedAt: version.modifiedAt, source: version.source, size: version.size } };
   };
 }

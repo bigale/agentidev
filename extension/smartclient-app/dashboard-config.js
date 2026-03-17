@@ -6,6 +6,66 @@
  * Layout: VLayout → ToolStrip + PortalLayout (3 columns)
  */
 
+// ---- CLI_COMMANDS / CATEGORIES (inlined — sandbox cannot import ESM) ----
+
+window.CLI_COMMANDS = {
+  // Navigation
+  'goto':       { category: 'navigation', args: [{ name: 'url', type: 'url', required: true }] },
+  'go-back':    { category: 'navigation', args: [] },
+  'go-forward': { category: 'navigation', args: [] },
+  'reload':     { category: 'navigation', args: [] },
+  // Interaction
+  'click':   { category: 'interaction', args: [{ name: 'ref', type: 'ref', required: true }, { name: 'button', type: 'enum', values: ['left', 'right', 'middle'] }] },
+  'fill':    { category: 'interaction', args: [{ name: 'ref', type: 'ref', required: true }, { name: 'text', type: 'text', required: true }] },
+  'type':    { category: 'interaction', args: [{ name: 'text', type: 'text', required: true }] },
+  'select':  { category: 'interaction', args: [{ name: 'ref', type: 'ref', required: true }, { name: 'val', type: 'text', required: true }] },
+  'hover':   { category: 'interaction', args: [{ name: 'ref', type: 'ref', required: true }] },
+  'check':   { category: 'interaction', args: [{ name: 'ref', type: 'ref', required: true }] },
+  'uncheck': { category: 'interaction', args: [{ name: 'ref', type: 'ref', required: true }] },
+  // Keyboard
+  'press': { category: 'keyboard', args: [{ name: 'key', type: 'text', required: true, placeholder: 'Enter, Tab, ArrowDown...' }] },
+  // Window
+  'resize': { category: 'window', args: [{ name: 'w', type: 'number', required: true }, { name: 'h', type: 'number', required: true }] },
+  // Capture
+  'screenshot': { category: 'capture', args: [{ name: 'ref', type: 'ref' }], options: [{ name: 'filename', type: 'text' }, { name: 'full-page', type: 'boolean' }] },
+  'pdf':        { category: 'capture', args: [], options: [{ name: 'filename', type: 'text' }] },
+  'snapshot':   { category: 'capture', args: [] },
+  // Storage
+  'state-load':        { category: 'storage', args: [{ name: 'filename', type: 'file', required: true }] },
+  'state-save':        { category: 'storage', args: [{ name: 'filename', type: 'file' }] },
+  'cookie-set':        { category: 'storage', args: [{ name: 'name', type: 'text', required: true }, { name: 'value', type: 'text', required: true }], options: [{ name: 'domain', type: 'text' }, { name: 'path', type: 'text' }, { name: 'httpOnly', type: 'boolean' }, { name: 'secure', type: 'boolean' }] },
+  'cookie-clear':      { category: 'storage', args: [] },
+  'localstorage-set':  { category: 'storage', args: [{ name: 'key', type: 'text', required: true }, { name: 'value', type: 'text', required: true }] },
+  'localstorage-clear':{ category: 'storage', args: [] },
+  // Network
+  'route':   { category: 'network', args: [{ name: 'pattern', type: 'text', required: true, placeholder: '**/api/*' }], options: [{ name: 'status', type: 'number', placeholder: '200' }, { name: 'body', type: 'text' }, { name: 'content-type', type: 'text' }] },
+  'unroute': { category: 'network', args: [{ name: 'pattern', type: 'text' }] },
+  // DevTools
+  'eval':    { category: 'devtools', args: [{ name: 'func', type: 'code', required: true }, { name: 'ref', type: 'ref' }] },
+  'console': { category: 'devtools', args: [{ name: 'min-level', type: 'enum', values: ['log', 'warn', 'error'] }] },
+  // Tabs
+  'tab-new':    { category: 'tabs', args: [{ name: 'url', type: 'url' }] },
+  'tab-select': { category: 'tabs', args: [{ name: 'index', type: 'number', required: true }] },
+  'tab-close':  { category: 'tabs', args: [{ name: 'index', type: 'number' }] },
+  // Wait
+  'wait-for-selector': { category: 'wait', args: [{ name: 'selector', type: 'text', required: true }], options: [{ name: 'timeout', type: 'number', placeholder: '30000' }, { name: 'state', type: 'enum', values: ['visible', 'hidden', 'attached', 'detached'] }] },
+  'wait-for-url':      { category: 'wait', args: [{ name: 'pattern', type: 'text', required: true, placeholder: '**/dashboard' }], options: [{ name: 'timeout', type: 'number', placeholder: '30000' }] },
+  'sleep':             { category: 'wait', args: [{ name: 'ms', type: 'number', required: true, placeholder: '1000' }] },
+};
+
+window.CATEGORIES = {
+  navigation:  'Navigation',
+  interaction: 'Interaction',
+  keyboard:    'Keyboard',
+  window:      'Window',
+  capture:     'Capture',
+  storage:     'Storage',
+  network:     'Network',
+  devtools:    'DevTools',
+  tabs:        'Tabs',
+  wait:        'Wait',
+};
+
 window._dashboardConfig = {
 
   dataSources: [
@@ -33,11 +93,13 @@ window._dashboardConfig = {
       ID: 'BridgeSchedules',
       fields: [
         { name: 'id',         type: 'text',    primaryKey: true, hidden: true },
-        { name: 'name',       type: 'text',    title: 'Name',     width: '*' },
-        { name: 'intervalMs', type: 'integer', title: 'Interval', width: 70 },
-        { name: 'enabled',    type: 'boolean', title: 'On',       width: 35 },
-        { name: 'runCount',   type: 'integer', title: 'Runs',     width: 45 },
-        { name: 'nextRunAt',  type: 'integer', title: 'Next Run', width: 80 },
+        { name: 'name',       type: 'text',    title: 'Name',       width: '*' },
+        { name: 'scriptName', type: 'text',    title: 'Script',     width: 100 },
+        { name: 'intervalMs', type: 'integer', title: 'Interval',   width: 70 },
+        { name: 'enabled',    type: 'boolean', title: 'On',         width: 35 },
+        { name: 'runCount',   type: 'integer', title: 'Runs',       width: 45 },
+        { name: 'nextRunAt',  type: 'integer', title: 'Next Run',   width: 80 },
+        { name: 'modifiedAt', type: 'integer', title: 'Modified',   width: 80 },
       ],
     },
     {
@@ -47,6 +109,14 @@ window._dashboardConfig = {
         { name: 'type',      type: 'text',    title: 'Type',      width: 160 },
         { name: 'summary',   type: 'text',    title: 'Summary',   width: '*' },
         { name: 'timestamp', type: 'text',    title: 'Time',      width: 80 },
+      ],
+    },
+    {
+      ID: 'Recipes',
+      fields: [
+        { name: 'id',         type: 'integer', primaryKey: true, hidden: true },
+        { name: 'name',       type: 'text',    title: 'Recipe',     width: '*' },
+        { name: 'modifiedAt', type: 'integer', title: 'Modified',   width: 100 },
       ],
     },
   ],
@@ -73,6 +143,8 @@ window._dashboardConfig = {
               _type: 'Menu',
               data: [
                 { title: 'Open Script...' },
+                { title: 'Save' },
+                { title: 'Save As...' },
               ],
             },
           },
@@ -264,13 +336,97 @@ window._dashboardConfig = {
             ],
           },
 
-          // ==== Column 0: Scripts ====
+          // ==== Column 0: Scripts (Library) ====
           {
             _type: 'Portlet',
             _column: 0,
             _row: 1,
             title: 'Scripts',
-            height: 260,
+            height: 280,
+            members: [
+              {
+                _type: 'VLayout',
+                width: '100%',
+                height: '100%',
+                members: [
+                  {
+                    _type: 'ListGrid',
+                    ID: 'scriptsLibraryGrid',
+                    width: '100%',
+                    height: '*',
+                    selectionType: 'single',
+                    canEdit: false,
+                    showHeader: true,
+                    sortField: 'modifiedAt',
+                    sortDirection: 'descending',
+                    fields: [
+                      { name: 'name',       type: 'text',    title: 'Name',     width: '*' },
+                      { name: 'modifiedAt', type: 'integer', title: 'Modified', width: 80 },
+                      { name: 'size',       type: 'integer', title: 'Size',     width: 50 },
+                    ],
+                    emptyMessage: 'No scripts imported',
+                  },
+                  {
+                    _type: 'ListGrid',
+                    ID: 'scriptVersionsGrid',
+                    width: '100%',
+                    height: 100,
+                    selectionType: 'single',
+                    canEdit: false,
+                    showHeader: true,
+                    sortField: 'modifiedAt',
+                    sortDirection: 'descending',
+                    fields: [
+                      { name: 'modifiedAt', type: 'integer', title: 'Modified', width: '*' },
+                      { name: 'size',       type: 'integer', title: 'Size',     width: 50 },
+                    ],
+                    emptyMessage: 'Select a script to view versions',
+                  },
+                  {
+                    _type: 'HLayout',
+                    height: 30,
+                    membersMargin: 4,
+                    layoutMargin: 4,
+                    defaultLayoutAlign: 'center',
+                    members: [
+                      {
+                        _type: 'DynamicForm',
+                        ID: 'recipePickerForm',
+                        width: '*',
+                        numCols: 2,
+                        colWidths: [50, '*'],
+                        fields: [
+                          {
+                            name: 'recipeId',
+                            title: 'Recipe',
+                            editorType: 'SelectItem',
+                            ID: 'recipeSelect',
+                            width: '*',
+                            allowEmptyValue: true,
+                            emptyDisplayValue: '(none)',
+                          },
+                        ],
+                      },
+                      {
+                        _type: 'Button',
+                        ID: 'btnAssignRecipe',
+                        title: 'Assign',
+                        width: 60,
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+
+          // ==== Column 0: Script History (running/completed) ====
+          {
+            _type: 'Portlet',
+            _column: 0,
+            _row: 2,
+            title: 'Script History',
+            height: 200,
             members: [
               {
                 _type: 'ListGrid',
@@ -297,7 +453,7 @@ window._dashboardConfig = {
           {
             _type: 'Portlet',
             _column: 0,
-            _row: 2,
+            _row: 3,
             title: 'Schedules',
             height: 360,
             members: [
@@ -314,12 +470,14 @@ window._dashboardConfig = {
                     dataSource: 'BridgeSchedules',
                     autoFetchData: true,
                     selectionType: 'single',
+                    recordEnabledProperty: '_gridEnabled',
                     canEdit: true,
                     editEvent: 'doubleClick',
                     modalEditing: false,
                     autoSaveEdits: true,
                     fields: [
                       { name: 'name',       width: '*',  canEdit: true },
+                      { name: 'scriptName', width: 80,   canEdit: true },
                       { name: 'intervalMs', width: 60,   canEdit: true },
                       { name: 'enabled',    width: 35,   canEdit: true },
                       { name: 'runCount',   width: 40,   canEdit: false },
@@ -398,6 +556,85 @@ window._dashboardConfig = {
                   + '.monaco-line-current { background: rgba(249, 171, 0, 0.12) !important; }'
                   + '</style>'
                   + '<div id="monaco-host" style="width:100%;height:100%;"></div>',
+              },
+            ],
+          },
+
+          // ==== Column 1: Recipe (pre/post actions) ====
+          {
+            _type: 'Portlet',
+            _column: 1,
+            _row: 1,
+            title: 'Recipe',
+            height: 260,
+            members: [
+              {
+                _type: 'VLayout',
+                width: '100%',
+                height: '100%',
+                membersMargin: 2,
+                layoutMargin: 4,
+                members: [
+                  {
+                    _type: 'HLayout',
+                    height: 24,
+                    membersMargin: 4,
+                    members: [
+                      { _type: 'Label', contents: '<b>PRE-ACTIONS</b>', width: '*', height: 24 },
+                      { _type: 'Button', ID: 'btnAddPre', title: '+Add', width: 50, height: 22 },
+                    ],
+                  },
+                  {
+                    _type: 'ListGrid',
+                    ID: 'preActionsGrid',
+                    width: '100%',
+                    height: '*',
+                    showHeader: false,
+                    selectionType: 'single',
+                    canReorderRecords: true,
+                    canEdit: false,
+                    emptyMessage: 'No pre-actions',
+                    fields: [
+                      { name: 'idx', title: '#', width: 25, canEdit: false },
+                      { name: 'summary', title: 'Action', width: '*', canEdit: false },
+                      { name: '_remove', title: ' ', width: 25, type: 'icon', cellIcon: '[SKIN]/actions/remove.png', canEdit: false },
+                    ],
+                  },
+                  {
+                    _type: 'HLayout',
+                    height: 24,
+                    membersMargin: 4,
+                    members: [
+                      { _type: 'Label', contents: '<b>POST-ACTIONS</b>', width: '*', height: 24 },
+                      { _type: 'Button', ID: 'btnAddPost', title: '+Add', width: 50, height: 22 },
+                    ],
+                  },
+                  {
+                    _type: 'ListGrid',
+                    ID: 'postActionsGrid',
+                    width: '100%',
+                    height: '*',
+                    showHeader: false,
+                    selectionType: 'single',
+                    canReorderRecords: true,
+                    canEdit: false,
+                    emptyMessage: 'No post-actions',
+                    fields: [
+                      { name: 'idx', title: '#', width: 25, canEdit: false },
+                      { name: 'summary', title: 'Action', width: '*', canEdit: false },
+                      { name: '_remove', title: ' ', width: 25, type: 'icon', cellIcon: '[SKIN]/actions/remove.png', canEdit: false },
+                    ],
+                  },
+                  {
+                    _type: 'HLayout',
+                    height: 28,
+                    membersMargin: 4,
+                    defaultLayoutAlign: 'center',
+                    members: [
+                      { _type: 'Button', ID: 'btnSaveRecipe', title: 'Save Recipe', width: 100 },
+                    ],
+                  },
+                ],
               },
             ],
           },

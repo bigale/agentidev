@@ -71,28 +71,55 @@ async function bridgeFetch(backend, criteria) {
 
 // ---- IndexedDB helpers ----
 
-function openDB(storeName) {
-  return new Promise((resolve, reject) => {
-    if (db && db.objectStoreNames.contains(storeName)) {
-      return resolve(db);
-    }
-    // Capture old version before closing
-    const oldVersion = db ? db.version : 0;
-    if (db) db.close();
-    db = null;
+let _openDBPending = null;
 
-    // First open: version 1. Adding a new store: increment version.
-    const version = oldVersion ? oldVersion + 1 : DB_VERSION;
-    const req = indexedDB.open(DB_NAME, version);
-    req.onupgradeneeded = (e) => {
-      const _db = e.target.result;
-      if (!_db.objectStoreNames.contains(storeName)) {
-        _db.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true });
-      }
-    };
-    req.onsuccess = (e) => { db = e.target.result; resolve(db); };
-    req.onerror = (e) => reject(e.target.error);
-  });
+function upgradeDB(storeName, currentVersion, resolve, reject) {
+  const req = indexedDB.open(DB_NAME, currentVersion + 1);
+  req.onupgradeneeded = (e) => {
+    const _db = e.target.result;
+    if (!_db.objectStoreNames.contains(storeName)) {
+      _db.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true });
+    }
+  };
+  req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+  req.onerror = (e) => reject(e.target.error);
+}
+
+function openDB(storeName) {
+  // Serialize concurrent openDB calls to prevent version race conditions
+  if (_openDBPending) {
+    return _openDBPending.then(() => openDB(storeName));
+  }
+  if (db && db.objectStoreNames.contains(storeName)) {
+    return Promise.resolve(db);
+  }
+
+  _openDBPending = new Promise((resolve, reject) => {
+    if (db) {
+      const oldVersion = db.version;
+      db.close();
+      db = null;
+      upgradeDB(storeName, oldVersion, resolve, reject);
+    } else {
+      // Probe current version with a versionless open, then close and reopen with +1
+      const probe = indexedDB.open(DB_NAME);
+      probe.onsuccess = (e) => {
+        const probeDb = e.target.result;
+        const currentVersion = probeDb.version;
+        if (probeDb.objectStoreNames.contains(storeName)) {
+          // Store already exists — just use this connection
+          db = probeDb;
+          resolve(db);
+          return;
+        }
+        probeDb.close();
+        upgradeDB(storeName, currentVersion, resolve, reject);
+      };
+      probe.onerror = (e) => reject(e.target.error);
+    }
+  }).finally(() => { _openDBPending = null; });
+
+  return _openDBPending;
 }
 
 async function getStore(storeName, mode) {
@@ -117,7 +144,8 @@ async function dsFetch(message) {
 
   try {
     const store = await getStore(dsId, 'readonly');
-    const records = await promisify(store.getAll());
+    let records = await promisify(store.getAll());
+    records = applyCriteria(records, message.criteria);
     return { status: 0, data: records, totalRows: records.length };
   } catch (err) {
     console.error('[DS] Fetch error:', err);

@@ -2035,7 +2035,7 @@ function startServer() {
           break;
         }
         // Apply allowed updates
-        for (const key of ['name', 'intervalMs', 'args', 'sessionId', 'maxConcurrent', 'runOnStartup']) {
+        for (const key of ['name', 'scriptName', 'intervalMs', 'args', 'sessionId', 'maxConcurrent', 'runOnStartup']) {
           if (updates[key] !== undefined) sched[key] = updates[key];
         }
         if (updates.enabled !== undefined) {
