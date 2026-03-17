@@ -19,6 +19,9 @@ var _dashState = {
   recipe: { preActions: [], postActions: [] },
   recipeId: null,
   selectedLibScript: null,
+  scriptHistoryMode: 'live',       // 'live' | 'archive'
+  selectedRunArtifacts: [],        // artifacts for selected archived run
+  captureArtifacts: false,         // launch dialog toggle
 };
 
 // ---- Monaco editor state ----
@@ -66,6 +69,12 @@ function loadDashboard() {
   var scriptsGrid = resolveRef('scriptsGrid');
   if (scriptsGrid) {
     scriptsGrid.recordClick = function (viewer, record) {
+      if (_dashState.scriptHistoryMode === 'archive') {
+        // Archive mode: load run detail + artifacts
+        handleArchiveRunSelect(record);
+        return;
+      }
+      // Live mode: existing behavior
       _dashState.selectedScriptId = record ? record.id : null;
       _dashState.selectedScript = record || null;
 
@@ -261,6 +270,15 @@ function loadDashboard() {
   if (btnAssignRecipe) {
     btnAssignRecipe.click = function () { assignRecipeToScript(); };
   }
+
+  // Wire Live/Archive toggle for Script History
+  wireScriptHistoryToggle();
+
+  // Wire artifacts grid
+  wireArtifactsGrid();
+
+  // Add capture artifacts toggle to toolbar
+  setTimeout(addCaptureToggle, 100);
 
   // Request initial connection status
   dispatchAction('BRIDGE_STATUS', {});
@@ -738,6 +756,11 @@ function launchSelectedScript(debug) {
       payload.lineBreakpoints = lineBreakpoints;
     }
 
+    // Capture artifacts toggle
+    if (_dashState.captureArtifacts) {
+      payload.captureArtifacts = true;
+    }
+
     // Attach recipe pre/post actions — prefer DataSource recipe, fall back to in-memory
     function doLaunch(pre, post) {
       if (pre && pre.length > 0) payload.preActions = pre;
@@ -833,6 +856,7 @@ function showOpenScriptDialog() {
     isModal: true,
     showModalMask: true,
     autoCenter: true,
+    closeClick: function () { this.destroy(); },
     items: [pathForm, statusLabel],
     buttons: [
       isc.Button.create({
@@ -963,6 +987,7 @@ function showNewSessionDialog() {
     isModal: true,
     showModalMask: true,
     autoCenter: true,
+    closeClick: function () { this.destroy(); },
     items: [nameForm, statusLabel],
     buttons: [okBtn, cancelBtn],
   });
@@ -1116,6 +1141,7 @@ function showNewScheduleDialog() {
     isModal: true,
     showModalMask: true,
     autoCenter: true,
+    closeClick: function () { this.destroy(); },
     items: [schedForm, statusLabel],
     buttons: [okBtn, cancelBtn],
   });
@@ -1154,10 +1180,20 @@ function showNewScheduleDialog() {
 
 // ---- Async dispatch ----
 
-function dispatchActionAsync(messageType, payload) {
+var DISPATCH_TIMEOUT_MS = 15000; // 15s default timeout for action dispatches
+
+function dispatchActionAsync(messageType, payload, timeoutMs) {
   var id = ++_actionCounter;
-  return new Promise(function (resolve) {
-    _pendingDispatches[id] = resolve;
+  var timeout = timeoutMs || DISPATCH_TIMEOUT_MS;
+  return new Promise(function (resolve, reject) {
+    var timer = setTimeout(function () {
+      delete _pendingDispatches[id];
+      reject(new Error('Timeout: ' + messageType + ' (' + timeout + 'ms)'));
+    }, timeout);
+    _pendingDispatches[id] = function (response) {
+      clearTimeout(timer);
+      resolve(response);
+    };
     window.parent.postMessage({
       source: 'smartclient-action',
       id: id,
@@ -1267,6 +1303,17 @@ function handleBroadcast(type, payload) {
 
     case 'AUTO_COMMAND_UPDATE':
       // Activity log — grids auto-refresh via DS invalidation
+      break;
+
+    case 'AUTO_BROADCAST_ARTIFACT':
+      handleArtifactBroadcast(payload);
+      break;
+
+    case 'AUTO_BROADCAST_RUN_COMPLETE':
+      // Run archived — if in archive mode, refresh the grid
+      if (_dashState.scriptHistoryMode === 'archive') {
+        loadArchiveRuns();
+      }
       break;
   }
 }
@@ -1504,6 +1551,11 @@ function showAddActionMenu(phase) {
     }
   }
 
+  // Destroy previous menu to prevent Canvas leak
+  if (showAddActionMenu._lastMenu) {
+    showAddActionMenu._lastMenu.destroy();
+    showAddActionMenu._lastMenu = null;
+  }
   var menu = isc.Menu.create({
     autoDraw: false,
     data: menuData,
@@ -1513,6 +1565,7 @@ function showAddActionMenu(phase) {
       }
     },
   });
+  showAddActionMenu._lastMenu = menu;
   menu.showContextMenu();
 }
 
@@ -1602,6 +1655,7 @@ function showActionDialog(phase, action, editIdx) {
     isModal: true,
     showModalMask: true,
     autoCenter: true,
+    closeClick: function () { this.destroy(); },
     items: [form],
     buttons: [
       isc.Button.create({
@@ -1988,6 +2042,7 @@ function fileSaveAs() {
     isModal: true,
     showModalMask: true,
     autoCenter: true,
+    closeClick: function () { this.destroy(); },
     items: [nameForm, statusLabel],
     buttons: [
       okBtn,
@@ -2000,3 +2055,293 @@ function fileSaveAs() {
   dlg.show();
   nameForm.focusInItem('newName');
 }
+
+// ---- Script History: Live/Archive toggle ----
+
+function wireScriptHistoryToggle() {
+  var btnLive = resolveRef('btnHistoryLive');
+  var btnArchive = resolveRef('btnHistoryArchive');
+
+  function updateToggleStyle() {
+    if (btnLive) {
+      btnLive.setTitle(_dashState.scriptHistoryMode === 'live' ? '<b>Live</b>' : 'Live');
+    }
+    if (btnArchive) {
+      btnArchive.setTitle(_dashState.scriptHistoryMode === 'archive' ? '<b>Archive</b>' : 'Archive');
+    }
+  }
+
+  if (btnLive) {
+    btnLive.click = function () {
+      if (_dashState.scriptHistoryMode === 'live') return;
+      _dashState.scriptHistoryMode = 'live';
+      updateToggleStyle();
+      switchToLiveMode();
+    };
+  }
+
+  if (btnArchive) {
+    btnArchive.click = function () {
+      if (_dashState.scriptHistoryMode === 'archive') return;
+      _dashState.scriptHistoryMode = 'archive';
+      updateToggleStyle();
+      switchToArchiveMode();
+    };
+  }
+
+  updateToggleStyle();
+}
+
+function switchToLiveMode() {
+  var grid = resolveRef('scriptsGrid');
+  if (!grid) return;
+  // Re-bind to BridgeScripts DataSource
+  var ds = isc.DataSource.get('BridgeScripts');
+  if (ds) grid.setDataSource(ds);
+  grid.setFields([
+    { name: 'name',  width: '*' },
+    { name: 'state', width: 90, _formatter: 'stateDot' },
+    { name: 'step',  width: 40 },
+    { name: 'totalSteps', width: 40, title: '/' },
+  ]);
+  grid.fetchData();
+  // Clear archive formatter
+  grid.formatCellValue = null;
+}
+
+function switchToArchiveMode() {
+  var grid = resolveRef('scriptsGrid');
+  if (!grid) return;
+  // Unbind DataSource, switch to manual data
+  grid.setDataSource(null);
+  grid.setFields([
+    { name: 'name',          title: 'Script',    width: '*' },
+    { name: 'state',         title: 'State',     width: 70 },
+    { name: 'startedAt',     title: 'Started',   width: 90 },
+    { name: 'durationMs',    title: 'Duration',  width: 60 },
+    { name: 'artifactCount', title: 'Artifacts', width: 55 },
+  ]);
+  loadArchiveRuns();
+}
+
+function loadArchiveRuns() {
+  dispatchActionAsync('SCRIPT_RUN_LIST', {}).then(function (resp) {
+    var grid = resolveRef('scriptsGrid');
+    if (!grid || _dashState.scriptHistoryMode !== 'archive') return;
+    var runs = (resp && resp.success && resp.runs) ? resp.runs : [];
+    grid.setData(runs);
+
+    // Apply formatters
+    grid.formatCellValue = function (value, record, rowNum, colNum) {
+      var fieldName = this.getFieldName(colNum);
+      if (fieldName === 'startedAt' && typeof value === 'number') {
+        return new Date(value).toLocaleString();
+      }
+      if (fieldName === 'durationMs' && typeof value === 'number') {
+        return formatDuration(value);
+      }
+      return value == null ? '' : value;
+    };
+  });
+}
+
+function handleArchiveRunSelect(record) {
+  if (!record) return;
+  var scriptId = record.scriptId || record.id;
+
+  // Show run summary in debug viewer
+  var dv = resolveRef('debugViewer');
+  if (dv) dv.setData([record]);
+
+  // Load artifacts for this run
+  dispatchActionAsync('SCRIPT_RUN_GET', { scriptId: scriptId }).then(function (resp) {
+    var artifacts = (resp && resp.success && resp.artifacts) ? resp.artifacts : [];
+    _dashState.selectedRunArtifacts = artifacts;
+    var artifactsGrid = resolveRef('artifactsGrid');
+    if (artifactsGrid) {
+      artifactsGrid.setData(artifacts);
+      // Apply formatters
+      artifactsGrid.formatCellValue = function (value, record, rowNum, colNum) {
+        var fieldName = this.getFieldName(colNum);
+        if (fieldName === 'timestamp' && typeof value === 'number') {
+          return new Date(value).toLocaleTimeString();
+        }
+        if (fieldName === 'size' && typeof value === 'number') {
+          if (value < 1024) return value + 'B';
+          return Math.round(value / 1024) + 'KB';
+        }
+        return value == null ? '' : value;
+      };
+    }
+
+    // Switch to Artifacts tab if there are artifacts
+    if (artifacts.length > 0) {
+      var tabs = resolveRef('scriptDetailTabs');
+      if (tabs) tabs.selectTab(1);
+    }
+  });
+}
+
+// ---- Artifacts grid ----
+
+function wireArtifactsGrid() {
+  var grid = resolveRef('artifactsGrid');
+  if (!grid) return;
+
+  grid.recordClick = function (viewer, record) {
+    if (!record) return;
+    loadArtifactPreview(record);
+  };
+
+  // Apply formatters
+  grid.formatCellValue = function (value, record, rowNum, colNum) {
+    var fieldName = this.getFieldName(colNum);
+    if (fieldName === 'timestamp' && typeof value === 'number') {
+      return new Date(value).toLocaleTimeString();
+    }
+    if (fieldName === 'size' && typeof value === 'number') {
+      if (value < 1024) return value + 'B';
+      return Math.round(value / 1024) + 'KB';
+    }
+    return value == null ? '' : value;
+  };
+}
+
+function loadArtifactPreview(artifact) {
+  var preview = resolveRef('artifactPreview');
+  if (!preview) return;
+
+  // If we already have inline data, show it immediately
+  if (artifact.data) {
+    renderArtifactPreview(preview, artifact, artifact.data);
+    return;
+  }
+
+  // Need to lazy-load from disk or IndexedDB
+  preview.setContents('<div style="padding:8px;color:#888;font-size:11px;">Loading...</div>');
+
+  var payload = {};
+  if (artifact.diskPath) {
+    payload.diskPath = artifact.diskPath;
+  } else if (artifact.id != null) {
+    payload.id = artifact.id;
+  } else {
+    preview.setContents('<div style="padding:8px;color:#f44336;font-size:11px;">No data source for artifact</div>');
+    return;
+  }
+
+  dispatchActionAsync('SCRIPT_ARTIFACT_GET', payload).then(function (resp) {
+    if (resp && resp.success && resp.data) {
+      renderArtifactPreview(preview, artifact, resp.data);
+    } else {
+      var err = (resp && resp.error) || 'Failed to load';
+      preview.setContents('<div style="padding:8px;color:#f44336;font-size:11px;">' + escapeHtmlDash(err) + '</div>');
+    }
+  });
+}
+
+function renderArtifactPreview(preview, artifact, data) {
+  var type = artifact.type || '';
+  var label = artifact.label || '';
+
+  switch (type) {
+    case 'screenshot':
+      var src = data.startsWith('data:') ? data : 'data:image/png;base64,' + data;
+      preview.setContents(
+        '<div style="padding:4px;text-align:center;">'
+        + '<img src="' + src + '" style="max-width:100%;cursor:pointer;border:1px solid #333;" '
+        + 'onclick="window._openScreenshotViewer && window._openScreenshotViewer(this.src, \'' + escapeHtmlDash(label) + '\')" />'
+        + '</div>'
+      );
+      break;
+    case 'snapshot':
+      preview.setContents('<pre style="padding:4px;font-size:11px;font-family:monospace;white-space:pre-wrap;color:#ccc;margin:0;max-height:300px;overflow:auto;">' + escapeHtmlDash(data) + '</pre>');
+      break;
+    case 'console':
+      preview.setContents('<pre style="padding:4px;font-size:11px;font-family:monospace;white-space:pre-wrap;color:#aaa;margin:0;max-height:300px;overflow:auto;">' + escapeHtmlDash(data) + '</pre>');
+      break;
+    case 'debug':
+    case 'result':
+      var formatted = data;
+      try {
+        if (typeof data === 'string') formatted = JSON.stringify(JSON.parse(data), null, 2);
+      } catch (e) { /* not valid JSON, show as-is */ }
+      preview.setContents('<pre style="padding:4px;font-size:11px;font-family:monospace;white-space:pre-wrap;color:#4CAF50;margin:0;max-height:300px;overflow:auto;">' + escapeHtmlDash(formatted) + '</pre>');
+      break;
+    default:
+      preview.setContents('<pre style="padding:4px;font-size:11px;font-family:monospace;white-space:pre-wrap;color:#888;margin:0;">' + escapeHtmlDash(data) + '</pre>');
+  }
+}
+
+// Global hook for screenshot viewer (called from inline onclick in HTMLFlow)
+window._openScreenshotViewer = function (src, label) {
+  isc.Window.create({
+    title: label || 'Screenshot',
+    width: Math.min(window.innerWidth - 100, 900),
+    height: Math.min(window.innerHeight - 100, 700),
+    autoCenter: true,
+    canDragResize: true,
+    closeClick: function () { this.destroy(); },
+    items: [
+      isc.Canvas.create({
+        width: '100%',
+        height: '100%',
+        overflow: 'auto',
+        contents: '<img src="' + src + '" style="max-width:100%;" />',
+      }),
+    ],
+  }).show();
+};
+
+// ---- Real-time artifact streaming ----
+
+function handleArtifactBroadcast(payload) {
+  if (!payload || !payload.artifact) return;
+  var scriptId = payload.scriptId;
+  var artifact = payload.artifact;
+
+  // If viewing this script in live mode, append to artifacts grid
+  if (_dashState.selectedScriptId && _dashState.selectedScriptId === scriptId) {
+    var grid = resolveRef('artifactsGrid');
+    if (grid) {
+      var data = grid.getData();
+      if (Array.isArray(data)) {
+        data.push(artifact);
+        grid.setData(data);
+        // Auto-scroll to latest
+        grid.scrollToRow(data.length - 1);
+      }
+    }
+  }
+}
+
+// ---- Capture artifacts toggle in toolbar ----
+// Add a checkbox to the toolbar area for capture artifacts toggle
+// This is wired programmatically since adding DynamicForm to ToolStrip in config is complex
+
+function addCaptureToggle() {
+  var toolbar = resolveRef('dashToolbar');
+  if (!toolbar) return;
+
+  var toggle = isc.DynamicForm.create({
+    width: 130,
+    height: 28,
+    numCols: 2,
+    colWidths: [18, '*'],
+    fields: [
+      {
+        name: 'captureArtifacts',
+        title: 'Capture',
+        editorType: 'CheckboxItem',
+        showTitle: true,
+        titleOrientation: 'right',
+        textBoxStyle: 'labelAnchor',
+        changed: function (form, item, value) {
+          _dashState.captureArtifacts = !!value;
+        },
+      },
+    ],
+  });
+  toolbar.addMember(toggle);
+}
+

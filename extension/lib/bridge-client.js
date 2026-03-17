@@ -34,6 +34,8 @@ const callbacks = {
   onDbgPaused: [],
   onDbgResumed: [],
   onScheduleUpdate: [],
+  onRunComplete: [],
+  onArtifact: [],
 };
 
 /**
@@ -253,7 +255,7 @@ export function listScripts() {
  * @param {string} scriptPath - Absolute path to .mjs or .js script
  * @param {string[]} [args] - Optional CLI args
  */
-export function launchScript(scriptPath, args = [], breakpoints = [], lineBreakpoints = [], debug = false, sessionId = null, originalPath = null, preActions = null, postActions = null) {
+export function launchScript(scriptPath, args = [], breakpoints = [], lineBreakpoints = [], debug = false, sessionId = null, originalPath = null, preActions = null, postActions = null, captureArtifacts = false) {
   const payload = { path: scriptPath, args };
   if (breakpoints.length > 0) payload.breakpoints = breakpoints;
   if (lineBreakpoints.length > 0) payload.lineBreakpoints = lineBreakpoints;
@@ -262,7 +264,17 @@ export function launchScript(scriptPath, args = [], breakpoints = [], lineBreakp
   if (originalPath) payload.originalPath = originalPath;
   if (preActions && preActions.length > 0) payload.preActions = preActions;
   if (postActions && postActions.length > 0) payload.postActions = postActions;
+  if (captureArtifacts) payload.captureArtifacts = true;
   return _sendRequest('BRIDGE_SCRIPT_LAUNCH', payload);
+}
+
+/**
+ * Get an artifact file from disk via bridge server (base64)
+ * @param {string} diskPath - Absolute path to artifact file
+ * @returns {Promise<object>} { success, data (base64 data URI) }
+ */
+export function getArtifact(diskPath) {
+  return _sendRequest('BRIDGE_SCRIPT_GET_ARTIFACT', { diskPath });
 }
 
 /**
@@ -533,6 +545,12 @@ export function onDbgPaused(cb) {
 export function onDbgResumed(cb) {
   callbacks.onDbgResumed.push(cb);
 }
+export function onRunComplete(cb) {
+  callbacks.onRunComplete.push(cb);
+}
+export function onArtifact(cb) {
+  callbacks.onArtifact.push(cb);
+}
 
 /**
  * Register callback for search requests relayed from bridge server.
@@ -614,6 +632,12 @@ function _handleBroadcast(msg) {
     case 'BRIDGE_SCHEDULE_UPDATE':
     case 'BRIDGE_SCHEDULE_DELETED':
       _fireCallbacks('onScheduleUpdate', msg.payload);
+      break;
+    case 'BRIDGE_SCRIPT_RUN_COMPLETE':
+      _fireCallbacks('onRunComplete', msg.payload);
+      break;
+    case 'BRIDGE_SCRIPT_ARTIFACT':
+      _fireCallbacks('onArtifact', msg.payload);
       break;
     case 'BRIDGE_SEARCH_SNAPSHOTS':
       _handleSearchRequest(msg);

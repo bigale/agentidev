@@ -62,6 +62,11 @@ export const MSG = {
   // Script polling
   BRIDGE_SCRIPT_POLL_STATE: 'BRIDGE_SCRIPT_POLL_STATE',          // script: report poll loop state
 
+  // Script run archive & artifacts
+  BRIDGE_SCRIPT_RUN_COMPLETE: 'BRIDGE_SCRIPT_RUN_COMPLETE',      // broadcast: run record + artifact manifest on completion
+  BRIDGE_SCRIPT_ARTIFACT: 'BRIDGE_SCRIPT_ARTIFACT',              // broadcast: artifact captured during execution
+  BRIDGE_SCRIPT_GET_ARTIFACT: 'BRIDGE_SCRIPT_GET_ARTIFACT',      // request: read artifact file from disk → base64
+
   // Scheduling (server-side auto-launch)
   BRIDGE_SCHEDULE_CREATE: 'BRIDGE_SCHEDULE_CREATE',
   BRIDGE_SCHEDULE_UPDATE: 'BRIDGE_SCHEDULE_UPDATE',

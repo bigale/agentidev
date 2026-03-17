@@ -31,6 +31,9 @@ const SHIM_PATH = pathResolve(__dirname, 'playwright-shim.mjs');
 const SCRIPTS_DIR = pathResolve(homedir(), '.contextual-recall', 'scripts');
 const AUTH_DIR = pathResolve(homedir(), '.contextual-recall', 'auth');
 const CLONES_DIR = pathResolve(homedir(), '.contextual-recall', 'clones');
+const ARTIFACTS_DIR = pathResolve(homedir(), '.contextual-recall', 'artifacts');
+const ARTIFACT_INLINE_LIMIT = 100 * 1024; // 100KB — below this, store as base64 inline
+const CONSOLE_BUFFER_LIMIT = 500 * 1024;  // 500KB max console buffer per script
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -364,6 +367,12 @@ function startServer() {
   // Pending post-actions: pid → { sessionId, actions[] } (execute after script completes)
   const pendingPostActions = new Map();
 
+  // Pending artifact capture flag: pid → boolean (set at launch, applied at register)
+  const pendingCaptureArtifacts = new Map();
+
+  // Console buffers: pid → string (stdout+stderr, started at launch, transferred to script at register)
+  const pendingConsoleBuffers = new Map();
+
   // File watcher: echo suppression for writes we initiated
   const fileWatcherIgnore = new Set();
   const fileWatcherDebounce = new Map(); // filename → timer
@@ -652,6 +661,117 @@ function startServer() {
   }
 
   /**
+   * Capture a screenshot at a checkpoint and store as artifact.
+   * Saves to disk (ARTIFACTS_DIR/<scriptId>/), broadcasts metadata.
+   */
+  async function captureCheckpointScreenshot(scriptId, script, checkpointName) {
+    const session = getSession(script.sessionId);
+    if (!session) return;
+
+    const timestamp = Date.now();
+    const safeName = checkpointName.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const dir = pathResolve(ARTIFACTS_DIR, scriptId);
+    await mkdir(dir, { recursive: true });
+    const filename = `checkpoint_${safeName}_${timestamp}.png`;
+    const filePath = pathResolve(dir, filename);
+
+    try {
+      // Use session.sendCommand to take screenshot to file
+      await session.sendCommand('screenshot', ['--filename', filePath]);
+      const fileStat = await stat(filePath);
+      const size = fileStat.size;
+
+      const artifact = {
+        type: 'screenshot',
+        label: `${checkpointName} screenshot`,
+        timestamp,
+        size,
+        diskPath: filePath,
+        contentType: 'image/png',
+      };
+      script.artifacts.push(artifact);
+
+      // Broadcast artifact metadata (no binary)
+      broadcast(buildMessage(MSG.BRIDGE_SCRIPT_ARTIFACT, {
+        scriptId,
+        artifact,
+      }));
+      console.log(`[Bridge] Artifact captured: ${filename} (${size} bytes)`);
+    } catch (err) {
+      console.warn(`[Bridge] Screenshot capture failed at ${checkpointName}: ${err.message}`);
+    }
+  }
+
+  /**
+   * Build a run record + artifact manifest for a completed script.
+   * Broadcasts BRIDGE_SCRIPT_RUN_COMPLETE.
+   */
+  function broadcastRunComplete(scriptId, script, finalState) {
+    const now = Date.now();
+    const durationMs = script.duration || (now - script.startedAt);
+
+    // Add console buffer as artifact
+    if (script.consoleBuffer && script.consoleBuffer.length > 0) {
+      script.artifacts.push({
+        type: 'console',
+        label: 'Console output',
+        timestamp: now,
+        size: script.consoleBuffer.length,
+        data: script.consoleBuffer,
+        diskPath: null,
+        contentType: 'text/plain',
+      });
+    }
+
+    // Add script results as artifact if available
+    if (script.results) {
+      const resultsStr = typeof script.results === 'string' ? script.results : JSON.stringify(script.results, null, 2);
+      script.artifacts.push({
+        type: 'result',
+        label: 'Script results',
+        timestamp: now,
+        size: resultsStr.length,
+        data: resultsStr,
+        diskPath: null,
+        contentType: 'application/json',
+      });
+    }
+
+    const runRecord = {
+      scriptId,
+      name: script.name,
+      state: finalState,
+      startedAt: script.startedAt,
+      completedAt: now,
+      durationMs,
+      step: script.step,
+      totalSteps: script.totalSteps,
+      errors: script.errors || 0,
+      sessionId: script.sessionId || null,
+      artifactCount: script.artifacts.length,
+    };
+
+    // Build artifact manifest (strip large inline data for broadcast — send metadata only)
+    const artifactManifest = script.artifacts.map((a, idx) => ({
+      id: idx,
+      type: a.type,
+      label: a.label,
+      timestamp: a.timestamp,
+      size: a.size,
+      diskPath: a.diskPath || null,
+      contentType: a.contentType,
+      // Include inline data only for small non-screenshot artifacts
+      data: (!a.diskPath && a.data && a.size < ARTIFACT_INLINE_LIMIT) ? a.data : null,
+    }));
+
+    broadcast(buildMessage(MSG.BRIDGE_SCRIPT_RUN_COMPLETE, {
+      run: runRecord,
+      artifacts: artifactManifest,
+    }));
+    console.log(`[Bridge] Run complete broadcast: ${script.name} (${finalState}, ${script.artifacts.length} artifacts)`);
+  }
+
+  /**
    * Find nearest node_modules directory by walking up from startDir.
    * Used to symlink dependencies for scripts launched from the synced scripts dir.
    */
@@ -677,7 +797,7 @@ function startServer() {
    * @throws {Error} on validation or launch failures
    */
   async function launchScriptInternal(payload) {
-    const { path: scriptPath, args: scriptArgs = [], breakpoints: preBreakpoints, lineBreakpoints, debug, sessionId: launchSessionId, originalPath, preActions, postActions } = payload;
+    const { path: scriptPath, args: scriptArgs = [], breakpoints: preBreakpoints, lineBreakpoints, debug, sessionId: launchSessionId, originalPath, preActions, postActions, captureArtifacts } = payload;
 
     const useV8Debug = debug || (Array.isArray(lineBreakpoints) && lineBreakpoints.length > 0);
     const nodeArgs = useV8Debug ? ['--inspect-brk=0', scriptPath, ...scriptArgs] : [scriptPath, ...scriptArgs];
@@ -794,14 +914,42 @@ function startServer() {
     if (Array.isArray(postActions) && postActions.length > 0 && launchSessionId && child.pid) {
       pendingPostActions.set(child.pid, { sessionId: launchSessionId, actions: postActions });
     }
+    if (captureArtifacts && child.pid) {
+      pendingCaptureArtifacts.set(child.pid, true);
+    }
 
-    child.stdout.on('data', d => console.log(`[Script:${launchId}] ${d.toString().trim()}`));
+    // Console buffer — always capture stdout/stderr for run archive
+    if (child.pid) pendingConsoleBuffers.set(child.pid, '');
+    function appendConsoleBuffer(pid, text) {
+      // Append to script object if registered, otherwise to pending buffer
+      let target = null;
+      for (const [, s] of scripts) {
+        if (s.pid === pid) { target = s; break; }
+      }
+      if (target) {
+        target.consoleBuffer = (target.consoleBuffer || '') + text;
+        if (target.consoleBuffer.length > CONSOLE_BUFFER_LIMIT) {
+          target.consoleBuffer = target.consoleBuffer.slice(-CONSOLE_BUFFER_LIMIT);
+        }
+      } else if (pendingConsoleBuffers.has(pid)) {
+        let buf = pendingConsoleBuffers.get(pid) + text;
+        if (buf.length > CONSOLE_BUFFER_LIMIT) buf = buf.slice(-CONSOLE_BUFFER_LIMIT);
+        pendingConsoleBuffers.set(pid, buf);
+      }
+    }
+
+    child.stdout.on('data', d => {
+      const text = d.toString();
+      console.log(`[Script:${launchId}] ${text.trim()}`);
+      appendConsoleBuffer(child.pid, text);
+    });
 
     if (useV8Debug) {
       let inspectorConnected = false;
       child.stderr.on('data', async (d) => {
         const text = d.toString().trim();
         console.error(`[Script:${launchId}] ERR: ${text}`);
+        appendConsoleBuffer(child.pid, text + '\n');
         if (inspectorConnected) return;
         const inspectorUrl = parseInspectorUrl(text);
         if (!inspectorUrl) return;
@@ -856,7 +1004,11 @@ function startServer() {
         }
       });
     } else {
-      child.stderr.on('data', d => console.error(`[Script:${launchId}] ERR: ${d.toString().trim()}`));
+      child.stderr.on('data', d => {
+        const text = d.toString();
+        console.error(`[Script:${launchId}] ERR: ${text.trim()}`);
+        appendConsoleBuffer(child.pid, text);
+      });
     }
 
     child.on('error', err => {
@@ -1294,12 +1446,25 @@ function startServer() {
           currentCheckpoint: null,
           pages: new Map(),                   // pageId → { url, title } (from playwright-shim)
           inspector: null,                    // InspectorClient (V8 debugger)
+          captureArtifacts: false,            // set from launch payload
+          artifacts: [],                      // accumulated artifact metadata during execution
+          consoleBuffer: '',                  // stdout+stderr rolling buffer
         });
         // Transfer post-actions from pending map
         const script = scripts.get(scriptId);
         if (pid && pendingPostActions.has(pid)) {
           script.postActions = pendingPostActions.get(pid);
           pendingPostActions.delete(pid);
+        }
+        // Transfer captureArtifacts flag
+        if (pid && pendingCaptureArtifacts.has(pid)) {
+          script.captureArtifacts = true;
+          pendingCaptureArtifacts.delete(pid);
+        }
+        // Transfer console buffer accumulated before registration
+        if (pid && pendingConsoleBuffers.has(pid)) {
+          script.consoleBuffer = pendingConsoleBuffers.get(pid);
+          pendingConsoleBuffers.delete(pid);
         }
         // Attach V8 inspector if one was pending for this PID
         if (pid && pendingInspectors.has(pid)) {
@@ -1403,6 +1568,9 @@ function startServer() {
           }
           script.postActions = null;
         }
+
+        // Broadcast run-complete record + artifact manifest for archival
+        broadcastRunComplete(scriptId, script, 'complete');
         break;
       }
 
@@ -1466,16 +1634,19 @@ function startServer() {
             try { process.kill(pidToKill, 'SIGKILL'); } catch { /* already dead */ }
           }, 2000);
           script.state = 'killed';
+          script.duration = Date.now() - script.startedAt;
           script.pid = null;
           sendTo(ws, buildReply(msg, { success: true, scriptId, state: 'killed' }));
           broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script, {
             label: 'Force killed', activeBreakpoints: [],
           })));
+          broadcastRunComplete(scriptId, script, 'killed');
           return;
         }
 
         // Cooperative cancel
         script.state = 'cancelled';
+        script.duration = Date.now() - script.startedAt;
         console.log(`[Bridge] Script cancelled: ${script.name} (${reason || 'no reason'})`);
         if (script.ws && script.ws.readyState === WebSocket.OPEN) {
           sendTo(script.ws, buildMessage(MSG.BRIDGE_SCRIPT_CANCEL, { scriptId, reason }));
@@ -1484,6 +1655,7 @@ function startServer() {
         broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script, {
           label: `Cancelled: ${reason || ''}`,
         })));
+        broadcastRunComplete(scriptId, script, 'cancelled');
         break;
       }
 
@@ -1558,6 +1730,13 @@ function startServer() {
         if (!script) {
           sendTo(ws, buildError('Script not found', msg.id));
           return;
+        }
+
+        // Artifact capture at checkpoint (async, non-blocking for pause logic)
+        if (script.captureArtifacts && script.sessionId) {
+          captureCheckpointScreenshot(scriptId, script, name).catch(err => {
+            console.warn(`[Bridge] Checkpoint screenshot failed: ${err.message}`);
+          });
         }
 
         // Should we pause here?
@@ -1700,6 +1879,28 @@ function startServer() {
           sendTo(ws, buildReply(msg, { success: true, source, path: scriptPath }));
         } catch (err) {
           sendTo(ws, buildError(`Cannot read file: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_GET_ARTIFACT: {
+        const { diskPath } = msg.payload || {};
+        if (!diskPath) {
+          sendTo(ws, buildError('diskPath required', msg.id));
+          return;
+        }
+        // Security: only allow reading from ARTIFACTS_DIR
+        const resolved = pathResolve(diskPath);
+        if (!resolved.startsWith(ARTIFACTS_DIR)) {
+          sendTo(ws, buildError('Access denied: path outside artifacts directory', msg.id));
+          return;
+        }
+        try {
+          const fileData = await readFile(resolved);
+          const base64 = fileData.toString('base64');
+          sendTo(ws, buildReply(msg, { success: true, data: `data:image/png;base64,${base64}` }));
+        } catch (err) {
+          sendTo(ws, buildError(`Cannot read artifact: ${err.message}`, msg.id));
         }
         break;
       }

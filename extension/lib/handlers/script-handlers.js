@@ -106,8 +106,9 @@ export function register(handlers) {
 
     const preActions = msg.preActions || null;
     const postActions = msg.postActions || null;
-    console.log(`[ScriptHandlers] SCRIPT_LAUNCH path=${msg.path} originalPath=${originalPath} breakpoints=[${bp.join(',')}] lineBreakpoints=[${lineBp.join(',')}] debug=${debug} sessionId=${sessionId} pre=${preActions?.length || 0} post=${postActions?.length || 0}`);
-    const result = await bridgeClient.launchScript(msg.path, msg.args || [], bp, lineBp, debug, sessionId, originalPath, preActions, postActions);
+    const captureArtifacts = msg.captureArtifacts || false;
+    console.log(`[ScriptHandlers] SCRIPT_LAUNCH path=${msg.path} originalPath=${originalPath} breakpoints=[${bp.join(',')}] lineBreakpoints=[${lineBp.join(',')}] debug=${debug} sessionId=${sessionId} pre=${preActions?.length || 0} post=${postActions?.length || 0} capture=${captureArtifacts}`);
+    const result = await bridgeClient.launchScript(msg.path, msg.args || [], bp, lineBp, debug, sessionId, originalPath, preActions, postActions, captureArtifacts);
     return { success: true, ...result };
   };
 
@@ -353,6 +354,146 @@ export function register(handlers) {
     entry.modifiedAt = Date.now();
     await saveLibrary(lib);
     return { success: true, script: entry };
+  };
+
+  // ---- Script Run Archive (IndexedDB via DS_ADD/DS_FETCH) ----
+
+  handlers['SCRIPT_RUN_SAVE'] = async (msg) => {
+    const { run, artifacts } = msg;
+    if (!run || !run.scriptId) return { success: false, error: 'run with scriptId required' };
+
+    // Store run record to ScriptRuns DataSource
+    try {
+      await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+          type: 'DS_ADD',
+          dataSource: 'ScriptRuns',
+          data: run,
+        }, (resp) => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else resolve(resp);
+        });
+      });
+    } catch (err) {
+      console.warn('[ScriptHandlers] Failed to save run record:', err.message);
+    }
+
+    // Store each artifact to ScriptArtifacts DataSource
+    if (Array.isArray(artifacts)) {
+      for (const artifact of artifacts) {
+        try {
+          await new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({
+              type: 'DS_ADD',
+              dataSource: 'ScriptArtifacts',
+              data: {
+                runId: run.scriptId,
+                type: artifact.type,
+                timestamp: artifact.timestamp,
+                label: artifact.label || '',
+                data: artifact.data || null,
+                diskPath: artifact.diskPath || null,
+                size: artifact.size || 0,
+                contentType: artifact.contentType || 'application/octet-stream',
+              },
+            }, (resp) => {
+              if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+              else resolve(resp);
+            });
+          });
+        } catch (err) {
+          console.warn('[ScriptHandlers] Failed to save artifact:', err.message);
+        }
+      }
+    }
+
+    return { success: true };
+  };
+
+  handlers['SCRIPT_RUN_LIST'] = async () => {
+    try {
+      const resp = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+          type: 'DS_FETCH',
+          dataSource: 'ScriptRuns',
+          criteria: {},
+        }, (resp) => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else resolve(resp);
+        });
+      });
+      const runs = (resp && resp.status === 0 && Array.isArray(resp.data)) ? resp.data : [];
+      // Sort by startedAt desc
+      runs.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+      return { success: true, runs };
+    } catch (err) {
+      return { success: false, error: err.message, runs: [] };
+    }
+  };
+
+  handlers['SCRIPT_RUN_GET'] = async (msg) => {
+    const { scriptId } = msg;
+    if (!scriptId) return { success: false, error: 'scriptId required' };
+
+    // Fetch artifacts for this run
+    try {
+      const resp = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+          type: 'DS_FETCH',
+          dataSource: 'ScriptArtifacts',
+          criteria: { runId: scriptId },
+        }, (resp) => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else resolve(resp);
+        });
+      });
+      const artifacts = (resp && resp.status === 0 && Array.isArray(resp.data)) ? resp.data : [];
+      // Sort by timestamp asc
+      artifacts.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      return { success: true, artifacts };
+    } catch (err) {
+      return { success: false, error: err.message, artifacts: [] };
+    }
+  };
+
+  handlers['SCRIPT_ARTIFACT_GET'] = async (msg) => {
+    const { id: artifactId, diskPath } = msg;
+
+    // If diskPath provided, load from bridge server
+    if (diskPath) {
+      if (!bridgeClient.isConnected()) {
+        return { success: false, error: 'Not connected to bridge (needed for disk artifacts)' };
+      }
+      try {
+        const result = await bridgeClient.getArtifact(diskPath);
+        return { success: true, data: result.data };
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    }
+
+    // Otherwise load from IndexedDB by id
+    if (artifactId != null) {
+      try {
+        const resp = await new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({
+            type: 'DS_FETCH',
+            dataSource: 'ScriptArtifacts',
+            criteria: { id: artifactId },
+          }, (resp) => {
+            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+            else resolve(resp);
+          });
+        });
+        const artifacts = (resp && resp.status === 0 && Array.isArray(resp.data)) ? resp.data : [];
+        if (artifacts.length === 0) return { success: false, error: 'Artifact not found' };
+        return { success: true, data: artifacts[0].data };
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    }
+
+    return { success: false, error: 'id or diskPath required' };
   };
 
   // ---- Script Versions (chrome.storage.local) ----

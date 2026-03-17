@@ -297,6 +297,27 @@ export function initBridgeCallbacks(snapshotStorageFn) {
     chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_SCHEDULE', ...data }).catch(() => {});
   });
 
+  bridgeClient.onRunComplete(async (data) => {
+    console.log(`[Background] Run complete: ${data.run?.name} (${data.run?.state}, ${data.artifacts?.length || 0} artifacts)`);
+    // Persist run + artifacts to IndexedDB
+    try {
+      chrome.runtime.sendMessage({ type: 'SCRIPT_RUN_SAVE', ...data }, () => {
+        if (chrome.runtime.lastError) {
+          console.warn('[Background] SCRIPT_RUN_SAVE failed:', chrome.runtime.lastError.message);
+        }
+      });
+    } catch (err) {
+      console.warn('[Background] Failed to persist run:', err.message);
+    }
+    // Forward to dashboard UIs
+    chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_RUN_COMPLETE', ...data }).catch(() => {});
+  });
+
+  bridgeClient.onArtifact((data) => {
+    console.log(`[Background] Artifact: ${data.artifact?.label} (${data.artifact?.type})`);
+    chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_ARTIFACT', ...data }).catch(() => {});
+  });
+
   bridgeClient.onFileChanged(async (data) => {
     const { name, source, path, size, modifiedAt, deleted } = data;
     console.log(`[Background] File changed on disk: ${name} ${deleted ? '(deleted)' : `(${size} bytes)`}`);

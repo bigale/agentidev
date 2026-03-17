@@ -151,6 +151,8 @@ const BROADCAST_DS_MAP = {
   AUTO_BROADCAST_STATUS: 'BridgeSessions',
   AUTO_BROADCAST_SCHEDULE: 'BridgeSchedules',
   AUTO_COMMAND_UPDATE: 'BridgeCommands',
+  AUTO_BROADCAST_ARTIFACT: null,         // No DS invalidation, just forward
+  AUTO_BROADCAST_RUN_COMPLETE: 'ScriptRuns', // Invalidate ScriptRuns DS
 };
 
 chrome.runtime.onMessage.addListener((message) => {
@@ -180,6 +182,26 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
+// --- Timeout helper for chrome.runtime.sendMessage ---
+
+const MSG_TIMEOUT_MS = 15000; // 15s default
+
+function sendMessageWithTimeout(outMsg, timeoutMs = MSG_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Timeout: ${outMsg.type} (${timeoutMs}ms)`));
+    }, timeoutMs);
+    chrome.runtime.sendMessage(outMsg, (response) => {
+      clearTimeout(timer);
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else {
+        resolve(response);
+      }
+    });
+  });
+}
+
 // --- DataSource CRUD and AI message forwarding ---
 
 window.addEventListener('message', async (event) => {
@@ -190,20 +212,28 @@ window.addEventListener('message', async (event) => {
   if (msg.source === 'smartclient-action') {
     const outMsg = { type: msg.messageType, ...msg.payload };
     console.log('[Bridge] Action relay:', JSON.stringify(outMsg));
-    chrome.runtime.sendMessage(
-      outMsg,
-      (response) => {
-        try {
-          iframe.contentWindow.postMessage({
-            source: 'smartclient-action-response',
-            id: msg.id,
-            response: response,
-          }, '*');
-        } catch (e) {
-          // ignore
-        }
+    sendMessageWithTimeout(outMsg).then((response) => {
+      try {
+        iframe.contentWindow.postMessage({
+          source: 'smartclient-action-response',
+          id: msg.id,
+          response: response,
+        }, '*');
+      } catch (e) {
+        // ignore
       }
-    );
+    }).catch((err) => {
+      console.warn('[Bridge] Action timeout/error:', outMsg.type, err.message);
+      try {
+        iframe.contentWindow.postMessage({
+          source: 'smartclient-action-response',
+          id: msg.id,
+          response: { success: false, error: err.message },
+        }, '*');
+      } catch (e) {
+        // ignore
+      }
+    });
     return;
   }
 
@@ -212,7 +242,7 @@ window.addEventListener('message', async (event) => {
     const type = 'DS_' + msg.operationType.toUpperCase();
 
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await sendMessageWithTimeout({
         type,
         dataSource: msg.dataSource,
         data: msg.data,
@@ -222,9 +252,9 @@ window.addEventListener('message', async (event) => {
       iframe.contentWindow.postMessage({
         source: 'smartclient-ds-response',
         id: msg.id,
-        status: response.status,
-        data: response.data,
-        totalRows: response.totalRows,
+        status: response?.status ?? -1,
+        data: response?.data,
+        totalRows: response?.totalRows,
       }, '*');
     } catch (err) {
       iframe.contentWindow.postMessage({
