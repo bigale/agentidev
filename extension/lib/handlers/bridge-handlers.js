@@ -5,6 +5,7 @@
  */
 import * as bridgeClient from '../bridge-client.js';
 import { upsertShimImport } from '../shim-utils.js';
+import { dsAdd } from './datasource-handlers.js';
 import { state } from '../init-state.js';
 
 // Command log: circular buffer for tracking all bridge commands
@@ -298,16 +299,38 @@ export function initBridgeCallbacks(snapshotStorageFn) {
   });
 
   bridgeClient.onRunComplete(async (data) => {
-    console.log(`[Background] Run complete: ${data.run?.name} (${data.run?.state}, ${data.artifacts?.length || 0} artifacts)`);
-    // Persist run + artifacts to IndexedDB
-    try {
-      chrome.runtime.sendMessage({ type: 'SCRIPT_RUN_SAVE', ...data }, () => {
-        if (chrome.runtime.lastError) {
-          console.warn('[Background] SCRIPT_RUN_SAVE failed:', chrome.runtime.lastError.message);
+    const { run, artifacts } = data;
+    console.log(`[Background] Run complete: ${run?.name} (${run?.state}, ${artifacts?.length || 0} artifacts)`);
+    // Persist run + artifacts to IndexedDB directly (chrome.runtime.sendMessage is SW-to-SW and fails in MV3)
+    if (run && run.scriptId) {
+      try {
+        const runResp = await dsAdd({ dataSource: 'ScriptRuns', data: run });
+        if (runResp.status !== 0) console.warn('[Background] Failed to save run:', runResp.data);
+        else console.log(`[Background] Run saved to IndexedDB: ${run.name} (${run.scriptId})`);
+      } catch (err) {
+        console.warn('[Background] Failed to save run:', err.message);
+      }
+      if (Array.isArray(artifacts)) {
+        for (const artifact of artifacts) {
+          try {
+            await dsAdd({
+              dataSource: 'ScriptArtifacts',
+              data: {
+                runId: run.scriptId,
+                type: artifact.type,
+                timestamp: artifact.timestamp,
+                label: artifact.label || '',
+                data: artifact.data || null,
+                diskPath: artifact.diskPath || null,
+                size: artifact.size || 0,
+                contentType: artifact.contentType || 'application/octet-stream',
+              },
+            });
+          } catch (err) {
+            console.warn('[Background] Failed to save artifact:', err.message);
+          }
         }
-      });
-    } catch (err) {
-      console.warn('[Background] Failed to persist run:', err.message);
+      }
     }
     // Forward to dashboard UIs
     chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_RUN_COMPLETE', ...data }).catch(() => {});

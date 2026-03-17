@@ -655,6 +655,7 @@ function startServer() {
       activeBreakpoints: Array.from(script.breakpoints || []),
       activity: script.activity || '',
       sessionId: script.sessionId || null,
+      startedAt: script.startedAt || null,
       poll: script.poll || null,
       ...overrides,
     };

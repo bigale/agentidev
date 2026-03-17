@@ -231,6 +231,8 @@ async function dsRemove(message) {
   }
 }
 
+export { dsAdd, dsFetch };
+
 export function register(handlers) {
   handlers['DS_FETCH']  = (msg) => dsFetch(msg);
   handlers['DS_ADD']    = (msg) => dsAdd(msg);

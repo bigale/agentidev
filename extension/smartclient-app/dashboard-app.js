@@ -1791,6 +1791,9 @@ function wireScriptsLibraryGrid() {
     if (!record || !record.name) return;
     _dashState.selectedLibScript = record.name;
     _dashState.recipeId = toRecipeId(record.recipeId);
+    // Select script so Run/Debug toolbar buttons become active
+    _dashState.selectedScriptId = record.name;
+    _dashState.selectedScript = { id: record.name, name: record.name };
 
     // Load into editor
     loadScriptIntoEditor(record.name);
@@ -2099,14 +2102,20 @@ function switchToLiveMode() {
   var ds = isc.DataSource.get('BridgeScripts');
   if (ds) grid.setDataSource(ds);
   grid.setFields([
-    { name: 'name',  width: '*' },
-    { name: 'state', width: 90, _formatter: 'stateDot' },
-    { name: 'step',  width: 40 },
-    { name: 'totalSteps', width: 40, title: '/' },
+    { name: 'name',       width: '*' },
+    { name: 'state',      width: 80, _formatter: 'stateDot' },
+    { name: 'step',       width: 35 },
+    { name: 'totalSteps', width: 35, title: '/' },
+    { name: 'startedAt',  width: 70, title: 'Started' },
   ]);
   grid.fetchData();
-  // Clear archive formatter
-  grid.formatCellValue = null;
+  grid.formatCellValue = function (value, record, rowNum, colNum) {
+    var fieldName = this.getFieldName(colNum);
+    if (fieldName === 'startedAt' && typeof value === 'number') {
+      return new Date(value).toLocaleTimeString();
+    }
+    return value;
+  };
 }
 
 function switchToArchiveMode() {

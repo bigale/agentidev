@@ -270,7 +270,7 @@ function createComponent(node) {
   var config = {};
   for (var key in node) {
     if (key.charAt(0) === '_') continue;
-    if (key === 'members' || key === 'portlets') continue;
+    if (key === 'members' || key === 'portlets' || key === 'tabs') continue;
     config[key] = node[key];
   }
 
@@ -295,6 +295,20 @@ function createComponent(node) {
       var child = createComponent(node.members[i]);
       if (child) config.members.push(child);
     }
+  }
+
+  // TabSet: create each tab's pane through createComponent so components get registered
+  if (type === 'TabSet' && Array.isArray(node.tabs)) {
+    config.tabs = node.tabs.map(function (tab) {
+      var tabCfg = {};
+      for (var k in tab) {
+        if (k !== 'pane') tabCfg[k] = tab[k];
+      }
+      if (tab.pane) {
+        tabCfg.pane = tab.pane._type ? createComponent(tab.pane) : tab.pane;
+      }
+      return tabCfg;
+    });
   }
 
   // Create the component

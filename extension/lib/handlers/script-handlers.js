@@ -6,6 +6,7 @@
  */
 import * as bridgeClient from '../bridge-client.js';
 import { upsertShimImport } from '../shim-utils.js';
+import { dsAdd, dsFetch } from './datasource-handlers.js';
 
 const STORAGE_KEY = 'bridge-scripts';
 const VERSIONS_KEY = 'script-versions';
@@ -362,45 +363,32 @@ export function register(handlers) {
     const { run, artifacts } = msg;
     if (!run || !run.scriptId) return { success: false, error: 'run with scriptId required' };
 
-    // Store run record to ScriptRuns DataSource
+    // Store run record directly via dsAdd (avoids chrome.runtime.sendMessage self-messaging which fails in MV3 SW)
     try {
-      await new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({
-          type: 'DS_ADD',
-          dataSource: 'ScriptRuns',
-          data: run,
-        }, (resp) => {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(resp);
-        });
-      });
+      const resp = await dsAdd({ dataSource: 'ScriptRuns', data: run });
+      if (resp.status !== 0) console.warn('[ScriptHandlers] Failed to save run record:', resp.data);
     } catch (err) {
       console.warn('[ScriptHandlers] Failed to save run record:', err.message);
     }
 
-    // Store each artifact to ScriptArtifacts DataSource
+    // Store each artifact directly via dsAdd
     if (Array.isArray(artifacts)) {
       for (const artifact of artifacts) {
         try {
-          await new Promise((resolve, reject) => {
-            chrome.runtime.sendMessage({
-              type: 'DS_ADD',
-              dataSource: 'ScriptArtifacts',
-              data: {
-                runId: run.scriptId,
-                type: artifact.type,
-                timestamp: artifact.timestamp,
-                label: artifact.label || '',
-                data: artifact.data || null,
-                diskPath: artifact.diskPath || null,
-                size: artifact.size || 0,
-                contentType: artifact.contentType || 'application/octet-stream',
-              },
-            }, (resp) => {
-              if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-              else resolve(resp);
-            });
+          const resp = await dsAdd({
+            dataSource: 'ScriptArtifacts',
+            data: {
+              runId: run.scriptId,
+              type: artifact.type,
+              timestamp: artifact.timestamp,
+              label: artifact.label || '',
+              data: artifact.data || null,
+              diskPath: artifact.diskPath || null,
+              size: artifact.size || 0,
+              contentType: artifact.contentType || 'application/octet-stream',
+            },
           });
+          if (resp.status !== 0) console.warn('[ScriptHandlers] Failed to save artifact:', resp.data);
         } catch (err) {
           console.warn('[ScriptHandlers] Failed to save artifact:', err.message);
         }
@@ -412,18 +400,8 @@ export function register(handlers) {
 
   handlers['SCRIPT_RUN_LIST'] = async () => {
     try {
-      const resp = await new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({
-          type: 'DS_FETCH',
-          dataSource: 'ScriptRuns',
-          criteria: {},
-        }, (resp) => {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(resp);
-        });
-      });
+      const resp = await dsFetch({ dataSource: 'ScriptRuns', criteria: {} });
       const runs = (resp && resp.status === 0 && Array.isArray(resp.data)) ? resp.data : [];
-      // Sort by startedAt desc
       runs.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
       return { success: true, runs };
     } catch (err) {
@@ -435,20 +413,10 @@ export function register(handlers) {
     const { scriptId } = msg;
     if (!scriptId) return { success: false, error: 'scriptId required' };
 
-    // Fetch artifacts for this run
+    // Fetch artifacts for this run directly via dsFetch
     try {
-      const resp = await new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({
-          type: 'DS_FETCH',
-          dataSource: 'ScriptArtifacts',
-          criteria: { runId: scriptId },
-        }, (resp) => {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(resp);
-        });
-      });
+      const resp = await dsFetch({ dataSource: 'ScriptArtifacts', criteria: { runId: scriptId } });
       const artifacts = (resp && resp.status === 0 && Array.isArray(resp.data)) ? resp.data : [];
-      // Sort by timestamp asc
       artifacts.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
       return { success: true, artifacts };
     } catch (err) {
@@ -472,19 +440,10 @@ export function register(handlers) {
       }
     }
 
-    // Otherwise load from IndexedDB by id
+    // Otherwise load from IndexedDB by id directly via dsFetch
     if (artifactId != null) {
       try {
-        const resp = await new Promise((resolve, reject) => {
-          chrome.runtime.sendMessage({
-            type: 'DS_FETCH',
-            dataSource: 'ScriptArtifacts',
-            criteria: { id: artifactId },
-          }, (resp) => {
-            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-            else resolve(resp);
-          });
-        });
+        const resp = await dsFetch({ dataSource: 'ScriptArtifacts', criteria: { id: artifactId } });
         const artifacts = (resp && resp.status === 0 && Array.isArray(resp.data)) ? resp.data : [];
         if (artifacts.length === 0) return { success: false, error: 'Artifact not found' };
         return { success: true, data: artifacts[0].data };
