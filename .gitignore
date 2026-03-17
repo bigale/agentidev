@@ -48,3 +48,6 @@ extension/smartclient
 # Screenshots & data files
 Capture.PNG
 twinspires-races.txt
+*.png
+nul
+.specstory/
