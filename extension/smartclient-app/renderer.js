@@ -210,6 +210,9 @@ var ACTION_MAP = {
   'newSchedule': function (component) {
     // Wired dynamically in dashboard-app.js loadDashboard()
   },
+  'editSchedule': function (component) {
+    // Wired dynamically in dashboard-app.js loadDashboard()
+  },
   'debugLaunch': function (component) {
     // Wired dynamically in dashboard-app.js loadDashboard()
   },

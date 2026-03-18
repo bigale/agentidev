@@ -18,6 +18,7 @@ import http from 'http';
 import { readFile, writeFile, mkdir, stat, readdir, symlink, lstat, unlink, readlink, rm } from 'fs/promises';
 import { watch } from 'fs';
 import { resolve as pathResolve, dirname } from 'path';
+import { Cron } from 'croner';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { homedir, tmpdir } from 'os';
 import { MSG, buildMessage, buildReply, buildError, ROLES } from './protocol.mjs';
@@ -423,16 +424,27 @@ function startServer() {
     const sched = schedules.get(id);
     if (!sched || !sched.enabled) return;
     stopScheduleTimer(id);
-    sched.nextRunAt = Date.now() + sched.intervalMs;
-    const timer = setInterval(() => triggerSchedule(id), sched.intervalMs);
-    scheduleTimers.set(id, timer);
-    console.log(`[Bridge] Schedule timer started: ${sched.name} (every ${sched.intervalMs}ms)`);
+    if (sched.cronExpr) {
+      const job = new Cron(sched.cronExpr, { timezone: 'America/New_York' }, () => triggerSchedule(id));
+      scheduleTimers.set(id, job);
+      sched.nextRunAt = job.nextRun() ? job.nextRun().getTime() : null;
+      console.log(`[Bridge] Schedule timer started: ${sched.name} (cron: ${sched.cronExpr}, next: ${sched.nextRunAt ? new Date(sched.nextRunAt).toLocaleString() : 'none'})`);
+    } else {
+      sched.nextRunAt = Date.now() + sched.intervalMs;
+      const timer = setInterval(() => triggerSchedule(id), sched.intervalMs);
+      scheduleTimers.set(id, timer);
+      console.log(`[Bridge] Schedule timer started: ${sched.name} (every ${sched.intervalMs}ms)`);
+    }
   }
 
   function stopScheduleTimer(id) {
     const timer = scheduleTimers.get(id);
     if (timer) {
-      clearInterval(timer);
+      if (typeof timer.stop === 'function') {
+        timer.stop();
+      } else {
+        clearInterval(timer);
+      }
       scheduleTimers.delete(id);
     }
     const sched = schedules.get(id);
@@ -466,7 +478,16 @@ function startServer() {
       sched.lastRunScriptId = result.launchId;
       sched.lastRunPid = result.pid;
       sched.runCount++;
-      sched.nextRunAt = sched.enabled ? Date.now() + sched.intervalMs : null;
+      if (sched.enabled) {
+        if (sched.cronExpr) {
+          const job = scheduleTimers.get(id);
+          sched.nextRunAt = job && job.nextRun() ? job.nextRun().getTime() : null;
+        } else {
+          sched.nextRunAt = Date.now() + sched.intervalMs;
+        }
+      } else {
+        sched.nextRunAt = null;
+      }
 
       if (!sched.history) sched.history = [];
       sched.history.push({
@@ -2267,20 +2288,31 @@ function startServer() {
       // ---- Scheduling ----
 
       case MSG.BRIDGE_SCHEDULE_CREATE: {
-        const { name, scriptPath, scriptName, args = [], sessionId = null, intervalMs, runOnStartup = false, maxConcurrent = 1, runNow = false, originalPath = null } = msg.payload || {};
-        if (!scriptPath || !intervalMs) {
-          sendTo(ws, buildError('scriptPath and intervalMs required', msg.id));
+        const { name, scriptPath, scriptName, args = [], sessionId = null, intervalMs, cronExpr = null, runOnStartup = false, maxConcurrent = 1, runNow = false, originalPath = null } = msg.payload || {};
+        if (!scriptPath || (!intervalMs && !cronExpr)) {
+          sendTo(ws, buildError('scriptPath and (intervalMs or cronExpr) required', msg.id));
           break;
+        }
+        let nextRunAt;
+        if (cronExpr) {
+          const probe = new Cron(cronExpr, { timezone: 'America/New_York' });
+          nextRunAt = probe.nextRun() ? probe.nextRun().getTime() : null;
+          probe.stop();
+        } else {
+          nextRunAt = Date.now() + intervalMs;
         }
         const id = `sched_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
         const schedule = {
           id, name: name || scriptName || scriptPath.split(/[/\\]/).pop(),
           scriptPath, scriptName: scriptName || null,
           originalPath,
-          args, sessionId, intervalMs, enabled: true,
+          args, sessionId,
+          intervalMs: cronExpr ? null : intervalMs,
+          cronExpr: cronExpr || null,
+          enabled: true,
           runOnStartup, maxConcurrent,
           createdAt: Date.now(), lastRunAt: null, lastRunScriptId: null,
-          nextRunAt: Date.now() + intervalMs,
+          nextRunAt,
           runCount: 0, history: [],
         };
         schedules.set(id, schedule);
@@ -2300,9 +2332,12 @@ function startServer() {
           break;
         }
         // Apply allowed updates
-        for (const key of ['name', 'scriptName', 'intervalMs', 'args', 'sessionId', 'maxConcurrent', 'runOnStartup']) {
+        for (const key of ['name', 'scriptName', 'intervalMs', 'cronExpr', 'args', 'sessionId', 'maxConcurrent', 'runOnStartup']) {
           if (updates[key] !== undefined) sched[key] = updates[key];
         }
+        // Mutual exclusivity: setting cronExpr clears intervalMs and vice versa
+        if (updates.cronExpr !== undefined && updates.cronExpr) sched.intervalMs = null;
+        if (updates.intervalMs !== undefined && updates.intervalMs) sched.cronExpr = null;
         if (updates.enabled !== undefined) {
           sched.enabled = updates.enabled;
           if (sched.enabled) {
@@ -2311,8 +2346,8 @@ function startServer() {
             stopScheduleTimer(scheduleId);
           }
         }
-        if (updates.intervalMs !== undefined && sched.enabled) {
-          // Restart timer with new interval
+        if ((updates.intervalMs !== undefined || updates.cronExpr !== undefined) && sched.enabled) {
+          // Restart timer with new interval/cron
           startScheduleTimer(scheduleId);
         }
         await saveSchedules();

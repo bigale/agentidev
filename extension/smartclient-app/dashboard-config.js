@@ -97,6 +97,7 @@ window._dashboardConfig = {
         { name: 'name',       type: 'text',    title: 'Name',       width: '*' },
         { name: 'scriptName', type: 'text',    title: 'Script',     width: 100 },
         { name: 'intervalMs', type: 'integer', title: 'Interval',   width: 70 },
+        { name: 'cronExpr',  type: 'text',    title: 'Cron',       width: 100 },
         { name: 'enabled',    type: 'boolean', title: 'On',         width: 35 },
         { name: 'runCount',   type: 'integer', title: 'Runs',       width: 45 },
         { name: 'nextRunAt',  type: 'integer', title: 'Next Run',   width: 80 },
@@ -539,7 +540,7 @@ window._dashboardConfig = {
                     fields: [
                       { name: 'name',       width: '*',  canEdit: true },
                       { name: 'scriptName', width: 80,   canEdit: true },
-                      { name: 'intervalMs', width: 60,   canEdit: true },
+                      { name: 'cronExpr',   title: 'Schedule', width: 90,  canEdit: false },
                       { name: 'enabled',    width: 35,   canEdit: true },
                       { name: 'runCount',   width: 40,   canEdit: false },
                       { name: 'nextRunAt',  width: 75,   canEdit: false },
@@ -573,6 +574,13 @@ window._dashboardConfig = {
                         title: 'New',
                         width: 60,
                         _action: 'newSchedule',
+                      },
+                      {
+                        _type: 'Button',
+                        ID: 'btnEditSchedule',
+                        title: 'Edit',
+                        width: 60,
+                        _action: 'editSchedule',
                       },
                       {
                         _type: 'Button',
