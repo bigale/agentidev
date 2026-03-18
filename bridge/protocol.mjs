@@ -101,6 +101,10 @@ export const MSG = {
   BRIDGE_SC_GENERATE_UI: 'BRIDGE_SC_GENERATE_UI',            // generate SmartClient UI config via claude -p
   BRIDGE_SC_CLONE_PAGE: 'BRIDGE_SC_CLONE_PAGE',              // clone a live page to SmartClient config via snapshot+screenshot+network
   BRIDGE_SC_DELETE_CLONE_ARTIFACTS: 'BRIDGE_SC_DELETE_CLONE_ARTIFACTS', // delete persisted clone artifacts by cloneId
+
+  // IndexedDB backup / sync
+  BRIDGE_IDB_SYNC: 'BRIDGE_IDB_SYNC',        // extension → bridge: push store dump to SQLite
+  BRIDGE_IDB_RESTORE: 'BRIDGE_IDB_RESTORE',  // bridge → extension: send SQLite data for IDB import
 };
 
 /**

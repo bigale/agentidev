@@ -25,6 +25,7 @@ import { MSG, buildMessage, buildReply, buildError, ROLES } from './protocol.mjs
 import { PlaywrightSession, SESSION_STATE } from './playwright-session.mjs';
 import { InspectorClient, parseInspectorUrl } from './inspector-client.mjs';
 import { actionToCommandArgs } from './cli-commands.mjs';
+import { initDB, saveRun, saveArtifact, upsertStore, exportAll } from './db.mjs';
 
 const DEFAULT_PORT = 9876;
 const HEALTH_INTERVAL = 30000; // 30s ping/pong
@@ -575,6 +576,7 @@ function startServer() {
 
   startFileWatcher();
   loadSchedules();
+  initDB();
 
   const wss = new WebSocketServer({ port: PORT });
 
@@ -848,6 +850,16 @@ function startServer() {
       // Include inline data only for small non-screenshot artifacts
       data: (!a.diskPath && a.data && a.size < ARTIFACT_INLINE_LIMIT) ? a.data : null,
     }));
+
+    // Dual-write to SQLite (non-blocking — failures are non-fatal)
+    try {
+      saveRun(runRecord);
+      for (const a of artifactManifest) {
+        saveArtifact({ runId: scriptId, ...a });
+      }
+    } catch (err) {
+      console.warn(`[Bridge] SQLite dual-write failed (non-fatal): ${err.message}`);
+    }
 
     broadcast(buildMessage(MSG.BRIDGE_SCRIPT_RUN_COMPLETE, {
       run: runRecord,
@@ -2556,6 +2568,61 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           sendTo(ws, buildReply(msg, { success: true, cloneId }));
         } catch (err) {
           console.error(`[Bridge] Failed to delete clone ${cloneId}:`, err.message);
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      // ---- IndexedDB Backup / Sync ----
+
+      case MSG.BRIDGE_IDB_SYNC: {
+        // Extension sends a dump of one or more IDB stores; upsert into SQLite.
+        const { stores } = msg.payload || {};
+        if (!stores || typeof stores !== 'object') {
+          sendTo(ws, buildReply(msg, { success: false, error: 'Missing stores payload' }));
+          break;
+        }
+        let totalRecords = 0;
+        const errors = [];
+        for (const [storeName, records] of Object.entries(stores)) {
+          if (!Array.isArray(records)) continue;
+          try {
+            upsertStore(storeName, records);
+            totalRecords += records.length;
+            console.log(`[Bridge] IDB sync: stored ${records.length} records for "${storeName}"`);
+          } catch (err) {
+            console.warn(`[Bridge] IDB sync error for "${storeName}": ${err.message}`);
+            errors.push(`${storeName}: ${err.message}`);
+          }
+        }
+        sendTo(ws, buildReply(msg, {
+          success: errors.length === 0,
+          totalRecords,
+          errors: errors.length ? errors : undefined,
+        }));
+        break;
+      }
+
+      case MSG.BRIDGE_IDB_RESTORE: {
+        // Client requests SQLite data to be pushed back to the extension.
+        const { stores: requestedStores } = msg.payload || {};
+        try {
+          const all = exportAll();
+          // Build restore payload keyed by store name
+          const restorePayload = {
+            ScriptRuns:      all.script_runs,
+            ScriptArtifacts: all.script_artifacts,
+          };
+          // Add any idb_stores rows grouped by store name
+          for (const row of all.idb_stores) {
+            if (!restorePayload[row.store]) restorePayload[row.store] = [];
+            try { restorePayload[row.store].push(JSON.parse(row.data)); } catch { /* skip */ }
+          }
+          // Broadcast restore payload so extension can import it
+          broadcast(buildMessage(MSG.BRIDGE_IDB_RESTORE, { stores: restorePayload }));
+          sendTo(ws, buildReply(msg, { success: true }));
+        } catch (err) {
+          console.error('[Bridge] IDB restore failed:', err.message);
           sendTo(ws, buildReply(msg, { success: false, error: err.message }));
         }
         break;

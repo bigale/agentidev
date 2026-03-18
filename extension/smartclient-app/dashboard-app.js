@@ -128,6 +128,28 @@ function loadDashboard() {
     });
   }, 500);
 
+  // Wire Sync (IDB export) button
+  var tbSync = resolveRef('tbSync');
+  if (tbSync) {
+    tbSync.click = function () {
+      var btn = this;
+      btn.setTitle('Syncing…');
+      btn.setDisabled(true);
+      dispatchActionAsync('IDB_EXPORT', {}, 30000)
+        .then(function (result) {
+          var label = result && result.success ? 'Sync ✓' : 'Sync ✗';
+          btn.setTitle(label);
+          setTimeout(function () { btn.setTitle('Sync'); btn.setDisabled(false); }, 2500);
+          console.log('[Dashboard] IDB sync result:', result);
+        })
+        .catch(function (err) {
+          btn.setTitle('Sync ✗');
+          setTimeout(function () { btn.setTitle('Sync'); btn.setDisabled(false); }, 2500);
+          console.warn('[Dashboard] IDB sync failed:', err.message);
+        });
+    };
+  }
+
   // Wire New Session button
   var btnNewSession = resolveRef('btnNewSession');
   if (btnNewSession) {

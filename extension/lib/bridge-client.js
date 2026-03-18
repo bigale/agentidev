@@ -36,6 +36,7 @@ const callbacks = {
   onScheduleUpdate: [],
   onRunComplete: [],
   onArtifact: [],
+  onIdbRestore: [],
 };
 
 /**
@@ -561,6 +562,24 @@ export function onSearchRequest(cb) {
   callbacks.onSearchRequest.push(cb);
 }
 
+/**
+ * Register callback for IDB restore broadcasts from the bridge.
+ * @param {function} cb - Callback({ stores }) where stores is { storeName: records[] }
+ */
+export function onIdbRestore(cb) {
+  callbacks.onIdbRestore.push(cb);
+}
+
+/**
+ * Send a raw message to the bridge and wait for a reply.
+ * Useful for custom message types not covered by typed helpers.
+ * @param {{ type: string, payload: object }} msg
+ * @param {number} [timeout=30000]
+ */
+export function sendRaw(msg, timeout = 30000) {
+  return _sendRequest(msg.type, msg.payload || {}, timeout);
+}
+
 // --- Internal ---
 
 let _msgCounter = 0;
@@ -638,6 +657,9 @@ function _handleBroadcast(msg) {
       break;
     case 'BRIDGE_SCRIPT_ARTIFACT':
       _fireCallbacks('onArtifact', msg.payload);
+      break;
+    case 'BRIDGE_IDB_RESTORE':
+      _fireCallbacks('onIdbRestore', msg.payload);
       break;
     case 'BRIDGE_SEARCH_SNAPSHOTS':
       _handleSearchRequest(msg);

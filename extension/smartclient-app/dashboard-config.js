@@ -295,6 +295,15 @@ window._dashboardConfig = {
             _messageType: 'DBG_STEP_OUT',
           },
           { _type: 'ToolStripSeparator' },
+
+          // IDB Sync
+          {
+            _type: 'ToolStripButton',
+            ID: 'tbSync',
+            title: 'Sync',
+            icon: '[SKINIMG]actions/refresh.png',
+            _action: 'idbSync',
+          },
         ],
       },
 

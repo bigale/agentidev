@@ -35,6 +35,7 @@ import { register as registerScript } from './lib/handlers/script-handlers.js';
 import { register as registerDataSource } from './lib/handlers/datasource-handlers.js';
 import { register as registerSmartClient } from './lib/handlers/smartclient-handlers.js';
 import { register as registerAppPersistence } from './lib/handlers/app-persistence.js';
+import { register as registerSync } from './lib/handlers/sync-handlers.js';
 
 console.log('Contextual Recall: Background service worker started');
 console.log('[Background] Note: Extension reload = re-initialize (models are cached, not re-downloaded)');
@@ -193,6 +194,7 @@ registerScript(handlers);
 registerDataSource(handlers);
 registerSmartClient(handlers);
 registerAppPersistence(handlers);
+registerSync(handlers);
 
 chrome.runtime.onMessage.addListener(createMessageRouter(handlers));
 

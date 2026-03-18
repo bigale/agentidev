@@ -7,6 +7,7 @@ import * as bridgeClient from '../bridge-client.js';
 import { upsertShimImport } from '../shim-utils.js';
 import { dsAdd } from './datasource-handlers.js';
 import { state } from '../init-state.js';
+import { startPeriodicSync } from './sync-handlers.js';
 
 // Command log: circular buffer for tracking all bridge commands
 const commandLog = [];
@@ -228,6 +229,9 @@ export function initBridgeCallbacks(snapshotStorageFn) {
     console.log(`[Background] Bridge connection: ${data.connected ? 'connected' : 'disconnected'}`);
     chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_CONNECTION', ...data }).catch(() => {});
 
+    // Start periodic IDB sync for browser-only stores on first connect
+    if (data.connected) startPeriodicSync();
+
     // Auto-sync all library scripts to disk on bridge connect
     if (data.connected) {
       try {
@@ -339,6 +343,21 @@ export function initBridgeCallbacks(snapshotStorageFn) {
   bridgeClient.onArtifact((data) => {
     console.log(`[Background] Artifact: ${data.artifact?.label} (${data.artifact?.type})`);
     chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_ARTIFACT', ...data }).catch(() => {});
+  });
+
+  // IDB restore broadcast: bridge sends SQLite data → import into IndexedDB
+  bridgeClient.onIdbRestore(async (data) => {
+    const { stores } = data || {};
+    if (!stores) return;
+    console.log(`[Background] IDB restore broadcast received: ${Object.keys(stores).join(', ')}`);
+    try {
+      const { importStores } = await import('./sync-handlers.js');
+      const result = await importStores(stores);
+      console.log(`[Background] IDB restore complete: ${result.totalImported} records`);
+      chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_IDB_RESTORED', result }).catch(() => {});
+    } catch (err) {
+      console.warn('[Background] IDB restore failed:', err.message);
+    }
   });
 
   bridgeClient.onFileChanged(async (data) => {

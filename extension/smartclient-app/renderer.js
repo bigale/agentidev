@@ -219,6 +219,9 @@ var ACTION_MAP = {
   'evalExpression': function (component) {
     // Wired dynamically in dashboard-app.js loadDashboard()
   },
+  'idbSync': function (component) {
+    // Wired dynamically in dashboard-app.js loadDashboard()
+  },
 };
 
 function wireAction(component, node) {

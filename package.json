@@ -47,6 +47,7 @@
     "@playwright/cli": "^0.1.1",
     "@xenova/transformers": "^2.17.2",
     "apache-arrow": "^14.0.0",
+    "better-sqlite3": "^12.8.0",
     "croner": "^10.0.1",
     "playwright-cli": "^0.262.0",
     "ws": "^8.19.0"
