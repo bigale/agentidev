@@ -31,7 +31,7 @@ import { mkdirSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const EXTENSION_PATH = resolve(__dirname, '..', 'extension');
-const DEFAULT_PROFILE = resolve(process.env.HOME, '.contextual-recall', 'browser-profile');
+const DEFAULT_PROFILE = resolve(process.env.HOME ?? process.env.USERPROFILE, '.contextual-recall', 'browser-profile');
 
 // Parse args
 const args = process.argv.slice(2);
