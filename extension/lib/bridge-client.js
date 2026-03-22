@@ -29,6 +29,7 @@ const callbacks = {
   onError: [],
   onConnectionChange: [],
   onSearchRequest: [],
+  onSearchVectorDB: [],
   onIndexContent: [],
   onScriptUpdate: [],
   onFileChanged: [],
@@ -564,6 +565,15 @@ export function onSearchRequest(cb) {
 }
 
 /**
+ * Register callback for vectorDB search requests relayed from bridge server.
+ * Callback receives (payload) and must return a Promise<results[]>.
+ * @param {function} cb - async Callback(payload) => results[]
+ */
+export function onSearchVectorDB(cb) {
+  callbacks.onSearchVectorDB.push(cb);
+}
+
+/**
  * Register callback for index content requests relayed from bridge server.
  * Callback receives (payload) and must return a Promise<{success, id}>.
  * @param {function} cb - async Callback(payload) => {success, id}
@@ -674,6 +684,9 @@ function _handleBroadcast(msg) {
     case 'BRIDGE_SEARCH_SNAPSHOTS':
       _handleSearchRequest(msg);
       break;
+    case 'BRIDGE_SEARCH_VECTORDB':
+      _handleVectorDBSearch(msg);
+      break;
     case 'BRIDGE_INDEX_CONTENT':
       _handleIndexRequest(msg);
       break;
@@ -709,6 +722,48 @@ async function _handleSearchRequest(msg) {
     }
   } catch (err) {
     console.error('[BridgeClient] Search request failed:', err);
+    const reply = {
+      id: `ext_${Date.now()}_${++_msgCounter}`,
+      type: 'BRIDGE_ERROR',
+      source: 'extension',
+      timestamp: Date.now(),
+      replyTo: msg.id,
+      payload: { error: err.message },
+    };
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(reply));
+    }
+  }
+}
+
+/**
+ * Handle a vectorDB search request relayed from the bridge server.
+ * Calls registered onSearchVectorDB callbacks and sends the reply.
+ */
+async function _handleVectorDBSearch(msg) {
+  const payload = msg.payload || {};
+  console.log(`[BridgeClient] VectorDB search request: "${payload.query}"`);
+
+  try {
+    let results = [];
+    for (const cb of callbacks.onSearchVectorDB) {
+      results = await cb(payload);
+      if (results && results.length > 0) break;
+    }
+
+    const reply = {
+      id: `ext_${Date.now()}_${++_msgCounter}`,
+      type: 'BRIDGE_SEARCH_VECTORDB',
+      source: 'extension',
+      timestamp: Date.now(),
+      replyTo: msg.id,
+      payload: { success: true, results },
+    };
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(reply));
+    }
+  } catch (err) {
+    console.error('[BridgeClient] VectorDB search failed:', err);
     const reply = {
       id: `ext_${Date.now()}_${++_msgCounter}`,
       type: 'BRIDGE_ERROR',

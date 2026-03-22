@@ -346,6 +346,7 @@ const CLI_COMMANDS = {
   'schedule:update':    (p) => _sendRequest(MSG.BRIDGE_SCHEDULE_UPDATE, p),
   'schedule:delete':    (p) => _sendRequest(MSG.BRIDGE_SCHEDULE_DELETE, p),
   'schedule:trigger':   (p) => _sendRequest(MSG.BRIDGE_SCHEDULE_TRIGGER, p),
+  'search':             (p) => _sendRequest(MSG.BRIDGE_SEARCH_VECTORDB, p),
   'sc:generate':        (p) => _sendRequest(MSG.BRIDGE_SC_GENERATE_UI, p, 60000),
   'sc:clone':           (p) => _sendRequest(MSG.BRIDGE_SC_CLONE_PAGE, p, 120000),
 };

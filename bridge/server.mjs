@@ -1529,6 +1529,18 @@ function startServer() {
         break;
       }
 
+      case MSG.BRIDGE_SEARCH_VECTORDB: {
+        const extClient = findClientByRole(ROLES.EXTENSION);
+        if (!extClient) {
+          sendTo(ws, buildError('No extension client connected', msg.id));
+          return;
+        }
+        const searchVdbMsg = buildMessage(MSG.BRIDGE_SEARCH_VECTORDB, msg.payload, 'server');
+        pendingRelays.set(searchVdbMsg.id, { ws, originalMsgId: msg.id });
+        sendTo(extClient, searchVdbMsg);
+        break;
+      }
+
       // ---- Script Integration (Phase 3) ----
 
       case MSG.BRIDGE_SCRIPT_REGISTER: {

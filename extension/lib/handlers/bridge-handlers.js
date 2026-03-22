@@ -282,6 +282,31 @@ export function initBridgeCallbacks(snapshotStorageFn, deps = {}) {
   });
 
   if (deps.generateEmbedding && deps.vectorDB) {
+    bridgeClient.onSearchVectorDB(async (payload) => {
+      const { query, limit, threshold, queryKeywords } = payload;
+      console.log(`[Background] VectorDB search: "${query}"`);
+
+      let embedding;
+      if (deps.isInitialized()) {
+        try {
+          embedding = await deps.generateEmbedding(query);
+        } catch (err) {
+          console.error('[Background] Neural embedding failed for search, using TF-IDF:', err);
+          embedding = deps.generateSimpleEmbedding(query);
+        }
+      } else {
+        embedding = deps.generateSimpleEmbedding(query);
+      }
+
+      const results = await deps.vectorDB.search(embedding, {
+        limit: limit || 10,
+        threshold: threshold || (deps.isInitialized() ? 0.3 : 0.1),
+        queryKeywords: queryKeywords || [],
+      });
+
+      return results;
+    });
+
     bridgeClient.onIndexContent(async (payload) => {
       const { url, title, text, html, contentType, keywords, metadata } = payload;
       console.log(`[Background] Index content: "${title}"`);
