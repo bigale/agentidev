@@ -32,6 +32,7 @@ export const MSG = {
 
   // Search (routed to extension)
   BRIDGE_SEARCH_SNAPSHOTS: 'BRIDGE_SEARCH_SNAPSHOTS',
+  BRIDGE_INDEX_CONTENT: 'BRIDGE_INDEX_CONTENT',
 
   // Claude-specific (Phase E)
   BRIDGE_PAUSE: 'BRIDGE_PAUSE',

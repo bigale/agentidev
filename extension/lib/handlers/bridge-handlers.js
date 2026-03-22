@@ -205,7 +205,7 @@ export function register(handlers) {
  * Set up bridge event callbacks that forward broadcasts to extension UIs.
  * Called once during background initialization.
  */
-export function initBridgeCallbacks(snapshotStorageFn) {
+export function initBridgeCallbacks(snapshotStorageFn, deps = {}) {
   bridgeClient.onSnapshotReceived(async (data) => {
     console.log(`[Background] Snapshot broadcast received (${data.lines} lines)`);
     // Forward to sidepanel
@@ -280,6 +280,39 @@ export function initBridgeCallbacks(snapshotStorageFn) {
     const { handleSnapshotSearch } = await import('./snapshot-handlers.js');
     return handleSnapshotSearch(query, options);
   });
+
+  if (deps.generateEmbedding && deps.vectorDB) {
+    bridgeClient.onIndexContent(async (payload) => {
+      const { url, title, text, html, contentType, keywords, metadata } = payload;
+      console.log(`[Background] Index content: "${title}"`);
+
+      let embedding;
+      if (deps.isInitialized()) {
+        try {
+          embedding = await deps.generateEmbedding(text);
+        } catch (err) {
+          console.error('[Background] Neural embedding failed, using TF-IDF:', err);
+          embedding = deps.generateSimpleEmbedding(text);
+        }
+      } else {
+        embedding = deps.generateSimpleEmbedding(text);
+      }
+
+      const id = await deps.vectorDB.addPage({
+        url: url || `indexed://${Date.now()}`,
+        title: title || 'Untitled',
+        text: text || '',
+        html: html || '',
+        timestamp: Date.now(),
+        contentType: contentType || 'general',
+        embedding,
+        keywords: keywords || [],
+        metadata: metadata || {},
+      });
+
+      return { success: true, id };
+    });
+  }
 
   bridgeClient.onScriptUpdate((data) => {
     console.log(`[Background] Script update: ${data.name} state=${data.state} ${data.step}/${data.total}`);

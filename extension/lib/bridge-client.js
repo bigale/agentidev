@@ -29,6 +29,7 @@ const callbacks = {
   onError: [],
   onConnectionChange: [],
   onSearchRequest: [],
+  onIndexContent: [],
   onScriptUpdate: [],
   onFileChanged: [],
   onDbgPaused: [],
@@ -563,6 +564,15 @@ export function onSearchRequest(cb) {
 }
 
 /**
+ * Register callback for index content requests relayed from bridge server.
+ * Callback receives (payload) and must return a Promise<{success, id}>.
+ * @param {function} cb - async Callback(payload) => {success, id}
+ */
+export function onIndexContent(cb) {
+  callbacks.onIndexContent.push(cb);
+}
+
+/**
  * Register callback for IDB restore broadcasts from the bridge.
  * @param {function} cb - Callback({ stores }) where stores is { storeName: records[] }
  */
@@ -664,6 +674,9 @@ function _handleBroadcast(msg) {
     case 'BRIDGE_SEARCH_SNAPSHOTS':
       _handleSearchRequest(msg);
       break;
+    case 'BRIDGE_INDEX_CONTENT':
+      _handleIndexRequest(msg);
+      break;
   }
 }
 
@@ -696,6 +709,48 @@ async function _handleSearchRequest(msg) {
     }
   } catch (err) {
     console.error('[BridgeClient] Search request failed:', err);
+    const reply = {
+      id: `ext_${Date.now()}_${++_msgCounter}`,
+      type: 'BRIDGE_ERROR',
+      source: 'extension',
+      timestamp: Date.now(),
+      replyTo: msg.id,
+      payload: { error: err.message },
+    };
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(reply));
+    }
+  }
+}
+
+/**
+ * Handle an index content request relayed from the bridge server.
+ * Calls registered onIndexContent callbacks and sends the reply.
+ */
+async function _handleIndexRequest(msg) {
+  const payload = msg.payload || {};
+  console.log(`[BridgeClient] Index request: "${payload.title}"`);
+
+  try {
+    let result = { success: false, error: 'No handler registered' };
+    for (const cb of callbacks.onIndexContent) {
+      result = await cb(payload);
+      if (result && result.success) break;
+    }
+
+    const reply = {
+      id: `ext_${Date.now()}_${++_msgCounter}`,
+      type: 'BRIDGE_INDEX_CONTENT',
+      source: 'extension',
+      timestamp: Date.now(),
+      replyTo: msg.id,
+      payload: result,
+    };
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(reply));
+    }
+  } catch (err) {
+    console.error('[BridgeClient] Index request failed:', err);
     const reply = {
       id: `ext_${Date.now()}_${++_msgCounter}`,
       type: 'BRIDGE_ERROR',

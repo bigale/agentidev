@@ -1169,12 +1169,16 @@ function startServer() {
    * Find first connected client with a given role
    */
   function findClientByRole(role) {
+    // Return the most recently connected client with the given role.
+    // When an extension reloads, the old WebSocket may linger briefly,
+    // so we prefer the newest connection.
+    let found = null;
     for (const [clientWs, info] of clients) {
       if (info.role === role && clientWs.readyState === WebSocket.OPEN) {
-        return clientWs;
+        found = clientWs;
       }
     }
-    return null;
+    return found;
   }
 
   /**
@@ -1510,6 +1514,18 @@ function startServer() {
         // Store pending relay: when extension replies, forward to original requester
         pendingRelays.set(searchMsg.id, { ws, originalMsgId: msg.id });
         sendTo(extClient, searchMsg);
+        break;
+      }
+
+      case MSG.BRIDGE_INDEX_CONTENT: {
+        const extClient = findClientByRole(ROLES.EXTENSION);
+        if (!extClient) {
+          sendTo(ws, buildError('No extension client connected', msg.id));
+          return;
+        }
+        const indexMsg = buildMessage(MSG.BRIDGE_INDEX_CONTENT, msg.payload, 'server');
+        pendingRelays.set(indexMsg.id, { ws, originalMsgId: msg.id });
+        sendTo(extClient, indexMsg);
         break;
       }
 

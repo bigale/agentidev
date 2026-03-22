@@ -248,6 +248,26 @@ export class ScriptClient {
   }
 
   /**
+   * Index content into the extension's vector database via bridge relay.
+   * The extension generates embeddings and stores in IndexedDB.
+   *
+   * @param {object} content - Content to index
+   * @param {string} content.url - URL identifier for the content
+   * @param {string} content.title - Document title
+   * @param {string} content.text - Full text content for embedding + storage
+   * @param {string} [content.html] - Optional HTML content
+   * @param {string} [content.contentType] - Content type classification
+   * @param {string[]} [content.keywords] - Keywords for filtering
+   * @param {object} [content.metadata] - Arbitrary metadata
+   * @returns {Promise<{success: boolean, id?: string}>}
+   */
+  async indexContent({ url, title, text, html, contentType, keywords, metadata }) {
+    return this._sendRequest('BRIDGE_INDEX_CONTENT', {
+      url, title, text, html, contentType, keywords, metadata,
+    }, 30000);
+  }
+
+  /**
    * Dynamically declare a checkpoint after registration.
    * Used by playwright-shim when new pages are created (page IDs aren't known at registration time).
    * The bridge appends to script.checkpoints and broadcasts the update so UIs show the new toggle.

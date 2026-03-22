@@ -12,7 +12,7 @@
  */
 
 import { vectorDB } from './lib/vectordb.js';
-import { initEmbeddings } from './lib/embeddings.js';
+import { initEmbeddings, generateEmbedding, isInitialized } from './lib/embeddings.js';
 import { checkAvailability, initSession, getStatus } from './lib/chrome-prompt-api.js';
 import { structDB } from './lib/structdb.js';
 import { yamlSnapshotStore } from './lib/yaml-snapshot-store.js';
@@ -212,7 +212,10 @@ chrome.runtime.onMessage.addListener(createMessageRouter(handlers));
 })();
 
 // Set up bridge event forwarding (broadcasts snapshots/status to sidepanel)
-initBridgeCallbacks(handleSnapshotStorage);
+import { generateSimpleEmbedding } from './lib/handlers/capture-handlers.js';
+initBridgeCallbacks(handleSnapshotStorage, {
+  generateEmbedding, isInitialized, generateSimpleEmbedding, vectorDB,
+});
 
 // Auto-connect to bridge server on startup (silent failure if bridge not running)
 bridgeClient.connectToBridge(9876).then(() => {
