@@ -10,11 +10,13 @@
 const DEFAULT_PORT = 9876;
 const MAX_RECONNECT_DELAY = 30000;
 const INITIAL_RECONNECT_DELAY = 1000;
+const KEEPALIVE_INTERVAL = 20000; // 20s - prevents Chrome MV3 service worker suspension
 
 let ws = null;
 let port = DEFAULT_PORT;
 let reconnectDelay = INITIAL_RECONNECT_DELAY;
 let reconnectTimer = null;
+let keepaliveTimer = null;
 let intentionalClose = false;
 let bridgeShimPath = null;
 let bridgeScriptsDir = null;
@@ -71,6 +73,9 @@ export function connectToBridge(serverPort = DEFAULT_PORT) {
       const identifyMsg = _buildMessage('BRIDGE_IDENTIFY', { role: 'extension' });
       ws.send(JSON.stringify(identifyMsg));
 
+      // Start keepalive to prevent Chrome MV3 service worker suspension
+      _startKeepalive();
+
       _fireCallbacks('onConnectionChange', { connected: true });
       resolve(true);
     };
@@ -104,6 +109,7 @@ export function connectToBridge(serverPort = DEFAULT_PORT) {
 
     ws.onclose = () => {
       console.log('[BridgeClient] Disconnected from bridge server');
+      _stopKeepalive();
       _fireCallbacks('onConnectionChange', { connected: false });
 
       // Reject all pending requests
@@ -133,6 +139,7 @@ export function connectToBridge(serverPort = DEFAULT_PORT) {
  */
 export function disconnectFromBridge() {
   intentionalClose = true;
+  _stopKeepalive();
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
@@ -827,6 +834,22 @@ function _fireCallbacks(event, data) {
     } catch (err) {
       console.error(`[BridgeClient] Callback error (${event}):`, err);
     }
+  }
+}
+
+function _startKeepalive() {
+  _stopKeepalive();
+  keepaliveTimer = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(_buildMessage('BRIDGE_HEALTH', {})));
+    }
+  }, KEEPALIVE_INTERVAL);
+}
+
+function _stopKeepalive() {
+  if (keepaliveTimer) {
+    clearInterval(keepaliveTimer);
+    keepaliveTimer = null;
   }
 }
 
