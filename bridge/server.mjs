@@ -2440,40 +2440,64 @@ function startServer() {
       }
 
       case MSG.BRIDGE_SC_GENERATE_UI: {
-        const { prompt } = msg.payload || {};
+        const { prompt, currentConfig } = msg.payload || {};
         if (!prompt || !prompt.trim()) {
           sendTo(ws, buildError('Prompt is required', msg.id));
           break;
         }
 
-        const SC_GENERATE_SYSTEM_PROMPT = `You are a SmartClient UI generator. Given a user description, output ONLY a JSON object with this structure:
-
-{"dataSources":[...],"layout":{...}}
-
-Rules:
+        const SC_BASE_RULES = `Rules:
 - dataSources: array of {ID, fields:[{name,type,primaryKey,hidden,title,required,length,valueMap,canEdit}]}
   - ID must end with DS, always include {name:"id",type:"integer",primaryKey:true,hidden:true}
   - Field types: text, integer, float, date, datetime, boolean
   - For dropdowns use valueMap as an array of strings
 - layout: component tree with _type and members[]
-  - Allowed _type values: VLayout, HLayout, ListGrid, ForgeListGrid, DynamicForm, Button, Label, TabSet, Tab, DetailViewer, SectionStack, HTMLFlow, Window, ToolStrip, ToolStripButton, PortalLayout, Portlet, Canvas, ForgeWizard, ForgeFilterBar
+  - Allowed _type values: VLayout, HLayout, ListGrid, ForgeListGrid, DynamicForm, Button, Label, TabSet, Tab, DetailViewer, SectionStack, HTMLFlow, Window, ToolStrip, ToolStripButton, PortalLayout, Portlet, Canvas, ForgeWizard, ForgeFilterBar, Menu
   - ForgeListGrid: enhanced ListGrid with skeleton loading. Use instead of ListGrid. Same props: dataSource, autoFetchData, fields, selectionType
   - ForgeFilterBar: search bar + advanced filter. Set targetGrid to a grid ID, searchFields to array of field names
   - ForgeWizard: multi-step form. Set steps:[{title,form:<DynamicForm config>}], onComplete is auto-wired
-  - ListGrid/ForgeListGrid: set dataSource, autoFetchData:true, fields array with name and width
+  - Menu: context menu with items[]. Each item: {title, _action, _targetGrid, _targetForm}. Wire to grid via showContextMenu
+  - ListGrid/ForgeListGrid: set dataSource, autoFetchData:true, fields array with name and width. For context menu, set contextMenu to a Menu ID
   - DynamicForm: set dataSource, fields with name and optionally editorType (TextItem, TextAreaItem, SelectItem, DateItem, CheckboxItem, SpinnerItem)
   - Button: use _action for behavior: "new","save","delete". Set _targetForm and _targetGrid to reference component IDs
   - ListGrid recordClick: set _action:"select" and _targetForm to auto-wire
-  - Give components an ID string so buttons can reference them
+  - Give components an ID string so buttons can reference them`;
 
-Example for a task tracker:
-{"dataSources":[{"ID":"TaskDS","fields":[{"name":"id","type":"integer","primaryKey":true,"hidden":true},{"name":"title","type":"text","required":true,"title":"Title","length":200},{"name":"status","type":"text","title":"Status","valueMap":["Todo","In Progress","Done"]},{"name":"dueDate","type":"date","title":"Due Date"}]}],"layout":{"_type":"VLayout","width":"100%","height":"100%","membersMargin":8,"layoutMargin":12,"members":[{"_type":"ForgeListGrid","ID":"taskGrid","width":"100%","height":"*","dataSource":"TaskDS","autoFetchData":true,"canEdit":false,"selectionType":"single","_action":"select","_targetForm":"taskForm","fields":[{"name":"title","width":"*"},{"name":"status","width":120},{"name":"dueDate","width":120}]},{"_type":"DynamicForm","ID":"taskForm","width":"100%","dataSource":"TaskDS","numCols":2,"colWidths":[120,"*"],"fields":[{"name":"title","editorType":"TextItem"},{"name":"status","editorType":"SelectItem"},{"name":"dueDate","editorType":"DateItem"}]},{"_type":"HLayout","height":30,"membersMargin":8,"members":[{"_type":"Button","title":"New","width":80,"_action":"new","_targetForm":"taskForm"},{"_type":"Button","title":"Save","width":80,"_action":"save","_targetForm":"taskForm","_targetGrid":"taskGrid"},{"_type":"Button","title":"Delete","width":80,"_action":"delete","_targetGrid":"taskGrid"}]}]}}
+        const SC_EXAMPLE = `Example for a task tracker:
+{"dataSources":[{"ID":"TaskDS","fields":[{"name":"id","type":"integer","primaryKey":true,"hidden":true},{"name":"title","type":"text","required":true,"title":"Title","length":200},{"name":"status","type":"text","title":"Status","valueMap":["Todo","In Progress","Done"]},{"name":"dueDate","type":"date","title":"Due Date"}]}],"layout":{"_type":"VLayout","width":"100%","height":"100%","membersMargin":8,"layoutMargin":12,"members":[{"_type":"ForgeListGrid","ID":"taskGrid","width":"100%","height":"*","dataSource":"TaskDS","autoFetchData":true,"canEdit":false,"selectionType":"single","_action":"select","_targetForm":"taskForm","fields":[{"name":"title","width":"*"},{"name":"status","width":120},{"name":"dueDate","width":120}]},{"_type":"DynamicForm","ID":"taskForm","width":"100%","dataSource":"TaskDS","numCols":2,"colWidths":[120,"*"],"fields":[{"name":"title","editorType":"TextItem"},{"name":"status","editorType":"SelectItem"},{"name":"dueDate","editorType":"DateItem"}]},{"_type":"HLayout","height":30,"membersMargin":8,"members":[{"_type":"Button","title":"New","width":80,"_action":"new","_targetForm":"taskForm"},{"_type":"Button","title":"Save","width":80,"_action":"save","_targetForm":"taskForm","_targetGrid":"taskGrid"},{"_type":"Button","title":"Delete","width":80,"_action":"delete","_targetGrid":"taskGrid"}]}]}}`;
+
+        let systemPrompt, userPrompt;
+
+        if (currentConfig) {
+          // Modification mode — edit existing config
+          systemPrompt = `You are modifying an existing SmartClient UI. The current config JSON is provided below.
+Apply the user's requested change and return the COMPLETE modified config.
+Do not remove existing components unless the user asks. Preserve all IDs and DataSources.
+
+${SC_BASE_RULES}
+
+Output ONLY the modified JSON object. No explanation, no markdown fences.`;
+
+          userPrompt = `Current config:\n${JSON.stringify(currentConfig)}\n\nUser request: ${prompt.trim()}`;
+        } else {
+          // Generation mode — create from scratch
+          systemPrompt = `You are a SmartClient UI generator. Given a user description, output ONLY a JSON object with this structure:
+
+{"dataSources":[...],"layout":{...}}
+
+${SC_BASE_RULES}
+
+${SC_EXAMPLE}
 
 Output ONLY the JSON object. No explanation, no markdown fences.`;
 
-        console.log('[Bridge] SC_GENERATE_UI: spawning claude -p for:', prompt.trim().slice(0, 80));
+          userPrompt = `User request: ${prompt.trim()}`;
+        }
+
+        const mode = currentConfig ? 'modify' : 'generate';
+        console.log(`[Bridge] SC_GENERATE_UI (${mode}): spawning claude -p for:`, prompt.trim().slice(0, 80));
         try {
-          const raw = await spawnClaude('haiku', SC_GENERATE_SYSTEM_PROMPT, `User request: ${prompt.trim()}`);
+          const raw = await spawnClaude('haiku', systemPrompt, userPrompt);
           const config = parseClaudeJsonResponse(raw);
           validateSmartClientConfig(config);
 
@@ -2654,6 +2678,117 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           sendTo(ws, buildReply(msg, { success: true }));
         } catch (err) {
           console.error('[Bridge] IDB restore failed:', err.message);
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      // ── Agentiface App Persistence (Phase 5b) ────────────────────
+
+      case MSG.BRIDGE_AF_APP_SAVE: {
+        const { id, name, prompt: appPrompt, config, history } = msg.payload || {};
+        if (!config) {
+          sendTo(ws, buildError('config is required', msg.id));
+          break;
+        }
+        try {
+          const appsDir = pathResolve(homedir(), '.contextual-recall', 'agentiface-apps');
+          await mkdir(appsDir, { recursive: true });
+
+          const appId = id || `app_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+          const filePath = pathResolve(appsDir, `${appId}.json`);
+
+          // Load existing to preserve history if updating
+          let existing = null;
+          try {
+            existing = JSON.parse(await readFile(filePath, 'utf-8'));
+          } catch { /* new app */ }
+
+          const now = new Date().toISOString();
+          const app = {
+            id: appId,
+            name: name || existing?.name || 'Untitled',
+            prompt: appPrompt || existing?.prompt || '',
+            config,
+            createdAt: existing?.createdAt || now,
+            updatedAt: now,
+            history: history || existing?.history || [],
+          };
+
+          // Append to history if config changed
+          if (appPrompt && (!existing || JSON.stringify(existing.config) !== JSON.stringify(config))) {
+            app.history.push({ prompt: appPrompt, timestamp: now, config });
+          }
+
+          await writeFile(filePath, JSON.stringify(app, null, 2));
+          console.log('[Bridge] AF app saved:', appId, '-', app.name);
+          sendTo(ws, buildReply(msg, { success: true, app: { id: appId, name: app.name, updatedAt: now } }));
+        } catch (err) {
+          console.error('[Bridge] AF app save error:', err.message);
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_AF_APP_LOAD: {
+        const { id: loadId } = msg.payload || {};
+        if (!loadId) {
+          sendTo(ws, buildError('id is required', msg.id));
+          break;
+        }
+        try {
+          const filePath = pathResolve(homedir(), '.contextual-recall', 'agentiface-apps', `${loadId}.json`);
+          const raw = await readFile(filePath, 'utf-8');
+          const app = JSON.parse(raw);
+          sendTo(ws, buildReply(msg, { success: true, app }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_AF_APP_LIST: {
+        try {
+          const appsDir = pathResolve(homedir(), '.contextual-recall', 'agentiface-apps');
+          await mkdir(appsDir, { recursive: true });
+          const files = await readdir(appsDir);
+          const apps = [];
+          for (const file of files) {
+            if (!file.endsWith('.json')) continue;
+            try {
+              const raw = await readFile(pathResolve(appsDir, file), 'utf-8');
+              const app = JSON.parse(raw);
+              // Return metadata only (not full config/history)
+              apps.push({
+                id: app.id,
+                name: app.name,
+                prompt: app.prompt,
+                createdAt: app.createdAt,
+                updatedAt: app.updatedAt,
+                historyCount: (app.history || []).length,
+              });
+            } catch { /* skip corrupt files */ }
+          }
+          apps.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+          sendTo(ws, buildReply(msg, { success: true, apps }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_AF_APP_DELETE: {
+        const { id: delId } = msg.payload || {};
+        if (!delId) {
+          sendTo(ws, buildError('id is required', msg.id));
+          break;
+        }
+        try {
+          const filePath = pathResolve(homedir(), '.contextual-recall', 'agentiface-apps', `${delId}.json`);
+          await rm(filePath);
+          console.log('[Bridge] AF app deleted:', delId);
+          sendTo(ws, buildReply(msg, { success: true }));
+        } catch (err) {
           sendTo(ws, buildReply(msg, { success: false, error: err.message }));
         }
         break;

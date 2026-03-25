@@ -39,7 +39,7 @@ function deriveName(input) {
 }
 
 async function handleGenerateUI(message) {
-  const { prompt } = message;
+  const { prompt, currentConfig } = message;
   if (!prompt || !prompt.trim()) {
     return { success: false, error: 'Prompt is required' };
   }
@@ -49,8 +49,9 @@ async function handleGenerateUI(message) {
   }
 
   try {
-    console.log('[SmartClient AI] Generating UI via bridge for:', prompt);
-    const result = await bridgeClient.generateSmartClientUI(prompt);
+    const mode = currentConfig ? 'modify' : 'generate';
+    console.log(`[SmartClient AI] ${mode} UI via bridge for:`, prompt);
+    const result = await bridgeClient.generateSmartClientUI(prompt, currentConfig);
 
     if (!result.success) {
       return { success: false, error: result.error || 'Generation failed' };
@@ -132,7 +133,63 @@ async function handleClonePage(message) {
   }
 }
 
+// ---- Bridge-backed app persistence (Phase 5b) ----
+
+async function handleAfAppSave(message) {
+  if (!bridgeClient.isConnected()) {
+    return { success: false, error: 'Bridge server not connected' };
+  }
+  try {
+    return await bridgeClient.afAppSave(message);
+  } catch (err) {
+    console.error('[SmartClient AI] AF_APP_SAVE failed:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+async function handleAfAppLoad(message) {
+  if (!bridgeClient.isConnected()) {
+    return { success: false, error: 'Bridge server not connected' };
+  }
+  try {
+    return await bridgeClient.afAppLoad(message.id);
+  } catch (err) {
+    console.error('[SmartClient AI] AF_APP_LOAD failed:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+async function handleAfAppList() {
+  if (!bridgeClient.isConnected()) {
+    return { success: false, error: 'Bridge server not connected' };
+  }
+  try {
+    return await bridgeClient.afAppList();
+  } catch (err) {
+    console.error('[SmartClient AI] AF_APP_LIST failed:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+async function handleAfAppDelete(message) {
+  if (!bridgeClient.isConnected()) {
+    return { success: false, error: 'Bridge server not connected' };
+  }
+  try {
+    return await bridgeClient.afAppDelete(message.id);
+  } catch (err) {
+    console.error('[SmartClient AI] AF_APP_DELETE failed:', err);
+    return { success: false, error: err.message };
+  }
+}
+
 export function register(handlers) {
   handlers['SC_GENERATE_UI'] = (msg) => handleGenerateUI(msg);
   handlers['SC_CLONE_PAGE'] = (msg) => handleClonePage(msg);
+
+  // Bridge-backed persistence (Phase 5b) — parallel to IndexedDB SC_APP_* handlers
+  handlers['AF_APP_SAVE'] = (msg) => handleAfAppSave(msg);
+  handlers['AF_APP_LOAD'] = (msg) => handleAfAppLoad(msg);
+  handlers['AF_APP_LIST'] = () => handleAfAppList();
+  handlers['AF_APP_DELETE'] = (msg) => handleAfAppDelete(msg);
 }

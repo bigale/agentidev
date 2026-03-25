@@ -29,6 +29,11 @@
   }
   #ai-prompt-bar button:hover { background: var(--af-accent-hover); }
   #ai-prompt-bar button:disabled { opacity: 0.5; cursor: default; }
+  #ai-prompt-bar button.secondary {
+    background: var(--af-surface-tertiary, #444); color: var(--af-text-primary);
+    border: 1px solid var(--af-border-default);
+  }
+  #ai-prompt-bar button.secondary:hover { background: var(--af-surface-hover, #555); }
   #ai-prompt-bar #ai-status {
     color: var(--af-text-secondary); font-size: var(--af-font-size-sm); white-space: nowrap; min-width: 60px;
   }
@@ -40,6 +45,8 @@
 <div id="ai-prompt-bar">
   <input id="ai-prompt" type="text" placeholder="Describe a UI... e.g. Todo list with title, status, and due date" />
   <button id="ai-generate">Generate</button>
+  <button id="ai-save" class="secondary" style="display:none;">Save</button>
+  <button id="ai-undo" class="secondary" style="display:none;">Undo</button>
   <span id="ai-status"></span>
 </div>
 

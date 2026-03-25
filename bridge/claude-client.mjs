@@ -349,6 +349,10 @@ const CLI_COMMANDS = {
   'search':             (p) => _sendRequest(MSG.BRIDGE_SEARCH_VECTORDB, p),
   'sc:generate':        (p) => _sendRequest(MSG.BRIDGE_SC_GENERATE_UI, p, 60000),
   'sc:clone':           (p) => _sendRequest(MSG.BRIDGE_SC_CLONE_PAGE, p, 120000),
+  'app:list':           () => _sendRequest(MSG.BRIDGE_AF_APP_LIST, {}),
+  'app:load':           (p) => _sendRequest(MSG.BRIDGE_AF_APP_LOAD, p),
+  'app:save':           (p) => _sendRequest(MSG.BRIDGE_AF_APP_SAVE, p),
+  'app:delete':         (p) => _sendRequest(MSG.BRIDGE_AF_APP_DELETE, p),
 };
 
 async function runCLI() {

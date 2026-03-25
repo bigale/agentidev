@@ -107,6 +107,12 @@ export const MSG = {
   // IndexedDB backup / sync
   BRIDGE_IDB_SYNC: 'BRIDGE_IDB_SYNC',        // extension → bridge: push store dump to SQLite
   BRIDGE_IDB_RESTORE: 'BRIDGE_IDB_RESTORE',  // bridge → extension: send SQLite data for IDB import
+
+  // Agentiface app persistence (Phase 5b)
+  BRIDGE_AF_APP_SAVE: 'BRIDGE_AF_APP_SAVE',      // save/update app config JSON to disk
+  BRIDGE_AF_APP_LOAD: 'BRIDGE_AF_APP_LOAD',      // load app config by ID from disk
+  BRIDGE_AF_APP_LIST: 'BRIDGE_AF_APP_LIST',      // list all saved apps (metadata only)
+  BRIDGE_AF_APP_DELETE: 'BRIDGE_AF_APP_DELETE',   // delete app config from disk
 };
 
 /**

@@ -89,15 +89,32 @@ async function buildGallery() {
   document.body.appendChild(overlay);
 
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'SC_APP_LIST' });
+    // Merge apps from IndexedDB (SC_APP_LIST) and bridge disk (AF_APP_LIST)
+    const [idbResponse, bridgeResponse] = await Promise.all([
+      chrome.runtime.sendMessage({ type: 'SC_APP_LIST' }).catch(() => null),
+      sendMessageWithTimeout({ type: 'AF_APP_LIST' }).catch(() => null),
+    ]);
+
+    const appMap = new Map();
+    // IndexedDB apps first
+    if (idbResponse?.success && idbResponse.apps) {
+      for (const a of idbResponse.apps) appMap.set(a.id, a);
+    }
+    // Bridge apps override (disk is source of truth for Phase 5b)
+    if (bridgeResponse?.success && bridgeResponse.apps) {
+      for (const a of bridgeResponse.apps) appMap.set(a.id, a);
+    }
+    const allApps = [...appMap.values()].sort((a, b) =>
+      (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+
     const list = document.getElementById('gallery-list');
 
-    if (!response?.success || !response.apps?.length) {
+    if (allApps.length === 0) {
       list.innerHTML = '<p style="color:#666;">No saved apps yet. Generate or clone one from the dashboard.</p>';
       return;
     }
 
-    for (const app of response.apps) {
+    for (const app of allApps) {
       const card = document.createElement('div');
       Object.assign(card.style, {
         background: '#252540', borderRadius: '8px', padding: '16px', width: '240px',
@@ -130,8 +147,12 @@ async function buildGallery() {
       delBtn.textContent = 'Delete';
       delBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const resp = await chrome.runtime.sendMessage({ type: 'SC_APP_DELETE', id: app.id });
-        if (resp?.success) card.remove();
+        // Delete from both IndexedDB and bridge disk
+        await Promise.all([
+          chrome.runtime.sendMessage({ type: 'SC_APP_DELETE', id: app.id }).catch(() => null),
+          sendMessageWithTimeout({ type: 'AF_APP_DELETE', id: app.id }).catch(() => null),
+        ]);
+        card.remove();
       });
       card.appendChild(delBtn);
 
@@ -312,13 +333,13 @@ window.addEventListener('message', async (event) => {
     return;
   }
 
-  // AI UI generation
+  // AI UI generation (Phase 5b: supports modification mode via currentConfig)
   if (msg.source === 'smartclient-ai') {
     try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'SC_GENERATE_UI',
-        prompt: msg.prompt,
-      });
+      const outMsg = { type: 'SC_GENERATE_UI', prompt: msg.prompt };
+      if (msg.currentConfig) outMsg.currentConfig = msg.currentConfig;
+
+      const response = await chrome.runtime.sendMessage(outMsg);
 
       iframe.contentWindow.postMessage({
         source: 'smartclient-ai-response',

@@ -445,10 +445,13 @@ export function onScheduleUpdate(cb) {
 /**
  * Generate SmartClient UI config via Claude Code (bridge spawns claude -p).
  * @param {string} prompt - Natural language UI description
+ * @param {object} [currentConfig] - Existing config for modification mode (Phase 5b)
  * @returns {Promise<{ success: boolean, config?: object, error?: string }>}
  */
-export function generateSmartClientUI(prompt) {
-  return _sendRequest('BRIDGE_SC_GENERATE_UI', { prompt }, 60000);
+export function generateSmartClientUI(prompt, currentConfig = null) {
+  const payload = { prompt };
+  if (currentConfig) payload.currentConfig = currentConfig;
+  return _sendRequest('BRIDGE_SC_GENERATE_UI', payload, 60000);
 }
 
 /**
@@ -470,6 +473,43 @@ export function clonePageToSmartClient(sessionId, options = {}) {
  */
 export function deleteCloneArtifacts(cloneId) {
   return _sendRequest('BRIDGE_SC_DELETE_CLONE_ARTIFACTS', { cloneId }, 10000);
+}
+
+// ---- Agentiface App Persistence (Phase 5b) ----
+
+/**
+ * Save/update an Agentiface app to disk via bridge server.
+ * @param {object} app - { id?, name, config, prompt?, history? }
+ * @returns {Promise<{ success: boolean, app: object }>}
+ */
+export function afAppSave(app) {
+  return _sendRequest('BRIDGE_AF_APP_SAVE', app);
+}
+
+/**
+ * Load an Agentiface app by ID from disk.
+ * @param {string} id - App ID
+ * @returns {Promise<{ success: boolean, app: object }>}
+ */
+export function afAppLoad(id) {
+  return _sendRequest('BRIDGE_AF_APP_LOAD', { id });
+}
+
+/**
+ * List all saved Agentiface apps (metadata only).
+ * @returns {Promise<{ success: boolean, apps: object[] }>}
+ */
+export function afAppList() {
+  return _sendRequest('BRIDGE_AF_APP_LIST', {});
+}
+
+/**
+ * Delete an Agentiface app from disk.
+ * @param {string} id - App ID
+ * @returns {Promise<{ success: boolean }>}
+ */
+export function afAppDelete(id) {
+  return _sendRequest('BRIDGE_AF_APP_DELETE', { id });
 }
 
 // ---- System process management ----
