@@ -182,6 +182,12 @@ const BROADCAST_DS_MAP = {
 };
 
 chrome.runtime.onMessage.addListener((message) => {
+  // Playground mode: accept broadcast configs from sidepanel controller
+  if (message.type === 'AUTO_BROADCAST_SC_CONFIG' && urlParams.get('mode') === 'playground') {
+    if (message.config) sendConfigToIframe(message.config);
+    return;
+  }
+
   const dsId = BROADCAST_DS_MAP[message.type];
   if (dsId) {
     try {

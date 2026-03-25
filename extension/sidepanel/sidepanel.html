@@ -614,6 +614,76 @@
       cursor: pointer;
       text-decoration: underline;
     }
+
+    /* Agentiface Mode Styles */
+    .af-status-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; background: #f8f9fa; border-bottom: 1px solid #e0e0e0;
+      position: sticky; top: 0; z-index: 10;
+    }
+    .af-status-bar span { font-size: 12px; color: #5f6368; }
+
+    .af-prompt-row {
+      display: flex; gap: 6px; padding: 10px 12px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .af-prompt-row input {
+      flex: 1; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px;
+      font-size: 13px; background: #f8f9fa;
+    }
+    .af-prompt-row input:focus { outline: none; border-color: #1a73e8; background: white; }
+
+    .af-actions {
+      display: flex; gap: 6px; padding: 6px 12px;
+      border-bottom: 1px solid #e0e0e0; flex-wrap: wrap;
+    }
+
+    .af-btn {
+      padding: 5px 12px; font-size: 11px; border: none; border-radius: 4px;
+      cursor: pointer; font-weight: 500;
+    }
+    .af-btn:disabled { opacity: 0.5; cursor: default; }
+    .af-btn.primary { background: #1a73e8; color: white; }
+    .af-btn.primary:hover:not(:disabled) { background: #1557b0; }
+    .af-btn.secondary { background: #e8eaed; color: #3c4043; }
+    .af-btn.secondary:hover:not(:disabled) { background: #dadce0; }
+    .af-btn.danger { background: #fce8e6; color: #d93025; }
+    .af-btn.danger:hover:not(:disabled) { background: #f5c6c3; }
+
+    .af-config-summary {
+      padding: 6px 12px; font-size: 11px; color: #1967d2;
+      background: #e8f0fe; border-bottom: 1px solid #d2e3fc;
+    }
+
+    .af-error {
+      padding: 6px 12px; font-size: 11px; color: #d93025;
+      background: #fce8e6; border-bottom: 1px solid #f5c6c3;
+    }
+
+    .af-section-header {
+      padding: 8px 12px; font-size: 12px; font-weight: 600;
+      background: #fafafa; border-bottom: 1px solid #e0e0e0;
+      color: #202124;
+    }
+
+    .af-app-list { max-height: 300px; overflow-y: auto; }
+    .af-app-card {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-bottom: 1px solid #f0f0f0;
+      cursor: pointer; font-size: 12px;
+    }
+    .af-app-card:hover { background: #f8f9fa; }
+    .af-app-name {
+      flex: 1; font-weight: 500; color: #202124;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .af-app-meta { font-size: 10px; color: #9aa0a6; flex-shrink: 0; }
+    .af-app-delete {
+      background: none; border: none; color: #9aa0a6; cursor: pointer;
+      font-size: 12px; padding: 2px 4px; line-height: 1; flex-shrink: 0;
+    }
+    .af-app-delete:hover { color: #d93025; }
+    .af-empty { padding: 12px; font-size: 12px; color: #9aa0a6; text-align: center; }
   </style>
 </head>
 <body>
@@ -628,6 +698,7 @@
       <button id="mode-extract" class="mode-btn">🕷️ Extract</button>
       <button id="mode-agent" class="mode-btn">🤖 Agent</button>
       <button id="mode-automation" class="mode-btn">🎮 Auto</button>
+      <button id="mode-agentiface" class="mode-btn">AF</button>
     </div>
 
     <div class="search-box">
@@ -930,6 +1001,43 @@
           <span style="font-size:10px; color:#9aa0a6; font-weight:normal;">click to pause before operation</span>
         </div>
         <div id="auto-page-intercepts" class="auto-page-intercepts"></div>
+      </div>
+    </div>
+
+    <!-- Agentiface Container (AF Mode) -->
+    <div id="agentiface-container" style="display:none;">
+      <!-- Status bar -->
+      <div id="af-status-bar" class="af-status-bar">
+        <div id="af-bridge-dot" class="bridge-dot"></div>
+        <span id="af-status-text">Ready</span>
+        <button id="af-open-playground" class="af-btn secondary" style="margin-left:auto;">Playground</button>
+      </div>
+
+      <!-- Prompt input -->
+      <div class="af-prompt-row">
+        <input type="text" id="af-prompt-input" placeholder="Describe a UI to generate..." />
+        <button id="af-generate-btn" class="af-btn primary">Generate</button>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="af-actions">
+        <button id="af-save-btn" class="af-btn secondary" style="display:none;">Save</button>
+        <button id="af-undo-btn" class="af-btn secondary" style="display:none;">Undo</button>
+        <button id="af-reset-btn" class="af-btn danger" style="display:none;">Reset</button>
+      </div>
+
+      <!-- Error display -->
+      <div id="af-error-text" class="af-error" style="display:none;"></div>
+
+      <!-- Config summary -->
+      <div id="af-config-summary" class="af-config-summary" style="display:none;"></div>
+
+      <!-- App Library -->
+      <div class="af-section-header">App Library</div>
+      <div id="af-app-library">
+        <div id="af-app-list" class="af-app-list">
+          <div class="af-empty">No saved apps</div>
+        </div>
       </div>
     </div>
 

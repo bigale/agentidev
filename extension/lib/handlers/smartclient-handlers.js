@@ -6,6 +6,39 @@
 import * as bridgeClient from '../bridge-client.js';
 import { saveApp } from './app-persistence.js';
 
+// ---- Playground session state (sidepanel controller) ----
+let playgroundSession = {
+  config: null,
+  appId: null,
+  appName: null,
+  promptHistory: [],
+  undoStack: [],
+  status: 'idle',   // idle | generating | error
+  error: null,
+};
+
+function broadcastPlaygroundState() {
+  const msg = {
+    type: 'AUTO_BROADCAST_SC_PLAYGROUND',
+    status: playgroundSession.status,
+    appName: playgroundSession.appName,
+    appId: playgroundSession.appId,
+    hasConfig: !!playgroundSession.config,
+    promptCount: playgroundSession.promptHistory.length,
+    undoCount: playgroundSession.undoStack.length,
+    error: playgroundSession.error,
+  };
+  chrome.runtime.sendMessage(msg).catch(() => {});
+}
+
+function broadcastConfig() {
+  if (!playgroundSession.config) return;
+  chrome.runtime.sendMessage({
+    type: 'AUTO_BROADCAST_SC_CONFIG',
+    config: structuredClone(playgroundSession.config),
+  }).catch(() => {});
+}
+
 function validateConfig(config) {
   if (!config.dataSources || !Array.isArray(config.dataSources)) {
     throw new Error('Config must have dataSources array');
@@ -183,6 +216,140 @@ async function handleAfAppDelete(message) {
   }
 }
 
+// ---- Playground session handlers ----
+
+async function handlePlaygroundGenerate(message) {
+  const { prompt } = message;
+  if (!prompt || !prompt.trim()) {
+    return { success: false, error: 'Prompt is required' };
+  }
+
+  // Push current config to undo stack before generating
+  if (playgroundSession.config) {
+    playgroundSession.undoStack.push(structuredClone(playgroundSession.config));
+  }
+
+  playgroundSession.status = 'generating';
+  playgroundSession.error = null;
+  broadcastPlaygroundState();
+
+  try {
+    const result = await handleGenerateUI({
+      prompt,
+      currentConfig: playgroundSession.config || undefined,
+    });
+
+    if (!result.success) {
+      // Revert undo stack push on failure
+      if (playgroundSession.config) playgroundSession.undoStack.pop();
+      playgroundSession.status = 'error';
+      playgroundSession.error = result.error;
+      broadcastPlaygroundState();
+      return result;
+    }
+
+    playgroundSession.config = structuredClone(result.config);
+    playgroundSession.appId = result.appId || playgroundSession.appId;
+    playgroundSession.appName = playgroundSession.appName || deriveName(prompt);
+    playgroundSession.promptHistory.push(prompt);
+    playgroundSession.status = 'idle';
+    playgroundSession.error = null;
+
+    broadcastConfig();
+    broadcastPlaygroundState();
+    return result;
+  } catch (err) {
+    if (playgroundSession.config) playgroundSession.undoStack.pop();
+    playgroundSession.status = 'error';
+    playgroundSession.error = err.message;
+    broadcastPlaygroundState();
+    return { success: false, error: err.message };
+  }
+}
+
+function handlePlaygroundState() {
+  return {
+    success: true,
+    ...playgroundSession,
+    config: playgroundSession.config ? structuredClone(playgroundSession.config) : null,
+  };
+}
+
+function handlePlaygroundUndo() {
+  if (playgroundSession.undoStack.length === 0) {
+    return { success: false, error: 'Nothing to undo' };
+  }
+
+  playgroundSession.config = playgroundSession.undoStack.pop();
+  playgroundSession.promptHistory.pop();
+  playgroundSession.status = 'idle';
+  playgroundSession.error = null;
+
+  broadcastConfig();
+  broadcastPlaygroundState();
+  return { success: true, config: structuredClone(playgroundSession.config) };
+}
+
+async function handlePlaygroundLoadApp(message) {
+  const { id } = message;
+  if (!id) return { success: false, error: 'App id is required' };
+
+  const result = await handleAfAppLoad({ id });
+  if (!result.success) return result;
+
+  playgroundSession.config = structuredClone(result.app.config);
+  playgroundSession.appId = result.app.id;
+  playgroundSession.appName = result.app.name;
+  playgroundSession.undoStack = [];
+  playgroundSession.promptHistory = [];
+  playgroundSession.status = 'idle';
+  playgroundSession.error = null;
+
+  broadcastConfig();
+  broadcastPlaygroundState();
+  return { success: true, app: result.app };
+}
+
+async function handlePlaygroundSave() {
+  if (!playgroundSession.config) {
+    return { success: false, error: 'No config to save' };
+  }
+
+  if (!bridgeClient.isConnected()) {
+    return { success: false, error: 'Bridge server not connected' };
+  }
+
+  try {
+    const result = await bridgeClient.afAppSave({
+      id: playgroundSession.appId || undefined,
+      name: playgroundSession.appName || 'Untitled App',
+      type: 'generate',
+      config: structuredClone(playgroundSession.config),
+      prompt: playgroundSession.promptHistory[playgroundSession.promptHistory.length - 1] || null,
+    });
+
+    if (result.success && result.app) {
+      playgroundSession.appId = result.app.id;
+      playgroundSession.appName = result.app.name;
+      broadcastPlaygroundState();
+    }
+    return result;
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+function handlePlaygroundReset() {
+  playgroundSession = {
+    config: null, appId: null, appName: null,
+    promptHistory: [], undoStack: [],
+    status: 'idle', error: null,
+  };
+  broadcastConfig();
+  broadcastPlaygroundState();
+  return { success: true };
+}
+
 export function register(handlers) {
   handlers['SC_GENERATE_UI'] = (msg) => handleGenerateUI(msg);
   handlers['SC_CLONE_PAGE'] = (msg) => handleClonePage(msg);
@@ -192,4 +359,12 @@ export function register(handlers) {
   handlers['AF_APP_LOAD'] = (msg) => handleAfAppLoad(msg);
   handlers['AF_APP_LIST'] = () => handleAfAppList();
   handlers['AF_APP_DELETE'] = (msg) => handleAfAppDelete(msg);
+
+  // Playground session (sidepanel controller)
+  handlers['SC_PLAYGROUND_GENERATE'] = (msg) => handlePlaygroundGenerate(msg);
+  handlers['SC_PLAYGROUND_STATE'] = () => handlePlaygroundState();
+  handlers['SC_PLAYGROUND_UNDO'] = () => handlePlaygroundUndo();
+  handlers['SC_PLAYGROUND_LOAD_APP'] = (msg) => handlePlaygroundLoadApp(msg);
+  handlers['SC_PLAYGROUND_SAVE'] = () => handlePlaygroundSave();
+  handlers['SC_PLAYGROUND_RESET'] = () => handlePlaygroundReset();
 }
