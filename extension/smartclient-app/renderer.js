@@ -13,7 +13,7 @@ const ALLOWED_TYPES = new Set([
   'Window', 'ToolStrip', 'ToolStripButton',
   'PortalLayout', 'Portlet', 'Canvas', 'Progressbar', 'ImgButton',
   'ToolStripSeparator', 'ToolStripMenuButton', 'Menu',
-  'ForgeListGrid',
+  'ForgeListGrid', 'ForgeWizard', 'ForgeFilterBar',
 ]);
 
 // Track created components for cleanup
@@ -281,8 +281,8 @@ function createComponent(node) {
     config[key] = node[key];
   }
 
-  // Apply _formatter to ListGrid fields
-  if (type === 'ListGrid' && Array.isArray(config.fields)) {
+  // Apply _formatter to ListGrid/ForgeListGrid fields
+  if ((type === 'ListGrid' || type === 'ForgeListGrid') && Array.isArray(config.fields)) {
     config.fields = config.fields.map(function (field) {
       if (field._formatter && FORMATTERS[field._formatter]) {
         var fn = FORMATTERS[field._formatter];
@@ -412,6 +412,27 @@ function renderConfig(config) {
   // Create component tree
   if (config.layout) {
     createComponent(config.layout);
+  }
+
+  // Deferred cross-reference resolution (for components that reference others by ID)
+  for (var i = 0; i < generatedComponents.length; i++) {
+    var comp = generatedComponents[i];
+    if (!comp || comp.destroyed) continue;
+
+    // ForgeFilterBar: resolve targetGrid string to live reference
+    if (comp.getClassName && comp.getClassName() === 'ForgeFilterBar' && typeof comp.targetGrid === 'string') {
+      var gridRef = resolveRef(comp.targetGrid);
+      if (gridRef) {
+        comp.targetGrid = gridRef;
+      }
+    }
+  }
+
+  // A11y enhancement pass
+  if (typeof Agentiface !== 'undefined' && Agentiface.A11y) {
+    for (var j = 0; j < generatedComponents.length; j++) {
+      Agentiface.A11y.enhance(generatedComponents[j]);
+    }
   }
 
   console.log('[Renderer] Created', generatedComponents.length, 'components,',

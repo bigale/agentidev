@@ -2456,15 +2456,18 @@ Rules:
   - Field types: text, integer, float, date, datetime, boolean
   - For dropdowns use valueMap as an array of strings
 - layout: component tree with _type and members[]
-  - Allowed _type values: VLayout, HLayout, ListGrid, DynamicForm, Button, Label, TabSet, Tab, DetailViewer, SectionStack, HTMLFlow, Window, ToolStrip, ToolStripButton
-  - ListGrid: set dataSource, autoFetchData:true, fields array with name and width
+  - Allowed _type values: VLayout, HLayout, ListGrid, ForgeListGrid, DynamicForm, Button, Label, TabSet, Tab, DetailViewer, SectionStack, HTMLFlow, Window, ToolStrip, ToolStripButton, PortalLayout, Portlet, Canvas, ForgeWizard, ForgeFilterBar
+  - ForgeListGrid: enhanced ListGrid with skeleton loading. Use instead of ListGrid. Same props: dataSource, autoFetchData, fields, selectionType
+  - ForgeFilterBar: search bar + advanced filter. Set targetGrid to a grid ID, searchFields to array of field names
+  - ForgeWizard: multi-step form. Set steps:[{title,form:<DynamicForm config>}], onComplete is auto-wired
+  - ListGrid/ForgeListGrid: set dataSource, autoFetchData:true, fields array with name and width
   - DynamicForm: set dataSource, fields with name and optionally editorType (TextItem, TextAreaItem, SelectItem, DateItem, CheckboxItem, SpinnerItem)
   - Button: use _action for behavior: "new","save","delete". Set _targetForm and _targetGrid to reference component IDs
   - ListGrid recordClick: set _action:"select" and _targetForm to auto-wire
   - Give components an ID string so buttons can reference them
 
 Example for a task tracker:
-{"dataSources":[{"ID":"TaskDS","fields":[{"name":"id","type":"integer","primaryKey":true,"hidden":true},{"name":"title","type":"text","required":true,"title":"Title","length":200},{"name":"status","type":"text","title":"Status","valueMap":["Todo","In Progress","Done"]},{"name":"dueDate","type":"date","title":"Due Date"}]}],"layout":{"_type":"VLayout","width":"100%","height":"100%","membersMargin":8,"layoutMargin":12,"members":[{"_type":"ListGrid","ID":"taskGrid","width":"100%","height":"*","dataSource":"TaskDS","autoFetchData":true,"canEdit":false,"selectionType":"single","_action":"select","_targetForm":"taskForm","fields":[{"name":"title","width":"*"},{"name":"status","width":120},{"name":"dueDate","width":120}]},{"_type":"DynamicForm","ID":"taskForm","width":"100%","dataSource":"TaskDS","numCols":2,"colWidths":[120,"*"],"fields":[{"name":"title","editorType":"TextItem"},{"name":"status","editorType":"SelectItem"},{"name":"dueDate","editorType":"DateItem"}]},{"_type":"HLayout","height":30,"membersMargin":8,"members":[{"_type":"Button","title":"New","width":80,"_action":"new","_targetForm":"taskForm"},{"_type":"Button","title":"Save","width":80,"_action":"save","_targetForm":"taskForm","_targetGrid":"taskGrid"},{"_type":"Button","title":"Delete","width":80,"_action":"delete","_targetGrid":"taskGrid"}]}]}}
+{"dataSources":[{"ID":"TaskDS","fields":[{"name":"id","type":"integer","primaryKey":true,"hidden":true},{"name":"title","type":"text","required":true,"title":"Title","length":200},{"name":"status","type":"text","title":"Status","valueMap":["Todo","In Progress","Done"]},{"name":"dueDate","type":"date","title":"Due Date"}]}],"layout":{"_type":"VLayout","width":"100%","height":"100%","membersMargin":8,"layoutMargin":12,"members":[{"_type":"ForgeListGrid","ID":"taskGrid","width":"100%","height":"*","dataSource":"TaskDS","autoFetchData":true,"canEdit":false,"selectionType":"single","_action":"select","_targetForm":"taskForm","fields":[{"name":"title","width":"*"},{"name":"status","width":120},{"name":"dueDate","width":120}]},{"_type":"DynamicForm","ID":"taskForm","width":"100%","dataSource":"TaskDS","numCols":2,"colWidths":[120,"*"],"fields":[{"name":"title","editorType":"TextItem"},{"name":"status","editorType":"SelectItem"},{"name":"dueDate","editorType":"DateItem"}]},{"_type":"HLayout","height":30,"membersMargin":8,"members":[{"_type":"Button","title":"New","width":80,"_action":"new","_targetForm":"taskForm"},{"_type":"Button","title":"Save","width":80,"_action":"save","_targetForm":"taskForm","_targetGrid":"taskGrid"},{"_type":"Button","title":"Delete","width":80,"_action":"delete","_targetGrid":"taskGrid"}]}]}}
 
 Output ONLY the JSON object. No explanation, no markdown fences.`;
 
