@@ -13,6 +13,7 @@ const ALLOWED_TYPES = new Set([
   'Window', 'ToolStrip', 'ToolStripButton',
   'PortalLayout', 'Portlet', 'Canvas', 'Progressbar', 'ImgButton',
   'ToolStripSeparator', 'ToolStripMenuButton', 'Menu',
+  'ForgeListGrid',
 ]);
 
 // Track created components for cleanup

@@ -1,0 +1,90 @@
+/* Agentiface SC Skin Overrides — token-based overrides for Tahoe skin
+ *
+ * Loaded AFTER skin_styles.css so these win by source order.
+ * Maps SC CSS classes to Agentiface design tokens for theme switching.
+ */
+
+/* Body / Canvas base */
+.normal {
+  background-color: var(--af-surface-primary);
+  color: var(--af-text-primary);
+}
+
+/* Buttons */
+.button,
+.buttonFocused {
+  background-color: var(--af-accent-primary);
+  color: var(--af-text-inverse);
+  border-radius: var(--af-radius-md);
+}
+
+.buttonOver,
+.buttonFocusedOver {
+  background-color: var(--af-accent-hover);
+}
+
+.buttonDown,
+.buttonFocusedDown {
+  background-color: var(--af-accent-active);
+}
+
+.buttonDisabled {
+  opacity: 0.5;
+}
+
+/* Grid headers */
+.headerButton {
+  background-color: var(--af-surface-secondary);
+  color: var(--af-text-primary);
+}
+
+/* Grid cells */
+.tallCell,
+.tallCellOver,
+.tallCellDark {
+  color: var(--af-text-primary);
+}
+
+.tallCellOver,
+.tallCellSelectedOver {
+  background-color: var(--af-surface-secondary);
+}
+
+.tallCellSelected {
+  background-color: var(--af-accent-primary);
+  color: var(--af-text-inverse);
+}
+
+/* Forms */
+.textItem {
+  border-color: var(--af-border-default);
+  color: var(--af-text-primary);
+  background-color: var(--af-surface-primary);
+}
+
+.textItemFocused {
+  border-color: var(--af-border-focus);
+  color: var(--af-text-primary);
+  background-color: var(--af-surface-primary);
+}
+
+/* Window / Dialog */
+.windowHeader {
+  background-color: var(--af-accent-header);
+}
+
+/* Toolstrip */
+.toolStrip {
+  background-color: var(--af-surface-secondary);
+}
+
+/* Label */
+.labelAnchor {
+  color: var(--af-text-link);
+}
+
+/* Section header */
+.sectionHeader {
+  background-color: var(--af-surface-secondary);
+  color: var(--af-text-primary);
+}

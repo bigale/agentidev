@@ -288,6 +288,25 @@ window.addEventListener('message', async (event) => {
     return;
   }
 
+  // Agentiface theme persistence
+  if (msg.source === 'agentiface-theme-set') {
+    chrome.storage.local.set({ agentiface_theme: msg.theme });
+    return;
+  }
+  if (msg.source === 'agentiface-theme-request') {
+    chrome.storage.local.get('agentiface_theme', (result) => {
+      try {
+        iframe.contentWindow.postMessage({
+          source: 'agentiface-theme-response',
+          theme: result?.agentiface_theme || 'light',
+        }, '*');
+      } catch (e) {
+        // iframe may not be ready
+      }
+    });
+    return;
+  }
+
   // AI UI generation
   if (msg.source === 'smartclient-ai') {
     try {

@@ -1,0 +1,89 @@
+/* Agentiface Design Tokens — CSS custom properties layer over Tahoe skin
+ *
+ * Light theme (default) maps directly from Tahoe's visual language.
+ * Dark override via [data-theme="dark"] on <html>.
+ */
+
+:root {
+  /* Surface */
+  --af-surface-primary: #ffffff;
+  --af-surface-secondary: #f7f8fa;
+  --af-surface-elevated: #ffffff;
+  --af-surface-overlay: rgba(0, 0, 0, 0.5);
+
+  /* Text */
+  --af-text-primary: #282828;
+  --af-text-secondary: #666666;
+  --af-text-disabled: #ababab;
+  --af-text-inverse: #ffffff;
+  --af-text-link: #0000EE;
+
+  /* Brand / Accent */
+  --af-accent-primary: #157fcc;
+  --af-accent-hover: #1f99ef;
+  --af-accent-active: #165fa7;
+  --af-accent-header: #47a7e3;
+
+  /* Feedback */
+  --af-status-success: #4CAF50;
+  --af-status-warning: #FF9800;
+  --af-status-error: #e34e42;
+  --af-status-info: #2196F3;
+
+  /* Border */
+  --af-border-default: #d0d0d0;
+  --af-border-focus: #157fcc;
+  --af-border-error: #e34e42;
+
+  /* Spacing (base 4px scale) */
+  --af-space-xs: 4px;
+  --af-space-sm: 8px;
+  --af-space-md: 12px;
+  --af-space-lg: 16px;
+  --af-space-xl: 24px;
+
+  /* Typography */
+  --af-font-family: 'Roboto-Light', corbel, calibri, sans-serif;
+  --af-font-size-sm: 12px;
+  --af-font-size-md: 13px;
+  --af-font-size-lg: 16px;
+  --af-font-size-xl: 20px;
+
+  /* Radius */
+  --af-radius-sm: 2px;
+  --af-radius-md: 4px;
+  --af-radius-lg: 8px;
+
+  /* Shadow */
+  --af-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12);
+  --af-shadow-md: 0 2px 8px rgba(0, 0, 0, 0.15);
+  --af-shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.2);
+
+  /* Transitions */
+  --af-transition-fast: 150ms ease;
+  --af-transition-normal: 250ms ease;
+}
+
+:root[data-theme="dark"] {
+  /* Surface */
+  --af-surface-primary: #1e1e2e;
+  --af-surface-secondary: #2a2a3e;
+  --af-surface-elevated: #333348;
+  --af-surface-overlay: rgba(0, 0, 0, 0.7);
+
+  /* Text */
+  --af-text-primary: #e0e0e0;
+  --af-text-secondary: #a0a0a0;
+  --af-text-disabled: #666666;
+  --af-text-inverse: #ffffff;
+  --af-text-link: #6ea8fe;
+
+  /* Border */
+  --af-border-default: #444;
+  --af-border-focus: #1f99ef;
+
+  /* Shadow (stronger in dark mode) */
+  --af-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --af-shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --af-shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
