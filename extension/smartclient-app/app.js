@@ -106,14 +106,16 @@ function handleAIResponse(msg) {
   if (msg.success && msg.config) {
     setStatus('Rendering...');
     try {
-      // Push current config to undo stack before replacing
+      // Push current config to undo stack before replacing (already clean JSON)
       if (_currentConfig) {
-        _configHistory.push(_currentConfig);
+        _configHistory.push(JSON.parse(JSON.stringify(_currentConfig)));
       }
+
+      // Store clean JSON copy BEFORE rendering (SC mutates objects with functions)
+      _currentConfig = JSON.parse(JSON.stringify(msg.config));
 
       clearNotesApp();
       renderConfig(msg.config);
-      _currentConfig = msg.config;
       updateIterativeUI();
       setStatus('Done');
       setTimeout(function () { setStatus(''); }, 2000);
