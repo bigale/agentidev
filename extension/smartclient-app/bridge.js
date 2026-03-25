@@ -60,7 +60,12 @@ else if (urlParams.get('mode') === 'dashboard') {
   }, { once: true });
 }
 
-// --- Mode 4: Gallery (no params) ---
+// --- Mode 4: Playground (prompt bar + default Notes app) ---
+else if (urlParams.get('mode') === 'playground') {
+  // Just let app.html load naturally — shows prompt bar + Notes CRUD
+}
+
+// --- Mode 5: Gallery (no params) ---
 else {
   buildGallery();
 }
