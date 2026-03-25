@@ -334,12 +334,13 @@ window.addEventListener('message', async (event) => {
   }
 
   // AI UI generation (Phase 5b: supports modification mode via currentConfig)
+  // Uses 60s timeout — modification mode sends larger payload to claude -p
   if (msg.source === 'smartclient-ai') {
     try {
       const outMsg = { type: 'SC_GENERATE_UI', prompt: msg.prompt };
       if (msg.currentConfig) outMsg.currentConfig = msg.currentConfig;
 
-      const response = await chrome.runtime.sendMessage(outMsg);
+      const response = await sendMessageWithTimeout(outMsg, 60000);
 
       iframe.contentWindow.postMessage({
         source: 'smartclient-ai-response',
