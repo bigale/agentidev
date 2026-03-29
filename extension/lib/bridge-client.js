@@ -449,11 +449,12 @@ export function onScheduleUpdate(cb) {
  * @param {string} [projectDescription] - Optional project description for system prompt context
  * @returns {Promise<{ success: boolean, config?: object, error?: string }>}
  */
-export function generateSmartClientUI(prompt, currentConfig = null, projectDescription = null) {
+export function generateSmartClientUI(prompt, currentConfig = null, projectDescription = null, model = null) {
   const payload = { prompt };
   if (currentConfig) payload.currentConfig = currentConfig;
   if (projectDescription) payload.projectDescription = projectDescription;
-  return _sendRequest('BRIDGE_SC_GENERATE_UI', payload, 60000);
+  if (model) payload.model = model;
+  return _sendRequest('BRIDGE_SC_GENERATE_UI', payload, 180000);
 }
 
 /**

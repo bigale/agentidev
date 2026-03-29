@@ -5,7 +5,7 @@
  */
 import * as bridgeClient from '../bridge-client.js';
 import { saveApp } from './app-persistence.js';
-import { saveProject, loadProject } from './project-persistence.js';
+import { saveProject, loadProject, listProjects } from './project-persistence.js';
 
 // ---- Playground session state (sidepanel controller) ----
 let playgroundSession = {
@@ -21,6 +21,7 @@ let playgroundSession = {
   error: null,
   capabilities: { skinPicker: true },
   skin: 'Tahoe',
+  model: 'sonnet',
 };
 
 function broadcastPlaygroundState() {
@@ -38,6 +39,7 @@ function broadcastPlaygroundState() {
     error: playgroundSession.error,
     capabilities: playgroundSession.capabilities,
     skin: playgroundSession.skin,
+    model: playgroundSession.model,
   };
   chrome.runtime.sendMessage(msg).catch(() => {});
 }
@@ -85,7 +87,7 @@ function deriveName(input) {
 }
 
 async function handleGenerateUI(message) {
-  const { prompt, currentConfig, projectDescription } = message;
+  const { prompt, currentConfig, projectDescription, model } = message;
   if (!prompt || !prompt.trim()) {
     return { success: false, error: 'Prompt is required' };
   }
@@ -96,8 +98,8 @@ async function handleGenerateUI(message) {
 
   try {
     const mode = currentConfig ? 'modify' : 'generate';
-    console.log(`[SmartClient AI] ${mode} UI via bridge for:`, prompt);
-    const result = await bridgeClient.generateSmartClientUI(prompt, currentConfig, projectDescription || null);
+    console.log(`[SmartClient AI] ${mode} UI via bridge (${model || 'sonnet'}) for:`, prompt);
+    const result = await bridgeClient.generateSmartClientUI(prompt, currentConfig, projectDescription || null, model || null);
 
     if (!result.success) {
       return { success: false, error: result.error || 'Generation failed' };
@@ -256,15 +258,35 @@ async function handleAfProjectLoad(message) {
 }
 
 async function handleAfProjectList() {
-  if (!bridgeClient.isConnected()) {
-    return { success: false, error: 'Bridge server not connected' };
+  // Merge both sources: bridge disk + IndexedDB (dual-write resilience)
+  let bridgeProjects = [];
+  let idbProjects = [];
+
+  // Try bridge
+  if (bridgeClient.isConnected()) {
+    try {
+      const resp = await bridgeClient.afProjectList();
+      if (resp?.success && resp.projects) bridgeProjects = resp.projects;
+    } catch (err) {
+      console.warn('[SmartClient AI] AF_PROJECT_LIST bridge failed:', err.message);
+    }
   }
+
+  // Always query IndexedDB
   try {
-    return await bridgeClient.afProjectList();
+    idbProjects = await listProjects();
   } catch (err) {
-    console.error('[SmartClient AI] AF_PROJECT_LIST failed:', err);
-    return { success: false, error: err.message };
+    console.warn('[SmartClient AI] AF_PROJECT_LIST IndexedDB failed:', err.message);
   }
+
+  // Merge: IndexedDB first, bridge overwrites (has richer metadata like historyCount)
+  const byId = new Map();
+  for (const p of idbProjects) byId.set(p.id, p);
+  for (const p of bridgeProjects) byId.set(p.id, p);
+
+  const projects = [...byId.values()];
+  projects.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  return { success: true, projects };
 }
 
 async function handleAfProjectDelete(message) {
@@ -301,6 +323,7 @@ async function handlePlaygroundGenerate(message) {
       prompt,
       currentConfig: playgroundSession.config || undefined,
       projectDescription: playgroundSession.projectDescription || undefined,
+      model: playgroundSession.model || 'sonnet',
     });
 
     if (!result.success) {
@@ -665,6 +688,14 @@ export function register(handlers) {
   handlers['SC_PLAYGROUND_RESET'] = () => handlePlaygroundReset();
   handlers['SC_PLAYGROUND_SET_SKIN'] = (msg) => handlePlaygroundSetSkin(msg);
   handlers['SC_PLAYGROUND_SET_CAPABILITIES'] = (msg) => handlePlaygroundSetCapabilities(msg);
+  handlers['SC_PLAYGROUND_SET_MODEL'] = (msg) => {
+    const model = msg.model;
+    if (model && ['haiku', 'sonnet', 'opus'].includes(model)) {
+      playgroundSession.model = model;
+      broadcastPlaygroundState();
+    }
+    return { success: true };
+  };
 
   // Project-bound playground
   handlers['SC_PLAYGROUND_CREATE_PROJECT'] = (msg) => handlePlaygroundCreateProject(msg);

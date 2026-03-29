@@ -734,6 +734,39 @@
     .af-skin-row select {
       flex: 1; padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 11px;
     }
+
+    /* Model selector */
+    .af-model-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 12px; border-bottom: 1px solid #e0e0e0; font-size: 12px;
+    }
+    .af-model-row select {
+      flex: 1; padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 11px;
+    }
+
+    /* Thinking indicator */
+    .af-thinking {
+      display: none; align-items: center; gap: 8px;
+      padding: 8px 12px; font-size: 12px; color: #5f6368;
+      border-bottom: 1px solid #e0e0e0; background: #f0f4ff;
+    }
+    .af-thinking.active { display: flex; }
+    .af-thinking-dots {
+      display: flex; gap: 4px; align-items: center;
+    }
+    .af-thinking-dots span {
+      display: inline-block; width: 6px; height: 6px;
+      border-radius: 50%; background: #1a73e8;
+      animation: af-ping 1.4s ease-in-out infinite;
+    }
+    .af-thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .af-thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes af-ping {
+      0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+      40% { opacity: 1; transform: scale(1.2); }
+    }
+    .af-thinking-label { color: #1a73e8; font-weight: 500; }
+    .af-thinking-timer { color: #9aa0a6; margin-left: auto; font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
@@ -1076,6 +1109,13 @@
         <button id="af-generate-btn" class="af-btn primary">Generate</button>
       </div>
 
+      <!-- Thinking indicator (shown during generation) -->
+      <div id="af-thinking" class="af-thinking">
+        <div class="af-thinking-dots"><span></span><span></span><span></span></div>
+        <span class="af-thinking-label" id="af-thinking-label">Thinking...</span>
+        <span class="af-thinking-timer" id="af-thinking-timer">0s</span>
+      </div>
+
       <!-- Action buttons -->
       <div class="af-actions">
         <button id="af-save-btn" class="af-btn secondary" style="display:none;">Save</button>
@@ -1095,6 +1135,14 @@
         <label class="af-cap-toggle">
           <input type="checkbox" id="af-cap-skin" checked /> Skin Picker
         </label>
+      </div>
+      <div class="af-model-row">
+        <label for="af-model-select">Model:</label>
+        <select id="af-model-select">
+          <option value="sonnet">Sonnet 4.6 (Recommended)</option>
+          <option value="haiku">Haiku 4.5 (Fast)</option>
+          <option value="opus">Opus 4.6 (Best)</option>
+        </select>
       </div>
       <div class="af-skin-row">
         <label for="af-skin-select">Skin:</label>

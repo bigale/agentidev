@@ -11,6 +11,8 @@ let bridgeConnected = false;
 let broadcastListener = null;
 let promptHistoryLocal = [];
 let historyIdx = -1;
+let thinkingTimer = null;
+let thinkingStartTime = 0;
 
 // ---- DOM refs ----
 let els = {};
@@ -34,6 +36,10 @@ export function init() {
     configSummary:  document.getElementById('af-config-summary'),
     capSkin:        document.getElementById('af-cap-skin'),
     skinSelect:     document.getElementById('af-skin-select'),
+    modelSelect:    document.getElementById('af-model-select'),
+    thinking:       document.getElementById('af-thinking'),
+    thinkingLabel:  document.getElementById('af-thinking-label'),
+    thinkingTimer:  document.getElementById('af-thinking-timer'),
     errorText:      document.getElementById('af-error-text'),
     // Create form
     createForm:     document.getElementById('af-create-form'),
@@ -69,6 +75,13 @@ export function init() {
     chrome.runtime.sendMessage({
       type: 'SC_PLAYGROUND_SET_SKIN',
       skin: els.skinSelect.value,
+    });
+  });
+
+  els.modelSelect.addEventListener('change', () => {
+    chrome.runtime.sendMessage({
+      type: 'SC_PLAYGROUND_SET_MODEL',
+      model: els.modelSelect.value,
     });
   });
 
@@ -138,6 +151,35 @@ function setGenerating(active) {
   els.generateBtn.disabled = active;
   els.generateBtn.textContent = active ? 'Generating...' : 'Generate';
   els.promptInput.disabled = active;
+
+  // Thinking indicator
+  if (active) {
+    startThinking();
+  } else {
+    stopThinking();
+  }
+}
+
+function startThinking() {
+  if (!els.thinking) return;
+  const modelName = els.modelSelect ? els.modelSelect.selectedOptions[0]?.textContent || 'Sonnet' : 'Sonnet';
+  els.thinkingLabel.textContent = `${modelName} is thinking...`;
+  els.thinking.classList.add('active');
+  thinkingStartTime = Date.now();
+  els.thinkingTimer.textContent = '0s';
+  thinkingTimer = setInterval(() => {
+    const elapsed = Math.round((Date.now() - thinkingStartTime) / 1000);
+    els.thinkingTimer.textContent = `${elapsed}s`;
+  }, 1000);
+}
+
+function stopThinking() {
+  if (!els.thinking) return;
+  els.thinking.classList.remove('active');
+  if (thinkingTimer) {
+    clearInterval(thinkingTimer);
+    thinkingTimer = null;
+  }
 }
 
 // ---- Save / Undo / Reset ----
@@ -278,6 +320,9 @@ function updateUI(state) {
   }
   if (state.skin && els.skinSelect) {
     els.skinSelect.value = state.skin;
+  }
+  if (state.model && els.modelSelect) {
+    els.modelSelect.value = state.model;
   }
 
   // Generating state

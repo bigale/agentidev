@@ -2499,10 +2499,11 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           systemPrompt = `Project context: ${projectDescription}\n\n${systemPrompt}`;
         }
 
+        const genModel = msg.payload.model || 'sonnet';
         const mode = currentConfig ? 'modify' : 'generate';
-        console.log(`[Bridge] SC_GENERATE_UI (${mode}): spawning claude -p for:`, prompt.trim().slice(0, 80));
+        console.log(`[Bridge] SC_GENERATE_UI (${mode}, ${genModel}): spawning claude -p for:`, prompt.trim().slice(0, 80));
         try {
-          const raw = await spawnClaude('haiku', systemPrompt, userPrompt);
+          const raw = await spawnClaude(genModel, systemPrompt, userPrompt, { timeout: 180000 });
           const config = parseClaudeJsonResponse(raw);
           validateSmartClientConfig(config);
 

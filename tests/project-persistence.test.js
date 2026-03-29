@@ -103,6 +103,7 @@ function resetPlaygroundSession() {
     error: null,
     capabilities: { skinPicker: true },
     skin: 'Tahoe',
+    model: 'sonnet',
   };
 }
 
@@ -259,7 +260,8 @@ async function handlePlaygroundGenerate(message) {
     const result = await mockBridgeClient.generateSmartClientUI(
       prompt,
       playgroundSession.config || null,
-      playgroundSession.projectDescription || null
+      playgroundSession.projectDescription || null,
+      playgroundSession.model || 'sonnet'
     );
 
     if (!result.success) {
@@ -394,12 +396,33 @@ async function handlePromoteAppToProject(message) {
   return { success: true, project };
 }
 
-// Bridge-backed project handlers
+// Bridge-backed project handlers (merges bridge + IndexedDB for resilience)
 async function handleAfProjectList() {
-  if (!mockBridgeClient.isConnected()) {
-    return { success: false, error: 'Bridge server not connected' };
+  let bridgeProjects = [];
+  let idbProjects = [];
+
+  if (mockBridgeClient.isConnected()) {
+    try {
+      const resp = await mockBridgeClient.afProjectList();
+      if (resp?.success && resp.projects) bridgeProjects = resp.projects;
+    } catch {
+      // bridge failed — fall through
+    }
   }
-  return mockBridgeClient.afProjectList();
+
+  try {
+    idbProjects = await listProjects();
+  } catch {
+    // IndexedDB failed — fall through
+  }
+
+  const byId = new Map();
+  for (const p of idbProjects) byId.set(p.id, p);
+  for (const p of bridgeProjects) byId.set(p.id, p);
+
+  const projects = [...byId.values()];
+  projects.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  return { success: true, projects };
 }
 
 async function handleAfProjectLoad(message) {
@@ -702,7 +725,8 @@ describe('Playground Session - Generate with Project Binding', () => {
     expect(mockBridgeClient.generateSmartClientUI).toHaveBeenCalledWith(
       'Add a phone field',
       null, // no current config yet (first gen)
-      'A CRM for managing customer contacts'
+      'A CRM for managing customer contacts',
+      'sonnet'
     );
   });
 
@@ -741,13 +765,13 @@ describe('Playground Session - Generate with Project Binding', () => {
     // First gen
     await handlePlaygroundGenerate({ prompt: 'Create tasks' });
     expect(mockBridgeClient.generateSmartClientUI).toHaveBeenLastCalledWith(
-      'Create tasks', null, null
+      'Create tasks', null, null, 'sonnet'
     );
 
     // Second gen — should pass current config
     await handlePlaygroundGenerate({ prompt: 'Add status field' });
     expect(mockBridgeClient.generateSmartClientUI).toHaveBeenLastCalledWith(
-      'Add status field', SAMPLE_CONFIG, null
+      'Add status field', SAMPLE_CONFIG, null, 'sonnet'
     );
   });
 
@@ -869,8 +893,8 @@ describe('Bridge-backed Project Handlers', () => {
     mockBridgeClient.afProjectList.mockResolvedValue({
       success: true,
       projects: [
-        { id: 'proj_1', name: 'Proj A', componentCount: 2 },
-        { id: 'proj_2', name: 'Proj B', componentCount: 0 },
+        { id: 'proj_1', name: 'Proj A', componentCount: 2, updatedAt: '2026-03-29T01:00:00Z' },
+        { id: 'proj_2', name: 'Proj B', componentCount: 0, updatedAt: '2026-03-29T00:00:00Z' },
       ],
     });
 
@@ -879,12 +903,70 @@ describe('Bridge-backed Project Handlers', () => {
     expect(result.projects).toHaveLength(2);
   });
 
-  test('AF_PROJECT_LIST fails when bridge disconnected', async () => {
+  test('AF_PROJECT_LIST falls back to IndexedDB when bridge disconnected', async () => {
     mockBridgeClient.isConnected.mockReturnValue(false);
 
+    // Save projects to IndexedDB only
+    await saveProject({ name: 'IDB Only A' });
+    await saveProject({ name: 'IDB Only B' });
+
     const result = await handleAfProjectList();
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('not connected');
+    expect(result.success).toBe(true);
+    expect(result.projects).toHaveLength(2);
+    expect(result.projects.map(p => p.name)).toContain('IDB Only A');
+    expect(result.projects.map(p => p.name)).toContain('IDB Only B');
+  });
+
+  test('AF_PROJECT_LIST merges bridge + IndexedDB (deduplicates by id)', async () => {
+    // Project in IndexedDB
+    const idbProj = await saveProject({ name: 'Shared Project', description: 'idb version' });
+
+    // Same project in bridge (with richer metadata)
+    mockBridgeClient.afProjectList.mockResolvedValue({
+      success: true,
+      projects: [
+        { id: idbProj.id, name: 'Shared Project', description: 'bridge version', historyCount: 3, updatedAt: '2026-03-29T02:00:00Z' },
+      ],
+    });
+
+    const result = await handleAfProjectList();
+    expect(result.success).toBe(true);
+    // Should be deduplicated — only 1 entry
+    expect(result.projects).toHaveLength(1);
+    // Bridge version overwrites (has richer metadata)
+    expect(result.projects[0].description).toBe('bridge version');
+    expect(result.projects[0].historyCount).toBe(3);
+  });
+
+  test('AF_PROJECT_LIST shows IndexedDB-only projects when bridge save failed', async () => {
+    // Simulate: project created in IndexedDB but bridge save failed
+    await saveProject({ name: 'Local Only' });
+
+    // Bridge returns empty list (project never made it to disk)
+    mockBridgeClient.afProjectList.mockResolvedValue({
+      success: true,
+      projects: [],
+    });
+
+    const result = await handleAfProjectList();
+    expect(result.success).toBe(true);
+    expect(result.projects).toHaveLength(1);
+    expect(result.projects[0].name).toBe('Local Only');
+  });
+
+  test('AF_PROJECT_LIST shows bridge-only projects not in IndexedDB', async () => {
+    // Bridge has a project that's not in local IndexedDB (e.g., imported on another device)
+    mockBridgeClient.afProjectList.mockResolvedValue({
+      success: true,
+      projects: [
+        { id: 'proj_remote', name: 'Remote Project', updatedAt: '2026-03-29T00:00:00Z' },
+      ],
+    });
+
+    const result = await handleAfProjectList();
+    expect(result.success).toBe(true);
+    expect(result.projects).toHaveLength(1);
+    expect(result.projects[0].name).toBe('Remote Project');
   });
 
   test('AF_PROJECT_LOAD loads project from bridge', async () => {
@@ -955,6 +1037,33 @@ describe('Promote App to Project', () => {
         config: SAMPLE_CONFIG,
       })
     );
+  });
+});
+
+describe('Model Selection', () => {
+
+  test('defaults to sonnet', () => {
+    expect(playgroundSession.model).toBe('sonnet');
+  });
+
+  test('threads selected model to generateSmartClientUI', async () => {
+    mockBridgeClient.generateSmartClientUI.mockResolvedValue({
+      success: true,
+      config: SAMPLE_CONFIG,
+    });
+
+    playgroundSession.model = 'opus';
+    await handlePlaygroundGenerate({ prompt: 'Build dashboard' });
+
+    expect(mockBridgeClient.generateSmartClientUI).toHaveBeenCalledWith(
+      'Build dashboard', null, null, 'opus'
+    );
+  });
+
+  test('reset restores model to sonnet', async () => {
+    playgroundSession.model = 'haiku';
+    handlePlaygroundReset();
+    expect(playgroundSession.model).toBe('sonnet');
   });
 });
 

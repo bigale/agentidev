@@ -64,6 +64,17 @@ function generateId() {
 // ---- Exported for direct import ----
 
 /**
+ * List all projects from IndexedDB.
+ * @returns {Promise<object[]>} Array of project records sorted by updatedAt desc
+ */
+export async function listProjects() {
+  const store = await getStore('readonly');
+  const records = await promisify(store.getAll());
+  records.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  return records;
+}
+
+/**
  * Save a project record (create or update by id).
  * @param {object} record - Partial project record (id optional for new projects)
  * @returns {Promise<object>} The saved project record with id
