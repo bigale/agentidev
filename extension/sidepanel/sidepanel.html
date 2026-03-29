@@ -702,16 +702,16 @@
 <body>
   <header>
     <h1>🧠 Contextual Recall</h1>
-    <button class="settings-button" id="settings-button" title="Settings">⚙️</button>
+    <button class="settings-button" id="settings-button" title="Settings" aria-label="Settings">⚙️</button>
 
     <!-- Mode Selector -->
-    <div class="mode-selector">
-      <button id="mode-search" class="mode-btn active">🔍 Search</button>
-      <button id="mode-qa" class="mode-btn">💬 Q&A</button>
-      <button id="mode-extract" class="mode-btn">🕷️ Extract</button>
-      <button id="mode-agent" class="mode-btn">🤖 Agent</button>
-      <button id="mode-automation" class="mode-btn">🎮 Auto</button>
-      <button id="mode-agentiface" class="mode-btn">AF</button>
+    <div class="mode-selector" role="toolbar" aria-label="Mode selector">
+      <button id="mode-search" class="mode-btn active" aria-pressed="true">🔍 Search</button>
+      <button id="mode-qa" class="mode-btn" aria-pressed="false">💬 Q&A</button>
+      <button id="mode-extract" class="mode-btn" aria-pressed="false">🕷️ Extract</button>
+      <button id="mode-agent" class="mode-btn" aria-pressed="false">🤖 Agent</button>
+      <button id="mode-automation" class="mode-btn" aria-pressed="false">🎮 Auto</button>
+      <button id="mode-agentiface" class="mode-btn" aria-pressed="false" aria-label="Agentiface mode">AF</button>
     </div>
 
     <div class="search-box">
@@ -719,19 +719,20 @@
         type="text"
         id="query-input"
         placeholder="Search your browsing history..."
+        aria-label="Search your browsing history"
         autofocus
       />
     </div>
   </header>
 
-  <div class="filters" id="filters">
-    <button class="filter-chip active" data-filter="all">All</button>
-    <button class="filter-chip" data-filter="today">Today</button>
-    <button class="filter-chip" data-filter="week">This Week</button>
-    <button class="filter-chip" data-filter="specs">Specs</button>
-    <button class="filter-chip" data-filter="docs">Docs</button>
-    <button class="filter-chip" data-filter="dashboards">Dashboards</button>
-    <button class="filter-chip" data-filter="structured">Data Tables</button>
+  <div class="filters" id="filters" role="toolbar" aria-label="Content filters">
+    <button class="filter-chip active" data-filter="all" aria-pressed="true">All</button>
+    <button class="filter-chip" data-filter="today" aria-pressed="false">Today</button>
+    <button class="filter-chip" data-filter="week" aria-pressed="false">This Week</button>
+    <button class="filter-chip" data-filter="specs" aria-pressed="false">Specs</button>
+    <button class="filter-chip" data-filter="docs" aria-pressed="false">Docs</button>
+    <button class="filter-chip" data-filter="dashboards" aria-pressed="false">Dashboards</button>
+    <button class="filter-chip" data-filter="structured" aria-pressed="false">Data Tables</button>
   </div>
 
   <main>
@@ -1028,7 +1029,7 @@
 
       <!-- Prompt input -->
       <div class="af-prompt-row">
-        <input type="text" id="af-prompt-input" placeholder="Describe a UI to generate..." />
+        <input type="text" id="af-prompt-input" placeholder="Describe a UI to generate..." aria-label="Describe a UI to generate" />
         <button id="af-generate-btn" class="af-btn primary">Generate</button>
       </div>
 

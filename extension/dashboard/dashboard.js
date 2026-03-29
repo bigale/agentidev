@@ -948,9 +948,9 @@ function renderSchedules() {
       <span class="dash-schedule-name" title="${escHtml(s.scriptPath || '')}">${escHtml(s.name)}</span>
       <span class="dash-schedule-info">every ${interval} · ${s.runCount} runs${next ? ' · ' + next : ''}</span>
       <span class="dash-schedule-actions">
-        <button class="dash-schedule-btn trigger" data-sched-action="trigger" data-sched-id="${s.id}" title="Run now">▶</button>
-        <button class="dash-schedule-btn toggle" data-sched-action="toggle" data-sched-id="${s.id}" title="${s.enabled ? 'Disable' : 'Enable'}">${s.enabled ? '⏸' : '▶'}</button>
-        <button class="dash-schedule-btn delete" data-sched-action="delete" data-sched-id="${s.id}" title="Delete">✕</button>
+        <button class="dash-schedule-btn trigger" data-sched-action="trigger" data-sched-id="${s.id}" title="Run now" aria-label="Run ${escHtml(s.name)} now">▶</button>
+        <button class="dash-schedule-btn toggle" data-sched-action="toggle" data-sched-id="${s.id}" title="${s.enabled ? 'Disable' : 'Enable'}" aria-label="${s.enabled ? 'Disable' : 'Enable'} ${escHtml(s.name)}">${s.enabled ? '⏸' : '▶'}</button>
+        <button class="dash-schedule-btn delete" data-sched-action="delete" data-sched-id="${s.id}" title="Delete" aria-label="Delete schedule ${escHtml(s.name)}">✕</button>
       </span>
     </div>`;
   }).join('');

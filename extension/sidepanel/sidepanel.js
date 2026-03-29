@@ -87,8 +87,12 @@ queryInput.addEventListener('input', () => {
 // ---- Filter chips ----
 filtersDiv.addEventListener('click', (e) => {
   if (e.target.classList.contains('filter-chip')) {
-    filtersDiv.querySelectorAll('.filter-chip').forEach(chip => chip.classList.remove('active'));
+    filtersDiv.querySelectorAll('.filter-chip').forEach(chip => {
+      chip.classList.remove('active');
+      chip.setAttribute('aria-pressed', 'false');
+    });
     e.target.classList.add('active');
+    e.target.setAttribute('aria-pressed', 'true');
     currentFilter = e.target.dataset.filter;
     if (queryInput.value.trim()) performSearch();
   }
@@ -108,9 +112,13 @@ function setMode(mode) {
 
   currentMode = mode;
 
-  // Toggle button active state
-  Object.values(modes).forEach(m => m.btn.classList.remove('active'));
+  // Toggle button active state + aria-pressed
+  Object.values(modes).forEach(m => {
+    m.btn.classList.remove('active');
+    m.btn.setAttribute('aria-pressed', 'false');
+  });
   modes[mode].btn.classList.add('active');
+  modes[mode].btn.setAttribute('aria-pressed', 'true');
 
   // Hide all containers, show mode-specific ones
   allContainers.forEach(el => { if (el) el.style.display = 'none'; });

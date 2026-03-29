@@ -40,6 +40,7 @@
     .dash-topbar-status { font-size: 12px; color: #8f8faf; }
     .dash-topbar-title {
       font-size: 13px; font-weight: 600; color: #e0e0e0;
+      margin: 0;
     }
     .dash-topbar-sep { flex: 1; }
 
@@ -198,6 +199,7 @@
     .dash-section-title {
       font-size: 11px; font-weight: 600; color: #8f8faf;
       text-transform: uppercase; letter-spacing: 0.5px; flex: 1;
+      margin: 0;
     }
     .dash-badge {
       font-size: 10px; background: #2a2a4a; color: #8f8faf;
@@ -813,22 +815,22 @@
 </head>
 <body>
   <!-- Top Bar -->
-  <div class="dash-topbar">
-    <div id="dash-bridge-dot" class="dash-topbar-dot"></div>
-    <span id="dash-bridge-status" class="dash-topbar-status">Disconnected</span>
+  <header class="dash-topbar" role="banner">
+    <h1 class="dash-topbar-title">Automation Dashboard</h1>
+    <div id="dash-bridge-dot" class="dash-topbar-dot" role="status" aria-label="Bridge connection status"></div>
+    <span id="dash-bridge-status" class="dash-topbar-status" role="status">Disconnected</span>
     <button id="dash-connect-btn" class="dash-btn secondary">Connect</button>
-    <span style="color:#3a3a5a;">|</span>
-    <span class="dash-topbar-title">Automation Dashboard</span>
+    <span style="color:#3a3a5a;" aria-hidden="true">|</span>
     <div class="dash-topbar-sep"></div>
     <input id="dash-report-path" class="dash-modal-input" style="width:320px;margin:0;font-size:11px;padding:4px 8px;" placeholder="/path/to/report.html">
     <button id="dash-report-btn" class="dash-btn secondary">View Report</button>
-    <span style="color:#3a3a5a;">|</span>
+    <span style="color:#3a3a5a;" aria-hidden="true">|</span>
     <button id="dash-open-btn" class="dash-btn primary">Script Library...</button>
     <button id="dash-smartclient-btn" class="dash-btn secondary">SmartClient</button>
     <button id="dash-apps-btn" class="dash-btn secondary">Apps</button>
     <button id="dash-site-clone-btn" class="dash-btn secondary" disabled>Site Clone</button>
     <span id="dash-clone-status" style="color:#888;font-size:11px;"></span>
-  </div>
+  </header>
 
   <!-- Script Library Modal -->
   <div class="dash-modal-overlay" id="dash-modal-overlay">
@@ -860,20 +862,20 @@
   </div>
 
   <!-- 3-Column Grid -->
-  <div class="dash-grid" id="dash-grid">
+  <main class="dash-grid" id="dash-grid">
 
     <!-- LEFT: Scripts + Sessions -->
-    <div class="dash-col" id="left-col">
+    <nav class="dash-col" id="left-col" aria-label="Scripts and sessions">
       <!-- Scripts header -->
       <div class="dash-section-hdr">
-        <span class="dash-section-title">Scripts</span>
+        <h2 class="dash-section-title">Scripts</h2>
         <span id="scripts-count" class="dash-badge">0</span>
       </div>
       <!-- Scripts list -->
       <div id="scripts-list" class="dash-scripts-list"></div>
       <!-- Sessions header (collapsible) -->
       <div class="dash-section-hdr clickable" id="sessions-toggle">
-        <span class="dash-section-title">Sessions</span>
+        <h2 class="dash-section-title">Sessions</h2>
         <span id="sessions-count" class="dash-badge">0</span>
         <button class="dash-btn secondary" id="dash-refresh-processes" style="padding:1px 6px;font-size:9px;" title="Scan for running browser processes">Refresh</button>
         <span class="dash-collapse-arrow open" id="sessions-arrow">▶</span>
@@ -891,7 +893,7 @@
       </div>
       <!-- Schedules header (collapsible) -->
       <div class="dash-section-hdr clickable" id="schedules-toggle">
-        <span class="dash-section-title">Schedules</span>
+        <h2 class="dash-section-title">Schedules</h2>
         <span id="schedules-count" class="dash-badge">0</span>
         <button class="dash-btn secondary" id="dash-new-schedule-btn" style="padding:1px 6px;font-size:9px;" disabled>+ New</button>
         <span class="dash-collapse-arrow open" id="schedules-arrow">▶</span>
@@ -927,13 +929,13 @@
           <button class="dash-btn secondary" id="sched-cancel-btn">Cancel</button>
         </div>
       </div>
-    </div>
+    </nav>
 
     <!-- RESIZE: Left ↔ Center -->
     <div class="dash-resize-handle" id="resize-left" data-resize-col="left" title="Drag to resize"></div>
 
     <!-- CENTER: Monaco Source / Snapshot -->
-    <div class="dash-col dash-center" id="center-col">
+    <section class="dash-col dash-center" id="center-col" aria-label="Editor">
       <div class="dash-source-toolbar">
         <span id="source-file-label" class="dash-source-file">No script selected</span>
         <div class="dash-source-toggle">
@@ -1008,15 +1010,15 @@
         <input type="text" id="snap-filter-input" placeholder="Filter lines...">
         <span class="dash-snap-info" id="snap-filter-info"></span>
       </div>
-    </div>
+    </section>
 
     <!-- RESIZE: Center ↔ Right -->
     <div class="dash-resize-handle" id="resize-right" data-resize-col="right" title="Drag to resize"></div>
 
     <!-- RIGHT: Debug State + Activity -->
-    <div class="dash-col" id="right-col">
+    <section class="dash-col" id="right-col" aria-label="Debug and activity">
       <div class="dash-section-hdr">
-        <span class="dash-section-title" id="debug-panel-title">Debug State</span>
+        <h2 class="dash-section-title" id="debug-panel-title">Debug State</h2>
       </div>
       <div class="dash-debug-body" id="debug-body">
         <div class="dash-empty" id="debug-empty">Select a running script</div>
@@ -1041,15 +1043,15 @@
       <div class="dash-resize-handle-h" id="activity-resize-h" title="Drag to resize activity panel"></div>
 
       <div class="dash-section-hdr clickable" id="activity-toggle">
-        <span class="dash-section-title">Activity</span>
+        <h2 class="dash-section-title">Activity</h2>
         <span class="dash-collapse-arrow open" id="activity-arrow">▶</span>
       </div>
       <div id="activity-body" style="overflow-y:auto; max-height:200px; flex-shrink:0;">
         <div class="dash-activity-list" id="activity-list"></div>
       </div>
-    </div>
+    </section>
 
-  </div>
+  </main>
 
   <!-- Monaco setup (external files to satisfy CSP 'self' requirement) -->
   <script src="monaco-env.js"></script>

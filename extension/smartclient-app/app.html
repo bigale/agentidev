@@ -42,12 +42,13 @@
 </head>
 <body>
 
-<div id="ai-prompt-bar">
-  <input id="ai-prompt" type="text" placeholder="Describe a UI... e.g. Todo list with title, status, and due date" />
+<h1 class="sr-only" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;">SmartClient UI Generator</h1>
+<div id="ai-prompt-bar" role="toolbar" aria-label="AI prompt bar">
+  <input id="ai-prompt" type="text" placeholder="Describe a UI... e.g. Todo list with title, status, and due date" aria-label="Describe a SmartClient UI to generate" />
   <button id="ai-generate">Generate</button>
   <button id="ai-save" class="secondary" style="display:none;">Save</button>
   <button id="ai-undo" class="secondary" style="display:none;">Undo</button>
-  <span id="ai-status"></span>
+  <span id="ai-status" role="status" aria-live="polite"></span>
 </div>
 
 <!-- Sandbox shims: cookie/localStorage/sessionStorage blocked without allow-same-origin -->
