@@ -439,27 +439,5 @@ window.addEventListener('message', async (event) => {
     return;
   }
 
-  // AI UI generation (Phase 5b: supports modification mode via currentConfig)
-  // Uses 60s timeout — modification mode sends larger payload to claude -p
-  if (msg.source === 'smartclient-ai') {
-    try {
-      const outMsg = { type: 'SC_GENERATE_UI', prompt: msg.prompt };
-      if (msg.currentConfig) outMsg.currentConfig = msg.currentConfig;
-
-      const response = await sendMessageWithTimeout(outMsg, 60000);
-
-      iframe.contentWindow.postMessage({
-        source: 'smartclient-ai-response',
-        success: response.success,
-        config: response.config,
-        error: response.error,
-      }, '*');
-    } catch (err) {
-      iframe.contentWindow.postMessage({
-        source: 'smartclient-ai-response',
-        success: false,
-        error: err.message,
-      }, '*');
-    }
-  }
 });
+

@@ -13,6 +13,7 @@ let promptHistoryLocal = [];
 let historyIdx = -1;
 let thinkingTimer = null;
 let thinkingStartTime = 0;
+let hasConfig = false;
 
 // ---- DOM refs ----
 let els = {};
@@ -133,12 +134,12 @@ function handleGenerate() {
   historyIdx = -1;
   els.promptInput.value = '';
 
-  setGenerating(true);
+  setGenerating(true, hasConfig);
   chrome.runtime.sendMessage({
     type: 'SC_PLAYGROUND_GENERATE',
     prompt,
   }, (response) => {
-    setGenerating(false);
+    setGenerating(false, response?.success ? true : hasConfig);
     if (response?.success) {
       showError(null);
     } else {
@@ -147,9 +148,13 @@ function handleGenerate() {
   });
 }
 
-function setGenerating(active) {
+function setGenerating(active, hasConfig) {
   els.generateBtn.disabled = active;
-  els.generateBtn.textContent = active ? 'Generating...' : 'Generate';
+  if (active) {
+    els.generateBtn.textContent = hasConfig ? 'Modifying...' : 'Generating...';
+  } else {
+    els.generateBtn.textContent = hasConfig ? 'Modify' : 'Generate';
+  }
   els.promptInput.disabled = active;
 
   // Thinking indicator
@@ -297,6 +302,8 @@ function updateUI(state) {
   // Prompt placeholder
   if (state.projectName) {
     els.promptInput.placeholder = `Describe changes to ${state.projectName}...`;
+  } else if (state.hasConfig) {
+    els.promptInput.placeholder = 'Describe modifications to the UI...';
   } else {
     els.promptInput.placeholder = 'Describe a UI to generate...';
   }
@@ -325,8 +332,11 @@ function updateUI(state) {
     els.modelSelect.value = state.model;
   }
 
+  // Track config state for button label
+  hasConfig = !!state.hasConfig;
+
   // Generating state
-  setGenerating(state.status === 'generating');
+  setGenerating(state.status === 'generating', hasConfig);
 }
 
 function updateBridgeDot() {

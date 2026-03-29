@@ -204,11 +204,31 @@ function parseClaudeJsonResponse(raw) {
 
   let cleaned = responseText.trim();
   cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+
+  // Extract the first balanced JSON object using brace depth tracking
+  // (greedy regex fails when model adds explanation text containing braces)
+  const start = cleaned.indexOf('{');
+  if (start === -1) {
     throw new Error('No JSON object found in Claude response');
   }
-  return JSON.parse(jsonMatch[0]);
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        return JSON.parse(cleaned.slice(start, i + 1));
+      }
+    }
+  }
+  throw new Error('No complete JSON object found in Claude response');
 }
 
 /**

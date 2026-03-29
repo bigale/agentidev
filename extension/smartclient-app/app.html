@@ -9,47 +9,11 @@
   <link rel="stylesheet" href="../lib/agentiface/container-queries.css">
   <style>
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; box-sizing: border-box; }
-    body { padding-top: 48px; }
-  #ai-prompt-bar {
-    position: fixed; top: 0; left: 0; right: 0; height: 44px; z-index: 999999;
-    background: var(--af-surface-secondary); border-bottom: 1px solid var(--af-border-default);
-    display: flex; align-items: center; padding: 0 12px; gap: 8px;
-    font-family: var(--af-font-family);
-  }
-  #ai-prompt-bar input {
-    flex: 1; height: 28px; padding: 0 8px;
-    background: var(--af-surface-primary); border: 1px solid var(--af-border-default); border-radius: var(--af-radius-md);
-    color: var(--af-text-primary); font-size: var(--af-font-size-md); outline: none;
-  }
-  #ai-prompt-bar input:focus { border-color: var(--af-border-focus); }
-  #ai-prompt-bar button {
-    height: 28px; padding: 0 14px;
-    background: var(--af-accent-primary); border: none; border-radius: var(--af-radius-md);
-    color: var(--af-text-inverse); font-size: var(--af-font-size-md); cursor: pointer; white-space: nowrap;
-  }
-  #ai-prompt-bar button:hover { background: var(--af-accent-hover); }
-  #ai-prompt-bar button:disabled { opacity: 0.5; cursor: default; }
-  #ai-prompt-bar button.secondary {
-    background: var(--af-surface-tertiary, #444); color: var(--af-text-primary);
-    border: 1px solid var(--af-border-default);
-  }
-  #ai-prompt-bar button.secondary:hover { background: var(--af-surface-hover, #555); }
-  #ai-prompt-bar #ai-status {
-    color: var(--af-text-secondary); font-size: var(--af-font-size-sm); white-space: nowrap; min-width: 60px;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
 
 <h1 class="sr-only" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;">SmartClient UI Generator</h1>
-<div id="ai-prompt-bar" role="toolbar" aria-label="AI prompt bar">
-  <input id="ai-prompt" type="text" placeholder="Describe a UI... e.g. Todo list with title, status, and due date" aria-label="Describe a SmartClient UI to generate" />
-  <button id="ai-generate">Generate</button>
-  <button id="ai-save" class="secondary" style="display:none;">Save</button>
-  <button id="ai-undo" class="secondary" style="display:none;">Undo</button>
-  <span id="ai-status" role="status" aria-live="polite"></span>
-</div>
 
 <!-- Sandbox shims: cookie/localStorage/sessionStorage blocked without allow-same-origin -->
 <script>
