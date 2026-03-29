@@ -113,6 +113,12 @@ export const MSG = {
   BRIDGE_AF_APP_LOAD: 'BRIDGE_AF_APP_LOAD',      // load app config by ID from disk
   BRIDGE_AF_APP_LIST: 'BRIDGE_AF_APP_LIST',      // list all saved apps (metadata only)
   BRIDGE_AF_APP_DELETE: 'BRIDGE_AF_APP_DELETE',   // delete app config from disk
+
+  // Agentiface project persistence
+  BRIDGE_AF_PROJECT_SAVE: 'BRIDGE_AF_PROJECT_SAVE',      // save/update project to disk
+  BRIDGE_AF_PROJECT_LOAD: 'BRIDGE_AF_PROJECT_LOAD',      // load project by ID from disk
+  BRIDGE_AF_PROJECT_LIST: 'BRIDGE_AF_PROJECT_LIST',      // list all projects (metadata only)
+  BRIDGE_AF_PROJECT_DELETE: 'BRIDGE_AF_PROJECT_DELETE',   // delete project from disk
 };
 
 /**

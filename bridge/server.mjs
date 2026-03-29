@@ -2440,7 +2440,7 @@ function startServer() {
       }
 
       case MSG.BRIDGE_SC_GENERATE_UI: {
-        const { prompt, currentConfig } = msg.payload || {};
+        const { prompt, currentConfig, projectDescription } = msg.payload || {};
         if (!prompt || !prompt.trim()) {
           sendTo(ws, buildError('Prompt is required', msg.id));
           break;
@@ -2492,6 +2492,11 @@ ${SC_EXAMPLE}
 Output ONLY the JSON object. No explanation, no markdown fences.`;
 
           userPrompt = `User request: ${prompt.trim()}`;
+        }
+
+        // Prepend project context to system prompt if available
+        if (projectDescription) {
+          systemPrompt = `Project context: ${projectDescription}\n\n${systemPrompt}`;
         }
 
         const mode = currentConfig ? 'modify' : 'generate';
@@ -2787,6 +2792,124 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           const filePath = pathResolve(homedir(), '.contextual-recall', 'agentiface-apps', `${delId}.json`);
           await rm(filePath);
           console.log('[Bridge] AF app deleted:', delId);
+          sendTo(ws, buildReply(msg, { success: true }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      // ── Agentiface Project Persistence ────────────────────
+
+      case MSG.BRIDGE_AF_PROJECT_SAVE: {
+        const { id, name, description, skin, capabilities, prompt: projPrompt, config, history } = msg.payload || {};
+        if (!name) {
+          sendTo(ws, buildError('name is required', msg.id));
+          break;
+        }
+        try {
+          const projDir = pathResolve(homedir(), '.contextual-recall', 'agentiface-projects');
+          await mkdir(projDir, { recursive: true });
+
+          const projId = id || `proj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+          const filePath = pathResolve(projDir, `${projId}.json`);
+
+          // Load existing to preserve history if updating
+          let existing = null;
+          try {
+            existing = JSON.parse(await readFile(filePath, 'utf-8'));
+          } catch { /* new project */ }
+
+          const now = new Date().toISOString();
+          const project = {
+            id: projId,
+            name: name || existing?.name || 'Untitled Project',
+            description: description !== undefined ? description : (existing?.description || ''),
+            skin: skin || existing?.skin || 'Tahoe',
+            capabilities: capabilities || existing?.capabilities || {},
+            config: config !== undefined ? config : (existing?.config || null),
+            prompt: projPrompt || existing?.prompt || '',
+            createdAt: existing?.createdAt || now,
+            updatedAt: now,
+            history: history || existing?.history || [],
+          };
+
+          // Append to history if config changed and there's a prompt
+          if (projPrompt && config && (!existing || JSON.stringify(existing.config) !== JSON.stringify(config))) {
+            project.history.push({ prompt: projPrompt, timestamp: now, config });
+          }
+
+          await writeFile(filePath, JSON.stringify(project, null, 2));
+          console.log('[Bridge] AF project saved:', projId, '-', project.name);
+          sendTo(ws, buildReply(msg, { success: true, project: { id: projId, name: project.name, description: project.description, updatedAt: now } }));
+        } catch (err) {
+          console.error('[Bridge] AF project save error:', err.message);
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_AF_PROJECT_LOAD: {
+        const { id: loadProjId } = msg.payload || {};
+        if (!loadProjId) {
+          sendTo(ws, buildError('id is required', msg.id));
+          break;
+        }
+        try {
+          const filePath = pathResolve(homedir(), '.contextual-recall', 'agentiface-projects', `${loadProjId}.json`);
+          const raw = await readFile(filePath, 'utf-8');
+          const project = JSON.parse(raw);
+          sendTo(ws, buildReply(msg, { success: true, project }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_AF_PROJECT_LIST: {
+        try {
+          const projDir = pathResolve(homedir(), '.contextual-recall', 'agentiface-projects');
+          await mkdir(projDir, { recursive: true });
+          const files = await readdir(projDir);
+          const projects = [];
+          for (const file of files) {
+            if (!file.endsWith('.json')) continue;
+            try {
+              const raw = await readFile(pathResolve(projDir, file), 'utf-8');
+              const proj = JSON.parse(raw);
+              // Return metadata only (not full config/history)
+              const componentCount = proj.config?.dataSources?.length || 0;
+              projects.push({
+                id: proj.id,
+                name: proj.name,
+                description: proj.description || '',
+                skin: proj.skin,
+                prompt: proj.prompt,
+                createdAt: proj.createdAt,
+                updatedAt: proj.updatedAt,
+                historyCount: (proj.history || []).length,
+                componentCount,
+              });
+            } catch { /* skip corrupt files */ }
+          }
+          projects.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+          sendTo(ws, buildReply(msg, { success: true, projects }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_AF_PROJECT_DELETE: {
+        const { id: delProjId } = msg.payload || {};
+        if (!delProjId) {
+          sendTo(ws, buildError('id is required', msg.id));
+          break;
+        }
+        try {
+          const filePath = pathResolve(homedir(), '.contextual-recall', 'agentiface-projects', `${delProjId}.json`);
+          await rm(filePath);
+          console.log('[Bridge] AF project deleted:', delProjId);
           sendTo(ws, buildReply(msg, { success: true }));
         } catch (err) {
           sendTo(ws, buildReply(msg, { success: false, error: err.message }));

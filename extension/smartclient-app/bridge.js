@@ -70,7 +70,25 @@ else if (urlParams.get('mode') === 'playground') {
   // Just let app.html load naturally — shows prompt bar + Notes CRUD
 }
 
-// --- Mode 5: Gallery (no params) ---
+// --- Mode 5: Load project by ID ---
+else if (urlParams.get('project')) {
+  const projectId = urlParams.get('project');
+  sendMessageWithTimeout({ type: 'SC_PLAYGROUND_LOAD_PROJECT', id: projectId }).then((response) => {
+    if (response?.success && response.project?.config) {
+      document.title = response.project.name + ' — Agentiface';
+      sendConfigToIframe(response.project.config, response.project.capabilities);
+    } else if (response?.success) {
+      // Project exists but has no config yet — just set title
+      document.title = (response.project?.name || 'Project') + ' — Agentiface';
+    } else {
+      console.error('[Bridge] Failed to load project:', response?.error || 'not found');
+    }
+  }).catch((err) => {
+    console.error('[Bridge] Failed to load project:', err.message);
+  });
+}
+
+// --- Mode 6: Gallery (no params) ---
 else {
   buildGallery();
 }
@@ -87,84 +105,142 @@ async function buildGallery() {
     overflow: 'auto', padding: '32px',
   });
 
-  overlay.innerHTML = '<h1 style="margin:0 0 8px 0;font-size:22px;">SmartClient Apps</h1>'
-    + '<p style="color:#888;margin:0 0 24px 0;font-size:13px;">Saved apps from AI generation and site cloning</p>'
-    + '<div id="gallery-list" style="display:flex;flex-wrap:wrap;gap:16px;"></div>';
+  overlay.innerHTML = '<h1 style="margin:0 0 8px 0;font-size:22px;">Agentiface</h1>'
+    + '<p style="color:#888;margin:0 0 24px 0;font-size:13px;">Projects and apps from AI generation and site cloning</p>'
+    + '<div id="gallery-projects" style="margin-bottom:24px;"></div>'
+    + '<div id="gallery-apps"></div>';
 
   document.body.appendChild(overlay);
 
   try {
-    // Merge apps from IndexedDB (SC_APP_LIST) and bridge disk (AF_APP_LIST)
-    const [idbResponse, bridgeResponse] = await Promise.all([
+    // Fetch projects and apps in parallel
+    const [projResponse, idbResponse, bridgeResponse] = await Promise.all([
+      sendMessageWithTimeout({ type: 'AF_PROJECT_LIST' }).catch(() => null),
       chrome.runtime.sendMessage({ type: 'SC_APP_LIST' }).catch(() => null),
       sendMessageWithTimeout({ type: 'AF_APP_LIST' }).catch(() => null),
     ]);
 
+    // ---- Projects section ----
+    const projSection = document.getElementById('gallery-projects');
+    const projects = (projResponse?.success && projResponse.projects) ? projResponse.projects : [];
+
+    if (projects.length > 0) {
+      projSection.innerHTML = '<h2 style="margin:0 0 12px 0;font-size:16px;color:#a8b4ff;">Projects</h2>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:16px;"></div>';
+      const projList = projSection.querySelector('div');
+
+      for (const proj of projects) {
+        const card = document.createElement('div');
+        Object.assign(card.style, {
+          background: '#252540', borderRadius: '8px', padding: '16px', width: '240px',
+          cursor: 'pointer', border: '1px solid #3a3a6a', transition: 'border-color 0.15s',
+        });
+        card.onmouseenter = () => card.style.borderColor = '#6a6aaa';
+        card.onmouseleave = () => card.style.borderColor = '#3a3a6a';
+
+        const badge = '<span style="background:#1d3557;color:#a8dadc;padding:2px 6px;border-radius:3px;font-size:10px;margin-left:8px;">PROJECT</span>';
+        const date = proj.updatedAt ? new Date(proj.updatedAt).toLocaleDateString() : '';
+        const compCount = proj.componentCount || 0;
+
+        card.innerHTML = `<div style="font-weight:600;font-size:14px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">`
+          + `${escapeHtml(proj.name)}${badge}</div>`
+          + (proj.description ? `<div style="font-size:11px;color:#aaa;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(proj.description)}</div>` : '')
+          + `<div style="font-size:11px;color:#888;">${compCount} DataSource${compCount !== 1 ? 's' : ''} &middot; ${date}</div>`;
+
+        card.addEventListener('click', () => {
+          window.location.href = `wrapper.html?project=${encodeURIComponent(proj.id)}`;
+        });
+
+        // Delete button
+        const delBtn = document.createElement('button');
+        Object.assign(delBtn.style, {
+          marginTop: '10px', background: 'transparent', border: '1px solid #555',
+          color: '#888', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer',
+        });
+        delBtn.textContent = 'Delete';
+        delBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await Promise.all([
+            chrome.runtime.sendMessage({ type: 'SC_PROJECT_DELETE', id: proj.id }).catch(() => null),
+            sendMessageWithTimeout({ type: 'AF_PROJECT_DELETE', id: proj.id }).catch(() => null),
+          ]);
+          card.remove();
+        });
+        card.appendChild(delBtn);
+
+        projList.appendChild(card);
+      }
+    }
+
+    // ---- Legacy Apps section ----
     const appMap = new Map();
-    // IndexedDB apps first
     if (idbResponse?.success && idbResponse.apps) {
       for (const a of idbResponse.apps) appMap.set(a.id, a);
     }
-    // Bridge apps override (disk is source of truth for Phase 5b)
     if (bridgeResponse?.success && bridgeResponse.apps) {
       for (const a of bridgeResponse.apps) appMap.set(a.id, a);
     }
     const allApps = [...appMap.values()].sort((a, b) =>
       (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 
-    const list = document.getElementById('gallery-list');
+    const appSection = document.getElementById('gallery-apps');
 
-    if (allApps.length === 0) {
-      list.innerHTML = '<p style="color:#666;">No saved apps yet. Generate or clone one from the dashboard.</p>';
+    if (allApps.length === 0 && projects.length === 0) {
+      appSection.innerHTML = '<p style="color:#666;">No projects or apps yet. Create one from the sidepanel.</p>';
       return;
     }
 
-    for (const app of allApps) {
-      const card = document.createElement('div');
-      Object.assign(card.style, {
-        background: '#252540', borderRadius: '8px', padding: '16px', width: '240px',
-        cursor: 'pointer', border: '1px solid #333', transition: 'border-color 0.15s',
-      });
-      card.onmouseenter = () => card.style.borderColor = '#5a5a8a';
-      card.onmouseleave = () => card.style.borderColor = '#333';
+    if (allApps.length > 0) {
+      appSection.innerHTML = '<h2 style="margin:0 0 12px 0;font-size:16px;color:#aaa;">Legacy Apps</h2>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:16px;"></div>';
+      const appList = appSection.querySelector('div');
 
-      const badge = app.type === 'clone'
-        ? '<span style="background:#2d6a4f;color:#b7e4c7;padding:2px 6px;border-radius:3px;font-size:10px;margin-left:8px;">CLONE</span>'
-        : '<span style="background:#1d3557;color:#a8dadc;padding:2px 6px;border-radius:3px;font-size:10px;margin-left:8px;">GEN</span>';
+      for (const app of allApps) {
+        const card = document.createElement('div');
+        Object.assign(card.style, {
+          background: '#252540', borderRadius: '8px', padding: '16px', width: '240px',
+          cursor: 'pointer', border: '1px solid #333', transition: 'border-color 0.15s',
+        });
+        card.onmouseenter = () => card.style.borderColor = '#5a5a8a';
+        card.onmouseleave = () => card.style.borderColor = '#333';
 
-      const date = app.updatedAt ? new Date(app.updatedAt).toLocaleDateString() : '';
-      const dsCount = app.config?.dataSources?.length || 0;
+        const badge = app.type === 'clone'
+          ? '<span style="background:#2d6a4f;color:#b7e4c7;padding:2px 6px;border-radius:3px;font-size:10px;margin-left:8px;">CLONE</span>'
+          : '<span style="background:#1d3557;color:#a8dadc;padding:2px 6px;border-radius:3px;font-size:10px;margin-left:8px;">GEN</span>';
 
-      card.innerHTML = `<div style="font-weight:600;font-size:14px;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">`
-        + `${escapeHtml(app.name)}${badge}</div>`
-        + `<div style="font-size:11px;color:#888;">${dsCount} DataSource${dsCount !== 1 ? 's' : ''} &middot; ${date}</div>`;
+        const date = app.updatedAt ? new Date(app.updatedAt).toLocaleDateString() : '';
+        const dsCount = app.config?.dataSources?.length || 0;
 
-      card.addEventListener('click', () => {
-        window.location.href = `wrapper.html?app=${encodeURIComponent(app.id)}`;
-      });
+        card.innerHTML = `<div style="font-weight:600;font-size:14px;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">`
+          + `${escapeHtml(app.name)}${badge}</div>`
+          + `<div style="font-size:11px;color:#888;">${dsCount} DataSource${dsCount !== 1 ? 's' : ''} &middot; ${date}</div>`;
 
-      // Delete button
-      const delBtn = document.createElement('button');
-      Object.assign(delBtn.style, {
-        marginTop: '10px', background: 'transparent', border: '1px solid #555',
-        color: '#888', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer',
-      });
-      delBtn.textContent = 'Delete';
-      delBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        // Delete from both IndexedDB and bridge disk
-        await Promise.all([
-          chrome.runtime.sendMessage({ type: 'SC_APP_DELETE', id: app.id }).catch(() => null),
-          sendMessageWithTimeout({ type: 'AF_APP_DELETE', id: app.id }).catch(() => null),
-        ]);
-        card.remove();
-      });
-      card.appendChild(delBtn);
+        card.addEventListener('click', () => {
+          window.location.href = `wrapper.html?app=${encodeURIComponent(app.id)}`;
+        });
 
-      list.appendChild(card);
+        // Delete button
+        const delBtn = document.createElement('button');
+        Object.assign(delBtn.style, {
+          marginTop: '10px', background: 'transparent', border: '1px solid #555',
+          color: '#888', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer',
+        });
+        delBtn.textContent = 'Delete';
+        delBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await Promise.all([
+            chrome.runtime.sendMessage({ type: 'SC_APP_DELETE', id: app.id }).catch(() => null),
+            sendMessageWithTimeout({ type: 'AF_APP_DELETE', id: app.id }).catch(() => null),
+          ]);
+          card.remove();
+        });
+        card.appendChild(delBtn);
+
+        appList.appendChild(card);
+      }
     }
   } catch (err) {
-    document.getElementById('gallery-list').innerHTML = `<p style="color:#c44;">Error loading apps: ${escapeHtml(err.message)}</p>`;
+    document.getElementById('gallery-apps').innerHTML = `<p style="color:#c44;">Error loading: ${escapeHtml(err.message)}</p>`;
   }
 }
 

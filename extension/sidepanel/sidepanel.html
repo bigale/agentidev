@@ -685,6 +685,43 @@
     .af-app-delete:hover { color: #d93025; }
     .af-empty { padding: 12px; font-size: 12px; color: #9aa0a6; text-align: center; }
 
+    /* Project bar */
+    .af-project-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 12px; background: #e8f0fe; border-bottom: 1px solid #d2e3fc;
+      font-size: 12px;
+    }
+    .af-project-bar .af-project-name { font-weight: 600; color: #1967d2; }
+    .af-project-bar .af-project-desc {
+      color: #5f6368; font-size: 11px; flex: 1;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* Create project form */
+    .af-create-form { padding: 12px; border-bottom: 1px solid #e0e0e0; background: #fafafa; }
+    .af-create-form label { display: block; font-size: 11px; color: #5f6368; margin-bottom: 3px; margin-top: 8px; }
+    .af-create-form label:first-child { margin-top: 0; }
+    .af-create-form input, .af-create-form textarea, .af-create-form select {
+      width: 100%; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;
+    }
+    .af-create-form textarea { resize: vertical; min-height: 40px; }
+    .af-create-form .af-create-actions { display: flex; gap: 6px; margin-top: 10px; }
+
+    /* Project card */
+    .af-project-card {
+      display: flex; flex-direction: column; gap: 2px;
+      padding: 8px 12px; border-bottom: 1px solid #f0f0f0;
+      cursor: pointer; font-size: 12px;
+    }
+    .af-project-card:hover { background: #f0f5ff; }
+    .af-project-card-header { display: flex; align-items: center; gap: 6px; }
+    .af-project-card-name { flex: 1; font-weight: 600; color: #1967d2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .af-project-card-meta { font-size: 10px; color: #9aa0a6; flex-shrink: 0; }
+    .af-project-card-desc { font-size: 11px; color: #5f6368; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .af-section-header-row { display: flex; align-items: center; justify-content: space-between; }
+    .af-new-btn { background: none; border: none; color: #1967d2; font-size: 12px; cursor: pointer; font-weight: 500; padding: 0 4px; }
+    .af-new-btn:hover { text-decoration: underline; }
+
     .af-capabilities { padding: 8px 12px; border-bottom: 1px solid #e0e0e0; }
     .af-cap-toggle {
       display: flex; align-items: center; gap: 8px;
@@ -1027,6 +1064,12 @@
         <button id="af-open-playground" class="af-btn secondary" style="margin-left:auto;">Playground</button>
       </div>
 
+      <!-- Project context bar (shown when bound to a project) -->
+      <div id="af-project-bar" class="af-project-bar" style="display:none;">
+        <span id="af-project-name" class="af-project-name"></span>
+        <span id="af-project-desc" class="af-project-desc"></span>
+      </div>
+
       <!-- Prompt input -->
       <div class="af-prompt-row">
         <input type="text" id="af-prompt-input" placeholder="Describe a UI to generate..." aria-label="Describe a UI to generate" />
@@ -1078,11 +1121,60 @@
         </select>
       </div>
 
-      <!-- App Library -->
-      <div class="af-section-header">App Library</div>
-      <div id="af-app-library">
-        <div id="af-app-list" class="af-app-list">
-          <div class="af-empty">No saved apps</div>
+      <!-- Create Project Form (hidden by default) -->
+      <div id="af-create-form" class="af-create-form" style="display:none;">
+        <label for="af-new-project-name">Project Name *</label>
+        <input type="text" id="af-new-project-name" placeholder="My Dashboard" />
+        <label for="af-new-project-desc">Description</label>
+        <textarea id="af-new-project-desc" rows="2" placeholder="Brief description of what this project builds..."></textarea>
+        <label for="af-new-project-skin">Default Skin</label>
+        <select id="af-new-project-skin">
+          <option value="Tahoe">Tahoe</option>
+          <option value="Obsidian">Obsidian</option>
+          <option value="Graphite">Graphite</option>
+          <option value="Stratus">Stratus</option>
+          <option value="Simplicity">Simplicity</option>
+          <option value="SilverWave">SilverWave</option>
+          <option value="Enterprise">Enterprise</option>
+          <option value="EnterpriseBlue">EnterpriseBlue</option>
+          <option value="Cascade">Cascade</option>
+          <option value="TreeFrog">TreeFrog</option>
+          <option value="BlackOps">BlackOps</option>
+          <option value="Twilight">Twilight</option>
+          <option value="fleet">fleet</option>
+          <option value="Cupertino">Cupertino</option>
+          <option value="Shiva">Shiva</option>
+          <option value="ShivaBlue">ShivaBlue</option>
+          <option value="ShivaDark">ShivaDark</option>
+          <option value="Mobile">Mobile</option>
+          <option value="SmartClient">SmartClient</option>
+        </select>
+        <div class="af-create-actions">
+          <button id="af-create-project-btn" class="af-btn primary">Create</button>
+          <button id="af-cancel-create-btn" class="af-btn secondary">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Project Library -->
+      <div class="af-section-header">
+        <div class="af-section-header-row">
+          <span>Project Library</span>
+          <button id="af-new-project-btn" class="af-new-btn">+ New</button>
+        </div>
+      </div>
+      <div id="af-project-library">
+        <div id="af-project-list" class="af-app-list">
+          <div class="af-empty">No projects yet</div>
+        </div>
+      </div>
+
+      <!-- Legacy App Library -->
+      <div id="af-legacy-section" style="display:none;">
+        <div class="af-section-header">Legacy Apps</div>
+        <div id="af-app-library">
+          <div id="af-app-list" class="af-app-list">
+            <div class="af-empty">No saved apps</div>
+          </div>
         </div>
       </div>
     </div>

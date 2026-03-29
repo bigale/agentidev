@@ -1,9 +1,9 @@
 /**
  * Agentiface mode — sidepanel controller for the SmartClient playground.
  *
- * Manages prompt input, app library, and status while the wrapper page
- * (wrapper.html?mode=playground) acts as a pure renderer. Communication
- * flows through background.js which holds the playgroundSession state.
+ * Manages prompt input, project library, app library, and status while the
+ * wrapper page (wrapper.html?mode=playground) acts as a pure renderer.
+ * Communication flows through background.js which holds the playgroundSession state.
  */
 
 // ---- State ----
@@ -23,6 +23,9 @@ export function init() {
     bridgeDot:      document.getElementById('af-bridge-dot'),
     statusText:     document.getElementById('af-status-text'),
     playgroundBtn:  document.getElementById('af-open-playground'),
+    projectBar:     document.getElementById('af-project-bar'),
+    projectName:    document.getElementById('af-project-name'),
+    projectDesc:    document.getElementById('af-project-desc'),
     promptInput:    document.getElementById('af-prompt-input'),
     generateBtn:    document.getElementById('af-generate-btn'),
     saveBtn:        document.getElementById('af-save-btn'),
@@ -31,9 +34,22 @@ export function init() {
     configSummary:  document.getElementById('af-config-summary'),
     capSkin:        document.getElementById('af-cap-skin'),
     skinSelect:     document.getElementById('af-skin-select'),
+    errorText:      document.getElementById('af-error-text'),
+    // Create form
+    createForm:     document.getElementById('af-create-form'),
+    newProjectBtn:  document.getElementById('af-new-project-btn'),
+    createProjectBtn: document.getElementById('af-create-project-btn'),
+    cancelCreateBtn: document.getElementById('af-cancel-create-btn'),
+    newProjectName: document.getElementById('af-new-project-name'),
+    newProjectDesc: document.getElementById('af-new-project-desc'),
+    newProjectSkin: document.getElementById('af-new-project-skin'),
+    // Project library
+    projectLibrary: document.getElementById('af-project-library'),
+    projectList:    document.getElementById('af-project-list'),
+    // Legacy app library
+    legacySection:  document.getElementById('af-legacy-section'),
     appLibrary:     document.getElementById('af-app-library'),
     appList:        document.getElementById('af-app-list'),
-    errorText:      document.getElementById('af-error-text'),
   };
 
   els.generateBtn.addEventListener('click', handleGenerate);
@@ -75,11 +91,18 @@ export function init() {
       }
     }
   });
+
+  // Create project form
+  els.newProjectBtn.addEventListener('click', handleNewProject);
+  els.createProjectBtn.addEventListener('click', handleCreateProject);
+  els.cancelCreateBtn.addEventListener('click', () => {
+    els.createForm.style.display = 'none';
+  });
 }
 
 export function activate() {
   requestPlaygroundState();
-  loadAppLibrary();
+  loadProjectLibrary();
   startBroadcastListener();
 }
 
@@ -124,7 +147,7 @@ function handleSave() {
   chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_SAVE' }, (response) => {
     els.saveBtn.disabled = false;
     if (response?.success) {
-      loadAppLibrary();
+      loadProjectLibrary();
     } else {
       showError(response?.error || 'Save failed');
     }
@@ -141,6 +164,42 @@ function handleUndo() {
 
 function handleReset() {
   chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_RESET' });
+}
+
+// ---- Create Project ----
+
+function handleNewProject() {
+  els.createForm.style.display = '';
+  els.newProjectName.value = '';
+  els.newProjectDesc.value = '';
+  els.newProjectSkin.value = 'Tahoe';
+  els.newProjectName.focus();
+}
+
+function handleCreateProject() {
+  const name = els.newProjectName.value.trim();
+  if (!name) {
+    els.newProjectName.focus();
+    return;
+  }
+
+  els.createProjectBtn.disabled = true;
+  chrome.runtime.sendMessage({
+    type: 'SC_PLAYGROUND_CREATE_PROJECT',
+    name,
+    description: els.newProjectDesc.value.trim(),
+    skin: els.newProjectSkin.value,
+    capabilities: { skinPicker: els.capSkin.checked },
+  }, (response) => {
+    els.createProjectBtn.disabled = false;
+    if (response?.success) {
+      els.createForm.style.display = 'none';
+      loadProjectLibrary();
+      openPlayground();
+    } else {
+      showError(response?.error || 'Failed to create project');
+    }
+  });
 }
 
 // ---- Playground tab ----
@@ -182,7 +241,23 @@ function updateUI(state) {
   // Button visibility
   els.saveBtn.style.display = state.hasConfig ? '' : 'none';
   els.undoBtn.style.display = state.undoCount > 0 ? '' : 'none';
-  els.resetBtn.style.display = state.hasConfig ? '' : 'none';
+  els.resetBtn.style.display = state.hasConfig || state.projectId ? '' : 'none';
+
+  // Project bar
+  if (state.projectId && els.projectBar) {
+    els.projectBar.style.display = '';
+    els.projectName.textContent = state.projectName || 'Untitled Project';
+    els.projectDesc.textContent = state.projectDescription || '';
+  } else if (els.projectBar) {
+    els.projectBar.style.display = 'none';
+  }
+
+  // Prompt placeholder
+  if (state.projectName) {
+    els.promptInput.placeholder = `Describe changes to ${state.projectName}...`;
+  } else {
+    els.promptInput.placeholder = 'Describe a UI to generate...';
+  }
 
   // Config summary
   if (state.hasConfig && state.config) {
@@ -191,7 +266,7 @@ function updateUI(state) {
     els.configSummary.textContent = `${dsCount} DataSource${dsCount !== 1 ? 's' : ''} | ${layoutType}`;
     els.configSummary.style.display = '';
   } else if (state.hasConfig) {
-    els.configSummary.textContent = state.appName || 'Config loaded';
+    els.configSummary.textContent = state.projectName || state.appName || 'Config loaded';
     els.configSummary.style.display = '';
   } else {
     els.configSummary.style.display = 'none';
@@ -224,25 +299,76 @@ function showError(msg) {
   }
 }
 
-// ---- App Library ----
+// ---- Project Library ----
 
-function loadAppLibrary() {
+function loadProjectLibrary() {
+  if (!els.projectList) return;
+
+  // Load projects from bridge
+  chrome.runtime.sendMessage({ type: 'AF_PROJECT_LIST' }, (projResponse) => {
+    const projects = (projResponse?.success && projResponse.projects) ? projResponse.projects : [];
+    projects.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+
+    if (projects.length === 0) {
+      els.projectList.innerHTML = '<div class="af-empty">No projects yet</div>';
+    } else {
+      els.projectList.innerHTML = projects.map(proj => {
+        const compCount = proj.componentCount || 0;
+        const descSnippet = proj.description ? ` - ${esc(proj.description).slice(0, 50)}` : '';
+        return `<div class="af-project-card" data-id="${esc(proj.id)}">
+          <div class="af-project-card-header">
+            <div class="af-project-card-name">${esc(proj.name)}</div>
+            <div class="af-project-card-meta">${compCount} DS</div>
+            <button class="af-app-delete" data-id="${esc(proj.id)}" data-type="project" title="Delete">x</button>
+          </div>
+          ${proj.description ? `<div class="af-project-card-desc">${esc(proj.description)}</div>` : ''}
+        </div>`;
+      }).join('');
+
+      // Click to load project
+      els.projectList.querySelectorAll('.af-project-card').forEach(card => {
+        card.addEventListener('click', (e) => {
+          if (e.target.classList.contains('af-app-delete')) return;
+          const id = card.dataset.id;
+          chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_LOAD_PROJECT', id }, (response) => {
+            if (response?.success) openPlayground();
+          });
+        });
+      });
+
+      // Delete project
+      els.projectList.querySelectorAll('.af-app-delete').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const id = btn.dataset.id;
+          chrome.runtime.sendMessage({ type: 'SC_PROJECT_DELETE', id }, () => {
+            // Also delete from bridge
+            chrome.runtime.sendMessage({ type: 'AF_PROJECT_DELETE', id }, () => {
+              loadProjectLibrary();
+            });
+          });
+        });
+      });
+    }
+
+    // Load legacy apps
+    loadLegacyApps();
+  });
+}
+
+function loadLegacyApps() {
   if (!els.appList) return;
 
   chrome.runtime.sendMessage({ type: 'AF_APP_LIST' }, (response) => {
-    if (!response?.success || !response.apps) {
-      els.appList.innerHTML = '<div class="af-empty">No saved apps</div>';
+    if (!response?.success || !response.apps || response.apps.length === 0) {
+      els.legacySection.style.display = 'none';
       return;
     }
 
     const apps = response.apps.sort((a, b) =>
       (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 
-    if (apps.length === 0) {
-      els.appList.innerHTML = '<div class="af-empty">No saved apps</div>';
-      return;
-    }
-
+    els.legacySection.style.display = '';
     els.appList.innerHTML = apps.map(app => {
       const dsCount = app.config?.dataSources?.length || 0;
       return `<div class="af-app-card" data-id="${esc(app.id)}">
@@ -252,7 +378,7 @@ function loadAppLibrary() {
       </div>`;
     }).join('');
 
-    // Click to load
+    // Click to load legacy app
     els.appList.querySelectorAll('.af-app-card').forEach(card => {
       card.addEventListener('click', (e) => {
         if (e.target.classList.contains('af-app-delete')) return;
@@ -261,17 +387,26 @@ function loadAppLibrary() {
       });
     });
 
-    // Delete
+    // Delete legacy app
     els.appList.querySelectorAll('.af-app-delete').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const id = btn.dataset.id;
         chrome.runtime.sendMessage({ type: 'AF_APP_DELETE', id }, () => {
-          loadAppLibrary();
+          loadProjectLibrary();
         });
       });
     });
   });
+}
+
+// ---- Bridge-backed project list handler ----
+
+function handleAfProjectList(message) {
+  // Handled by smartclient-handlers via bridge
+  if (!bridgeConnected) {
+    return { success: false, error: 'Bridge not connected' };
+  }
 }
 
 // ---- Broadcast Listener ----

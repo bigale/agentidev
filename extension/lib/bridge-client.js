@@ -446,11 +446,13 @@ export function onScheduleUpdate(cb) {
  * Generate SmartClient UI config via Claude Code (bridge spawns claude -p).
  * @param {string} prompt - Natural language UI description
  * @param {object} [currentConfig] - Existing config for modification mode (Phase 5b)
+ * @param {string} [projectDescription] - Optional project description for system prompt context
  * @returns {Promise<{ success: boolean, config?: object, error?: string }>}
  */
-export function generateSmartClientUI(prompt, currentConfig = null) {
+export function generateSmartClientUI(prompt, currentConfig = null, projectDescription = null) {
   const payload = { prompt };
   if (currentConfig) payload.currentConfig = currentConfig;
+  if (projectDescription) payload.projectDescription = projectDescription;
   return _sendRequest('BRIDGE_SC_GENERATE_UI', payload, 60000);
 }
 
@@ -510,6 +512,43 @@ export function afAppList() {
  */
 export function afAppDelete(id) {
   return _sendRequest('BRIDGE_AF_APP_DELETE', { id });
+}
+
+// ---- Agentiface Project Persistence ----
+
+/**
+ * Save/update an Agentiface project to disk via bridge server.
+ * @param {object} project - { id?, name, description?, skin?, capabilities?, config?, prompt?, history? }
+ * @returns {Promise<{ success: boolean, project: object }>}
+ */
+export function afProjectSave(project) {
+  return _sendRequest('BRIDGE_AF_PROJECT_SAVE', project);
+}
+
+/**
+ * Load an Agentiface project by ID from disk.
+ * @param {string} id - Project ID
+ * @returns {Promise<{ success: boolean, project: object }>}
+ */
+export function afProjectLoad(id) {
+  return _sendRequest('BRIDGE_AF_PROJECT_LOAD', { id });
+}
+
+/**
+ * List all saved Agentiface projects (metadata only).
+ * @returns {Promise<{ success: boolean, projects: object[] }>}
+ */
+export function afProjectList() {
+  return _sendRequest('BRIDGE_AF_PROJECT_LIST', {});
+}
+
+/**
+ * Delete an Agentiface project from disk.
+ * @param {string} id - Project ID
+ * @returns {Promise<{ success: boolean }>}
+ */
+export function afProjectDelete(id) {
+  return _sendRequest('BRIDGE_AF_PROJECT_DELETE', { id });
 }
 
 // ---- System process management ----

@@ -5,12 +5,16 @@
  */
 import * as bridgeClient from '../bridge-client.js';
 import { saveApp } from './app-persistence.js';
+import { saveProject, loadProject } from './project-persistence.js';
 
 // ---- Playground session state (sidepanel controller) ----
 let playgroundSession = {
   config: null,
   appId: null,
   appName: null,
+  projectId: null,
+  projectName: null,
+  projectDescription: null,
   promptHistory: [],
   undoStack: [],
   status: 'idle',   // idle | generating | error
@@ -25,6 +29,9 @@ function broadcastPlaygroundState() {
     status: playgroundSession.status,
     appName: playgroundSession.appName,
     appId: playgroundSession.appId,
+    projectId: playgroundSession.projectId,
+    projectName: playgroundSession.projectName,
+    projectDescription: playgroundSession.projectDescription,
     hasConfig: !!playgroundSession.config,
     promptCount: playgroundSession.promptHistory.length,
     undoCount: playgroundSession.undoStack.length,
@@ -78,7 +85,7 @@ function deriveName(input) {
 }
 
 async function handleGenerateUI(message) {
-  const { prompt, currentConfig } = message;
+  const { prompt, currentConfig, projectDescription } = message;
   if (!prompt || !prompt.trim()) {
     return { success: false, error: 'Prompt is required' };
   }
@@ -90,7 +97,7 @@ async function handleGenerateUI(message) {
   try {
     const mode = currentConfig ? 'modify' : 'generate';
     console.log(`[SmartClient AI] ${mode} UI via bridge for:`, prompt);
-    const result = await bridgeClient.generateSmartClientUI(prompt, currentConfig);
+    const result = await bridgeClient.generateSmartClientUI(prompt, currentConfig, projectDescription || null);
 
     if (!result.success) {
       return { success: false, error: result.error || 'Generation failed' };
@@ -222,6 +229,56 @@ async function handleAfAppDelete(message) {
   }
 }
 
+// ---- Bridge-backed project persistence ----
+
+async function handleAfProjectSave(message) {
+  if (!bridgeClient.isConnected()) {
+    return { success: false, error: 'Bridge server not connected' };
+  }
+  try {
+    return await bridgeClient.afProjectSave(message);
+  } catch (err) {
+    console.error('[SmartClient AI] AF_PROJECT_SAVE failed:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+async function handleAfProjectLoad(message) {
+  if (!bridgeClient.isConnected()) {
+    return { success: false, error: 'Bridge server not connected' };
+  }
+  try {
+    return await bridgeClient.afProjectLoad(message.id);
+  } catch (err) {
+    console.error('[SmartClient AI] AF_PROJECT_LOAD failed:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+async function handleAfProjectList() {
+  if (!bridgeClient.isConnected()) {
+    return { success: false, error: 'Bridge server not connected' };
+  }
+  try {
+    return await bridgeClient.afProjectList();
+  } catch (err) {
+    console.error('[SmartClient AI] AF_PROJECT_LIST failed:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+async function handleAfProjectDelete(message) {
+  if (!bridgeClient.isConnected()) {
+    return { success: false, error: 'Bridge server not connected' };
+  }
+  try {
+    return await bridgeClient.afProjectDelete(message.id);
+  } catch (err) {
+    console.error('[SmartClient AI] AF_PROJECT_DELETE failed:', err);
+    return { success: false, error: err.message };
+  }
+}
+
 // ---- Playground session handlers ----
 
 async function handlePlaygroundGenerate(message) {
@@ -243,6 +300,7 @@ async function handlePlaygroundGenerate(message) {
     const result = await handleGenerateUI({
       prompt,
       currentConfig: playgroundSession.config || undefined,
+      projectDescription: playgroundSession.projectDescription || undefined,
     });
 
     if (!result.success) {
@@ -260,6 +318,12 @@ async function handlePlaygroundGenerate(message) {
     playgroundSession.promptHistory.push(prompt);
     playgroundSession.status = 'idle';
     playgroundSession.error = null;
+
+    // Auto-save config to project (both layers, non-fatal)
+    if (playgroundSession.projectId) {
+      autoSaveToProject(prompt).catch(e =>
+        console.warn('[SmartClient AI] Project auto-save failed:', e.message));
+    }
 
     broadcastConfig();
     broadcastPlaygroundState();
@@ -325,13 +389,25 @@ async function handlePlaygroundSave() {
     return { success: false, error: 'Bridge server not connected' };
   }
 
+  const lastPrompt = playgroundSession.promptHistory[playgroundSession.promptHistory.length - 1] || null;
+
+  // Save to project if bound, otherwise save as flat app
+  if (playgroundSession.projectId) {
+    try {
+      const result = await autoSaveToProject(lastPrompt);
+      return result;
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
   try {
     const result = await bridgeClient.afAppSave({
       id: playgroundSession.appId || undefined,
       name: playgroundSession.appName || 'Untitled App',
       type: 'generate',
       config: structuredClone(playgroundSession.config),
-      prompt: playgroundSession.promptHistory[playgroundSession.promptHistory.length - 1] || null,
+      prompt: lastPrompt,
     });
 
     if (result.success && result.app) {
@@ -343,6 +419,51 @@ async function handlePlaygroundSave() {
   } catch (err) {
     return { success: false, error: err.message };
   }
+}
+
+/**
+ * Save current playground config to the bound project (both IndexedDB and bridge disk).
+ */
+async function autoSaveToProject(prompt) {
+  const projId = playgroundSession.projectId;
+  if (!projId || !playgroundSession.config) return { success: false, error: 'No project bound' };
+
+  const configClone = structuredClone(playgroundSession.config);
+
+  // Save to IndexedDB
+  try {
+    await saveProject({
+      id: projId,
+      name: playgroundSession.projectName,
+      description: playgroundSession.projectDescription || '',
+      skin: playgroundSession.skin,
+      capabilities: playgroundSession.capabilities,
+      config: configClone,
+      prompt: prompt || null,
+    });
+  } catch (e) {
+    console.warn('[SmartClient AI] Project IndexedDB save failed:', e.message);
+  }
+
+  // Save to bridge disk
+  if (bridgeClient.isConnected()) {
+    try {
+      const result = await bridgeClient.afProjectSave({
+        id: projId,
+        name: playgroundSession.projectName,
+        description: playgroundSession.projectDescription || '',
+        skin: playgroundSession.skin,
+        capabilities: playgroundSession.capabilities,
+        config: configClone,
+        prompt: prompt || null,
+      });
+      return result;
+    } catch (e) {
+      console.warn('[SmartClient AI] Project bridge save failed:', e.message);
+    }
+  }
+
+  return { success: true };
 }
 
 function handlePlaygroundSetSkin(message) {
@@ -368,6 +489,7 @@ function handlePlaygroundSetCapabilities(message) {
 function handlePlaygroundReset() {
   playgroundSession = {
     config: null, appId: null, appName: null,
+    projectId: null, projectName: null, projectDescription: null,
     promptHistory: [], undoStack: [],
     status: 'idle', error: null,
     capabilities: { skinPicker: true },
@@ -376,6 +498,152 @@ function handlePlaygroundReset() {
   broadcastConfig();
   broadcastPlaygroundState();
   return { success: true };
+}
+
+// ---- Project-bound playground handlers ----
+
+async function handlePlaygroundCreateProject(message) {
+  const { name, description, skin, capabilities } = message;
+  if (!name || !name.trim()) {
+    return { success: false, error: 'Project name is required' };
+  }
+
+  try {
+    // Save to IndexedDB
+    const project = await saveProject({
+      name: name.trim(),
+      description: (description || '').trim(),
+      skin: skin || 'Tahoe',
+      capabilities: capabilities || { skinPicker: true },
+      config: null,
+      prompt: null,
+    });
+
+    // Save to bridge disk (non-fatal)
+    if (bridgeClient.isConnected()) {
+      try {
+        await bridgeClient.afProjectSave({
+          id: project.id,
+          name: project.name,
+          description: project.description || '',
+          skin: project.skin || 'Tahoe',
+          capabilities: project.capabilities || {},
+        });
+      } catch (e) {
+        console.warn('[SmartClient AI] Project bridge save failed:', e.message);
+      }
+    }
+
+    // Bind playground to new project
+    playgroundSession.projectId = project.id;
+    playgroundSession.projectName = project.name;
+    playgroundSession.projectDescription = project.description || null;
+    playgroundSession.config = null;
+    playgroundSession.appId = null;
+    playgroundSession.appName = null;
+    playgroundSession.undoStack = [];
+    playgroundSession.promptHistory = [];
+    playgroundSession.status = 'idle';
+    playgroundSession.error = null;
+    playgroundSession.skin = project.skin || 'Tahoe';
+    playgroundSession.capabilities = project.capabilities || { skinPicker: true };
+
+    broadcastPlaygroundState();
+    return { success: true, project };
+  } catch (err) {
+    console.error('[SmartClient AI] Create project failed:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+async function handlePlaygroundLoadProject(message) {
+  const { id } = message;
+  if (!id) return { success: false, error: 'Project id is required' };
+
+  // Try bridge first (has history), fall back to IndexedDB
+  let project = null;
+  if (bridgeClient.isConnected()) {
+    try {
+      const result = await bridgeClient.afProjectLoad(id);
+      if (result.success) project = result.project;
+    } catch (e) {
+      console.warn('[SmartClient AI] Bridge project load failed, trying IndexedDB:', e.message);
+    }
+  }
+
+  if (!project) {
+    try {
+      project = await loadProject(id);
+    } catch {
+      // Fall through
+    }
+  }
+
+  if (!project) return { success: false, error: `Project not found: ${id}` };
+
+  // Bind playground to project
+  playgroundSession.projectId = project.id;
+  playgroundSession.projectName = project.name;
+  playgroundSession.projectDescription = project.description || null;
+  playgroundSession.config = project.config ? structuredClone(project.config) : null;
+  playgroundSession.appId = null;
+  playgroundSession.appName = null;
+  playgroundSession.undoStack = [];
+  playgroundSession.promptHistory = [];
+  playgroundSession.status = 'idle';
+  playgroundSession.error = null;
+  playgroundSession.skin = project.skin || 'Tahoe';
+  playgroundSession.capabilities = project.capabilities || { skinPicker: true };
+
+  if (project.config) broadcastConfig();
+  broadcastPlaygroundState();
+  return { success: true, project };
+}
+
+async function handlePromoteAppToProject(message) {
+  const { appId } = message;
+  if (!appId) return { success: false, error: 'appId is required' };
+
+  // Load the app
+  let app = null;
+  if (bridgeClient.isConnected()) {
+    try {
+      const result = await bridgeClient.afAppLoad(appId);
+      if (result.success) app = result.app;
+    } catch { /* fall through */ }
+  }
+  if (!app) return { success: false, error: `App not found: ${appId}` };
+
+  // Create a new project from the app data
+  try {
+    const project = await saveProject({
+      name: app.name || 'Promoted App',
+      description: '',
+      skin: 'Tahoe',
+      capabilities: { skinPicker: true },
+      config: app.config || null,
+      prompt: app.prompt || null,
+    });
+
+    // Save to bridge disk
+    if (bridgeClient.isConnected()) {
+      try {
+        await bridgeClient.afProjectSave({
+          id: project.id,
+          name: project.name,
+          description: '',
+          config: project.config,
+          prompt: project.prompt,
+        });
+      } catch (e) {
+        console.warn('[SmartClient AI] Bridge save for promoted project failed:', e.message);
+      }
+    }
+
+    return { success: true, project };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 }
 
 export function register(handlers) {
@@ -397,4 +665,15 @@ export function register(handlers) {
   handlers['SC_PLAYGROUND_RESET'] = () => handlePlaygroundReset();
   handlers['SC_PLAYGROUND_SET_SKIN'] = (msg) => handlePlaygroundSetSkin(msg);
   handlers['SC_PLAYGROUND_SET_CAPABILITIES'] = (msg) => handlePlaygroundSetCapabilities(msg);
+
+  // Project-bound playground
+  handlers['SC_PLAYGROUND_CREATE_PROJECT'] = (msg) => handlePlaygroundCreateProject(msg);
+  handlers['SC_PLAYGROUND_LOAD_PROJECT'] = (msg) => handlePlaygroundLoadProject(msg);
+  handlers['SC_PROMOTE_APP_TO_PROJECT'] = (msg) => handlePromoteAppToProject(msg);
+
+  // Bridge-backed project persistence (routed through bridge)
+  handlers['AF_PROJECT_SAVE'] = (msg) => handleAfProjectSave(msg);
+  handlers['AF_PROJECT_LOAD'] = (msg) => handleAfProjectLoad(msg);
+  handlers['AF_PROJECT_LIST'] = () => handleAfProjectList();
+  handlers['AF_PROJECT_DELETE'] = (msg) => handleAfProjectDelete(msg);
 }
