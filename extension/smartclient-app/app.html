@@ -95,8 +95,11 @@
 <script src="../smartclient/system/modules/ISC_Forms.js"></script>
 <script src="../smartclient/system/modules/ISC_DataBinding.js"></script>
 
-<!-- Tahoe skin (Agentiface base) -->
-<script src="../smartclient/skins/Tahoe/load_skin.js"></script>
+<!-- Dynamic skin loading from ?skin param (defaults to Tahoe) -->
+<script>
+  var _skinName = new URLSearchParams(window.location.search).get('skin') || 'Tahoe';
+  document.write('<script src="../smartclient/skins/' + _skinName + '/load_skin.js"><\/script>');
+</script>
 
 <!-- Agentiface theme + components -->
 <script src="../lib/agentiface/theme-manager.js"></script>

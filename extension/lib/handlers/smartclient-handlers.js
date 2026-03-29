@@ -15,6 +15,8 @@ let playgroundSession = {
   undoStack: [],
   status: 'idle',   // idle | generating | error
   error: null,
+  capabilities: { skinPicker: true },
+  skin: 'Tahoe',
 };
 
 function broadcastPlaygroundState() {
@@ -27,6 +29,8 @@ function broadcastPlaygroundState() {
     promptCount: playgroundSession.promptHistory.length,
     undoCount: playgroundSession.undoStack.length,
     error: playgroundSession.error,
+    capabilities: playgroundSession.capabilities,
+    skin: playgroundSession.skin,
   };
   chrome.runtime.sendMessage(msg).catch(() => {});
 }
@@ -36,6 +40,8 @@ function broadcastConfig() {
   chrome.runtime.sendMessage({
     type: 'AUTO_BROADCAST_SC_CONFIG',
     config: structuredClone(playgroundSession.config),
+    capabilities: playgroundSession.capabilities,
+    skin: playgroundSession.skin,
   }).catch(() => {});
 }
 
@@ -339,11 +345,33 @@ async function handlePlaygroundSave() {
   }
 }
 
+function handlePlaygroundSetSkin(message) {
+  const { skin } = message;
+  if (!skin) return { success: false, error: 'skin is required' };
+  playgroundSession.skin = skin;
+  chrome.runtime.sendMessage({
+    type: 'AUTO_BROADCAST_SC_SKIN',
+    skin,
+  }).catch(() => {});
+  broadcastPlaygroundState();
+  return { success: true, skin };
+}
+
+function handlePlaygroundSetCapabilities(message) {
+  const caps = message.capabilities || {};
+  Object.assign(playgroundSession.capabilities, caps);
+  broadcastConfig();
+  broadcastPlaygroundState();
+  return { success: true, capabilities: playgroundSession.capabilities };
+}
+
 function handlePlaygroundReset() {
   playgroundSession = {
     config: null, appId: null, appName: null,
     promptHistory: [], undoStack: [],
     status: 'idle', error: null,
+    capabilities: { skinPicker: true },
+    skin: 'Tahoe',
   };
   broadcastConfig();
   broadcastPlaygroundState();
@@ -367,4 +395,6 @@ export function register(handlers) {
   handlers['SC_PLAYGROUND_LOAD_APP'] = (msg) => handlePlaygroundLoadApp(msg);
   handlers['SC_PLAYGROUND_SAVE'] = () => handlePlaygroundSave();
   handlers['SC_PLAYGROUND_RESET'] = () => handlePlaygroundReset();
+  handlers['SC_PLAYGROUND_SET_SKIN'] = (msg) => handlePlaygroundSetSkin(msg);
+  handlers['SC_PLAYGROUND_SET_CAPABILITIES'] = (msg) => handlePlaygroundSetCapabilities(msg);
 }

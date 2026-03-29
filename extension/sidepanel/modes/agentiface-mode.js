@@ -29,6 +29,8 @@ export function init() {
     undoBtn:        document.getElementById('af-undo-btn'),
     resetBtn:       document.getElementById('af-reset-btn'),
     configSummary:  document.getElementById('af-config-summary'),
+    capSkin:        document.getElementById('af-cap-skin'),
+    skinSelect:     document.getElementById('af-skin-select'),
     appLibrary:     document.getElementById('af-app-library'),
     appList:        document.getElementById('af-app-list'),
     errorText:      document.getElementById('af-error-text'),
@@ -39,6 +41,20 @@ export function init() {
   els.undoBtn.addEventListener('click', handleUndo);
   els.resetBtn.addEventListener('click', handleReset);
   els.playgroundBtn.addEventListener('click', openPlayground);
+
+  els.capSkin.addEventListener('change', () => {
+    chrome.runtime.sendMessage({
+      type: 'SC_PLAYGROUND_SET_CAPABILITIES',
+      capabilities: { skinPicker: els.capSkin.checked },
+    });
+  });
+
+  els.skinSelect.addEventListener('change', () => {
+    chrome.runtime.sendMessage({
+      type: 'SC_PLAYGROUND_SET_SKIN',
+      skin: els.skinSelect.value,
+    });
+  });
 
   els.promptInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -179,6 +195,14 @@ function updateUI(state) {
     els.configSummary.style.display = '';
   } else {
     els.configSummary.style.display = 'none';
+  }
+
+  // Capabilities sync
+  if (state.capabilities && els.capSkin) {
+    els.capSkin.checked = !!state.capabilities.skinPicker;
+  }
+  if (state.skin && els.skinSelect) {
+    els.skinSelect.value = state.skin;
   }
 
   // Generating state

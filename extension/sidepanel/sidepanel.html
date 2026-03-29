@@ -684,6 +684,19 @@
     }
     .af-app-delete:hover { color: #d93025; }
     .af-empty { padding: 12px; font-size: 12px; color: #9aa0a6; text-align: center; }
+
+    .af-capabilities { padding: 8px 12px; border-bottom: 1px solid #e0e0e0; }
+    .af-cap-toggle {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: #3c4043; padding: 4px 0; cursor: pointer;
+    }
+    .af-skin-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 12px; border-bottom: 1px solid #e0e0e0; font-size: 12px;
+    }
+    .af-skin-row select {
+      flex: 1; padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 11px;
+    }
   </style>
 </head>
 <body>
@@ -1031,6 +1044,38 @@
 
       <!-- Config summary -->
       <div id="af-config-summary" class="af-config-summary" style="display:none;"></div>
+
+      <!-- Capabilities -->
+      <div class="af-section-header">Capabilities</div>
+      <div id="af-capabilities" class="af-capabilities">
+        <label class="af-cap-toggle">
+          <input type="checkbox" id="af-cap-skin" checked /> Skin Picker
+        </label>
+      </div>
+      <div class="af-skin-row">
+        <label for="af-skin-select">Skin:</label>
+        <select id="af-skin-select">
+          <option value="Tahoe">Tahoe</option>
+          <option value="Obsidian">Obsidian</option>
+          <option value="Graphite">Graphite</option>
+          <option value="Stratus">Stratus</option>
+          <option value="Simplicity">Simplicity</option>
+          <option value="SilverWave">SilverWave</option>
+          <option value="Enterprise">Enterprise</option>
+          <option value="EnterpriseBlue">EnterpriseBlue</option>
+          <option value="Cascade">Cascade</option>
+          <option value="TreeFrog">TreeFrog</option>
+          <option value="BlackOps">BlackOps</option>
+          <option value="Twilight">Twilight</option>
+          <option value="fleet">fleet</option>
+          <option value="Cupertino">Cupertino</option>
+          <option value="Shiva">Shiva</option>
+          <option value="ShivaBlue">ShivaBlue</option>
+          <option value="ShivaDark">ShivaDark</option>
+          <option value="Mobile">Mobile</option>
+          <option value="SmartClient">SmartClient</option>
+        </select>
+      </div>
 
       <!-- App Library -->
       <div class="af-section-header">App Library</div>

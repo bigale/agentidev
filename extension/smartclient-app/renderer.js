@@ -397,10 +397,62 @@ function invalidateDSCaches(dsId) {
   }, 500);
 }
 
+// ---- Capabilities: skin picker ToolStrip ----
+
+var SKIN_LIST = [
+  'Tahoe', 'Obsidian', 'Graphite', 'Stratus', 'Simplicity', 'SilverWave',
+  'Enterprise', 'EnterpriseBlue', 'Cascade', 'TreeFrog', 'BlackOps',
+  'Twilight', 'fleet', 'Cupertino', 'Shiva', 'ShivaBlue', 'ShivaDark',
+  'Mobile', 'SmartClient',
+];
+
+function createCapabilitiesBar(options) {
+  var members = [];
+
+  if (options.capabilities && options.capabilities.skinPicker) {
+    var currentSkin = options.skin || (typeof _skinName !== 'undefined' ? _skinName : 'Tahoe');
+
+    var valueMap = {};
+    for (var i = 0; i < SKIN_LIST.length; i++) {
+      valueMap[SKIN_LIST[i]] = SKIN_LIST[i];
+    }
+
+    var skinForm = isc.DynamicForm.create({
+      width: 180,
+      numCols: 2,
+      colWidths: [40, '*'],
+      fields: [{
+        name: 'skin',
+        title: 'Skin',
+        editorType: 'SelectItem',
+        valueMap: valueMap,
+        defaultValue: currentSkin,
+        width: 130,
+        changed: function (form, item, value) {
+          window.parent.postMessage({ source: 'smartclient-skin-change', skin: value }, '*');
+        },
+      }],
+    });
+    members.push(skinForm);
+  }
+
+  if (members.length === 0) return null;
+
+  var bar = isc.ToolStrip.create({
+    width: '100%',
+    height: 32,
+    members: members,
+  });
+  generatedComponents.push(bar);
+  return bar;
+}
+
 // ---- Entry point ----
 
-function renderConfig(config) {
+function renderConfig(config, options) {
   clearGeneratedUI();
+
+  options = options || {};
 
   // Create DataSources first
   if (config.dataSources) {
@@ -410,8 +462,22 @@ function renderConfig(config) {
   }
 
   // Create component tree
+  var mainLayout = null;
   if (config.layout) {
-    createComponent(config.layout);
+    mainLayout = createComponent(config.layout);
+  }
+
+  // Inject capabilities bar if enabled
+  var capBar = createCapabilitiesBar(options);
+  if (capBar && mainLayout) {
+    var wrapper = isc.VLayout.create({
+      width: '100%',
+      height: '100%',
+      members: [capBar, mainLayout],
+    });
+    generatedComponents.push(wrapper);
+    // Ensure original layout fills remaining space
+    mainLayout.setHeight('*');
   }
 
   // Deferred cross-reference resolution (for components that reference others by ID)

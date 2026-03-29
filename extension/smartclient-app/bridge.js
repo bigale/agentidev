@@ -15,19 +15,24 @@ const urlParams = new URLSearchParams(window.location.search);
 /**
  * Send a config to the sandboxed iframe as a smartclient-ai-response message.
  */
-function sendConfigToIframe(config) {
+function sendConfigToIframe(config, capabilities) {
   const doSend = () => {
-    iframe.contentWindow.postMessage({
-      source: 'smartclient-ai-response',
-      success: true,
-      config,
-    }, '*');
+    try {
+      iframe.contentWindow.postMessage({
+        source: 'smartclient-ai-response',
+        success: true,
+        config,
+        capabilities: capabilities || {},
+      }, '*');
+    } catch (e) {
+      // iframe not ready yet
+    }
   };
-  if (iframe.contentDocument?.readyState === 'complete') {
-    doSend();
-  } else {
-    iframe.addEventListener('load', doSend, { once: true });
-  }
+  // app.html is sandboxed (manifest) → contentDocument is null (unique origin).
+  // Can't check readyState, so send immediately (works if loaded) and also
+  // listen for load as fallback (works if still loading).
+  doSend();
+  iframe.addEventListener('load', doSend, { once: true });
 }
 
 // --- Mode 1: Load persisted app by ID ---
@@ -182,9 +187,22 @@ const BROADCAST_DS_MAP = {
 };
 
 chrome.runtime.onMessage.addListener((message) => {
+  // Playground mode: skin change triggers iframe reload
+  if (message.type === 'AUTO_BROADCAST_SC_SKIN' && urlParams.get('mode') === 'playground') {
+    iframe.src = 'app.html?skin=' + encodeURIComponent(message.skin);
+    iframe.addEventListener('load', () => {
+      chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_STATE' }, (state) => {
+        if (state?.config) {
+          sendConfigToIframe(state.config, state.capabilities);
+        }
+      });
+    }, { once: true });
+    return;
+  }
+
   // Playground mode: accept broadcast configs from sidepanel controller
   if (message.type === 'AUTO_BROADCAST_SC_CONFIG' && urlParams.get('mode') === 'playground') {
-    if (message.config) sendConfigToIframe(message.config);
+    if (message.config) sendConfigToIframe(message.config, message.capabilities);
     return;
   }
 
@@ -239,6 +257,12 @@ function sendMessageWithTimeout(outMsg, timeoutMs = MSG_TIMEOUT_MS) {
 window.addEventListener('message', async (event) => {
   const msg = event.data;
   if (!msg) return;
+
+  // Skin change from in-app picker (sandbox postMessage → extension message)
+  if (msg.source === 'smartclient-skin-change') {
+    chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_SET_SKIN', skin: msg.skin });
+    return;
+  }
 
   // Action proxy — forward arbitrary chrome.runtime.sendMessage calls from sandbox
   if (msg.source === 'smartclient-action') {

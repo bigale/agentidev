@@ -115,7 +115,10 @@ function handleAIResponse(msg) {
       _currentConfig = JSON.parse(JSON.stringify(msg.config));
 
       clearNotesApp();
-      renderConfig(msg.config);
+      renderConfig(msg.config, {
+        capabilities: msg.capabilities,
+        skin: typeof _skinName !== 'undefined' ? _skinName : 'Tahoe',
+      });
       updateIterativeUI();
       setStatus('Done');
       setTimeout(function () { setStatus(''); }, 2000);
@@ -166,7 +169,7 @@ function handleSave() {
 
   var appData = {
     name: name,
-    config: _currentConfig,
+    config: JSON.parse(JSON.stringify(_currentConfig)),
     prompt: _promptHistory[_promptHistory.length - 1] || '',
     history: _promptHistory.map(function (p) {
       return { prompt: p, timestamp: Date.now() };
