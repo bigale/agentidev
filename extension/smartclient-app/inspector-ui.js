@@ -329,6 +329,17 @@
     }
 
     _propForm.setFields(formFields);
+    // setFields + defaultValue can be stale; explicitly set values from node
+    var values = {};
+    for (var vi = 0; vi < formFields.length; vi++) {
+      var fn = formFields[vi].name;
+      if (fn && node[fn] !== undefined) {
+        values[fn] = node[fn];
+      } else if (formFields[vi].defaultValue !== undefined) {
+        values[fn] = formFields[vi].defaultValue;
+      }
+    }
+    _propForm.setValues(values);
   }
 
   function _collectComponentIDs(node) {

@@ -77,7 +77,8 @@ function buildTreeFromConfig(config) {
     if (!node || typeof node !== 'object') return;
 
     var type = node._type || node.type || 'Unknown';
-    var label = node.ID ? type + ' (' + node.ID + ')' : type;
+    var displayName = node.ID || node.title || node.contents || null;
+    var label = displayName ? type + ' (' + displayName + ')' : type;
     var childArrays = ['members', 'tabs', 'panes', 'items', 'portlets', 'sections', 'controls'];
     var hasChildren = false;
 
