@@ -48,7 +48,6 @@
       if (_inspectorVisible) {
         this.refresh();
         _splitPane.show();
-        _splitPane.bringToFront();
       } else {
         _splitPane.hide();
       }
@@ -229,23 +228,30 @@
   }
 
   function _buildSplitPane() {
-    // Inspector is a floating overlay panel on the left side, not a full-page layout.
-    // The rendered app draws at the page root; inspector overlays on top when visible.
-    _splitPane = isc.VLayout.create({
+    // Inspector is a draggable SC Window pinned to top-right.
+    _splitPane = isc.Window.create({
       ID: 'inspectorSplitPane',
+      title: 'Inspector',
       width: INSPECTOR_WIDTH,
-      height: '100%',
-      top: 30,  // below toolbar
-      left: 0,
-      members: [_treeGrid, _propForm],
-      backgroundColor: '#ffffff',
-      border: '0px 1px 0px 0px solid #ccc',
-      styleName: 'inspectorPanel',
+      height: 420,
+      canDragReposition: true,
+      canDragResize: true,
+      showMinimizeButton: true,
+      showCloseButton: true,
+      closeClick: function () { InspectorUI.toggle(); return false; },
+      items: [
+        isc.VLayout.create({
+          width: '100%',
+          height: '100%',
+          members: [_treeGrid, _propForm],
+        }),
+      ],
+      // Pin to top-right, offset from edge
+      left: Math.max(0, (isc.Page.getWidth() - INSPECTOR_WIDTH - 16)),
+      top: 36,
       visibility: 'hidden',
       autoDraw: true,
     });
-    // Bring to front so it overlays the rendered app
-    _splitPane.bringToFront();
   }
 
   // ---- Internal: Property Editing ----
