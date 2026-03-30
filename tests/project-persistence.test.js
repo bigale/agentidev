@@ -230,14 +230,43 @@ async function handlePlaygroundLoadProject(message) {
   playgroundSession.config = project.config ? JSON.parse(JSON.stringify(project.config)) : null;
   playgroundSession.appId = null;
   playgroundSession.appName = null;
-  playgroundSession.undoStack = [];
-  playgroundSession.promptHistory = [];
+  // Restore undo history from disk
+  const history = project.history || [];
+  playgroundSession.undoStack = history.map(h => JSON.parse(JSON.stringify(h.config)));
+  playgroundSession.promptHistory = history.map(h => h.prompt || '');
   playgroundSession.status = 'idle';
   playgroundSession.error = null;
   playgroundSession.skin = project.skin || 'Tahoe';
   playgroundSession.capabilities = project.capabilities || { skinPicker: true };
 
   return { success: true, project };
+}
+
+function handlePlaygroundState() {
+  return {
+    success: true,
+    ...playgroundSession,
+    config: playgroundSession.config ? JSON.parse(JSON.stringify(playgroundSession.config)) : null,
+    history: playgroundSession.promptHistory.map((prompt, i) => ({
+      prompt,
+      index: i,
+    })),
+  };
+}
+
+function handlePlaygroundRestoreVersion(message) {
+  const { index } = message;
+  if (index == null || index < 0 || index >= playgroundSession.undoStack.length) {
+    return { success: false, error: 'Invalid version index' };
+  }
+  if (playgroundSession.config) {
+    playgroundSession.undoStack.push(JSON.parse(JSON.stringify(playgroundSession.config)));
+    playgroundSession.promptHistory.push('(restored version)');
+  }
+  playgroundSession.config = JSON.parse(JSON.stringify(playgroundSession.undoStack[index]));
+  playgroundSession.status = 'idle';
+  playgroundSession.error = null;
+  return { success: true };
 }
 
 async function handlePlaygroundGenerate(message) {
@@ -680,7 +709,7 @@ describe('Playground Session - Load Project', () => {
     expect(result.error).toContain('id is required');
   });
 
-  test('clears undo stack and prompt history on load', async () => {
+  test('resets undo stack when project has no history', async () => {
     playgroundSession.undoStack = [SAMPLE_CONFIG];
     playgroundSession.promptHistory = ['old prompt'];
 
@@ -691,6 +720,24 @@ describe('Playground Session - Load Project', () => {
 
     expect(playgroundSession.undoStack).toHaveLength(0);
     expect(playgroundSession.promptHistory).toHaveLength(0);
+  });
+
+  test('restores undo stack from disk history on load', async () => {
+    const proj = {
+      id: 'proj_mcalc', name: 'mcalc', config: SAMPLE_CONFIG_2,
+      history: [
+        { prompt: 'Create calculator', config: SAMPLE_CONFIG, timestamp: '2026-03-28T01:00:00Z' },
+        { prompt: 'Add status field', config: SAMPLE_CONFIG_2, timestamp: '2026-03-28T02:00:00Z' },
+      ],
+    };
+    mockBridgeClient.afProjectLoad.mockResolvedValue({ success: true, project: proj });
+
+    await handlePlaygroundLoadProject({ id: 'proj_mcalc' });
+
+    expect(playgroundSession.undoStack).toHaveLength(2);
+    expect(playgroundSession.undoStack[0]).toEqual(SAMPLE_CONFIG);
+    expect(playgroundSession.undoStack[1]).toEqual(SAMPLE_CONFIG_2);
+    expect(playgroundSession.promptHistory).toEqual(['Create calculator', 'Add status field']);
   });
 
   test('loads project with null config', async () => {
@@ -1151,5 +1198,117 @@ describe('Backward Compatibility', () => {
     await handlePlaygroundGenerate({ prompt: 'No project context' });
 
     expect(mockBridgeClient.afProjectSave).not.toHaveBeenCalled();
+  });
+});
+
+describe('Playground State - History Metadata', () => {
+
+  test('state includes history array from promptHistory', async () => {
+    mockBridgeClient.generateSmartClientUI.mockResolvedValue({
+      success: true,
+      config: SAMPLE_CONFIG,
+    });
+
+    await handlePlaygroundGenerate({ prompt: 'First prompt' });
+    const state = handlePlaygroundState();
+
+    expect(state.history).toEqual([
+      { prompt: 'First prompt', index: 0 },
+    ]);
+  });
+
+  test('state history grows with each generation', async () => {
+    mockBridgeClient.generateSmartClientUI
+      .mockResolvedValueOnce({ success: true, config: SAMPLE_CONFIG })
+      .mockResolvedValueOnce({ success: true, config: SAMPLE_CONFIG_2 });
+
+    await handlePlaygroundGenerate({ prompt: 'Create tasks' });
+    await handlePlaygroundGenerate({ prompt: 'Add status' });
+
+    const state = handlePlaygroundState();
+    expect(state.history).toHaveLength(2);
+    expect(state.history[0].prompt).toBe('Create tasks');
+    expect(state.history[1].prompt).toBe('Add status');
+  });
+
+  test('state history is empty initially', () => {
+    const state = handlePlaygroundState();
+    expect(state.history).toEqual([]);
+  });
+});
+
+describe('Restore Version', () => {
+
+  test('restores config at given index', async () => {
+    mockBridgeClient.generateSmartClientUI
+      .mockResolvedValueOnce({ success: true, config: SAMPLE_CONFIG })
+      .mockResolvedValueOnce({ success: true, config: SAMPLE_CONFIG_2 });
+
+    await handlePlaygroundGenerate({ prompt: 'V1' });
+    await handlePlaygroundGenerate({ prompt: 'V2' });
+
+    // undoStack has [SAMPLE_CONFIG], current is SAMPLE_CONFIG_2
+    expect(playgroundSession.undoStack).toHaveLength(1);
+
+    const result = handlePlaygroundRestoreVersion({ index: 0 });
+    expect(result.success).toBe(true);
+    // Config should now be SAMPLE_CONFIG (the v1 config)
+    expect(playgroundSession.config).toEqual(SAMPLE_CONFIG);
+  });
+
+  test('restore pushes current config to undo stack (reversible)', async () => {
+    mockBridgeClient.generateSmartClientUI
+      .mockResolvedValueOnce({ success: true, config: SAMPLE_CONFIG })
+      .mockResolvedValueOnce({ success: true, config: SAMPLE_CONFIG_2 });
+
+    await handlePlaygroundGenerate({ prompt: 'V1' });
+    await handlePlaygroundGenerate({ prompt: 'V2' });
+
+    const stackBefore = playgroundSession.undoStack.length;
+    handlePlaygroundRestoreVersion({ index: 0 });
+
+    // Stack should grow by 1 (current config pushed before restore)
+    expect(playgroundSession.undoStack.length).toBe(stackBefore + 1);
+    expect(playgroundSession.promptHistory).toContain('(restored version)');
+  });
+
+  test('rejects invalid index (negative)', () => {
+    const result = handlePlaygroundRestoreVersion({ index: -1 });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Invalid');
+  });
+
+  test('rejects invalid index (out of range)', () => {
+    const result = handlePlaygroundRestoreVersion({ index: 99 });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Invalid');
+  });
+
+  test('rejects null index', () => {
+    const result = handlePlaygroundRestoreVersion({});
+    expect(result.success).toBe(false);
+  });
+
+  test('restore on loaded project with disk history', async () => {
+    const proj = {
+      id: 'proj_hist', name: 'History Test', config: SAMPLE_CONFIG_2,
+      history: [
+        { prompt: 'V1', config: SAMPLE_CONFIG },
+        { prompt: 'V2', config: SAMPLE_CONFIG_2 },
+      ],
+    };
+    mockBridgeClient.afProjectLoad.mockResolvedValue({ success: true, project: proj });
+
+    await handlePlaygroundLoadProject({ id: 'proj_hist' });
+
+    // undoStack should have 2 entries from history
+    expect(playgroundSession.undoStack).toHaveLength(2);
+
+    // Restore to V1
+    const result = handlePlaygroundRestoreVersion({ index: 0 });
+    expect(result.success).toBe(true);
+    expect(playgroundSession.config).toEqual(SAMPLE_CONFIG);
+    // Current config was pushed, so stack grew
+    expect(playgroundSession.undoStack).toHaveLength(3);
   });
 });

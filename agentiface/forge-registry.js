@@ -149,6 +149,93 @@ window.Agentiface = window.Agentiface || {};
     count: function () {
       return Object.keys(_components).length;
     },
+
+    /**
+     * Get editable property schema for a component type.
+     * Returns [{name, type, label?, valueMap?, valueMapFrom?}]
+     *
+     * type values: 'text', 'boolean', 'integer', 'enum', 'readonly'
+     * valueMapFrom: dynamic enum source ('dataSources', 'componentIDs')
+     *
+     * @param {string} type - SC class name (e.g., 'ForgeListGrid')
+     * @returns {Array}
+     */
+    getPropertySchema: function (type) {
+      var base = [
+        { name: 'ID', type: 'text' },
+        { name: 'width', type: 'text' },
+        { name: 'height', type: 'text' },
+      ];
+
+      var schemas = {
+        ForgeListGrid: [
+          { name: 'dataSource', type: 'enum', valueMapFrom: 'dataSources' },
+          { name: 'autoFetchData', type: 'boolean' },
+          { name: 'canEdit', type: 'boolean' },
+          { name: 'canRemoveRecords', type: 'boolean' },
+          { name: 'showFilterEditor', type: 'boolean' },
+          { name: 'selectionType', type: 'enum', valueMap: ['single', 'multiple', 'simple', 'none'] },
+          { name: 'fields', type: 'readonly', label: 'Fields (edit via AI)' },
+        ],
+        DynamicForm: [
+          { name: 'dataSource', type: 'enum', valueMapFrom: 'dataSources' },
+          { name: 'numCols', type: 'integer' },
+          { name: 'cellPadding', type: 'integer' },
+        ],
+        ForgeFilterBar: [
+          { name: 'targetGrid', type: 'enum', valueMapFrom: 'componentIDs' },
+          { name: 'placeholder', type: 'text' },
+        ],
+        ForgeWizard: [
+          { name: 'stepNames', type: 'readonly', label: 'Steps (edit via AI)' },
+        ],
+        Button: [
+          { name: 'title', type: 'text' },
+          { name: '_action', type: 'enum', valueMap: ['new', 'save', 'delete', 'compute', 'clear', 'select', 'dispatch'] },
+          { name: '_targetForm', type: 'enum', valueMapFrom: 'componentIDs' },
+          { name: '_targetGrid', type: 'enum', valueMapFrom: 'componentIDs' },
+        ],
+        Label: [
+          { name: 'contents', type: 'text' },
+          { name: 'align', type: 'enum', valueMap: ['left', 'center', 'right'] },
+        ],
+        VLayout: [
+          { name: 'membersMargin', type: 'integer' },
+          { name: 'layoutMargin', type: 'integer' },
+        ],
+        HLayout: [
+          { name: 'membersMargin', type: 'integer' },
+          { name: 'layoutMargin', type: 'integer' },
+        ],
+        TabSet: [
+          { name: 'tabBarPosition', type: 'enum', valueMap: ['top', 'bottom', 'left', 'right'] },
+        ],
+        SectionStack: [
+          { name: 'visibilityMode', type: 'enum', valueMap: ['mutex', 'multiple'] },
+        ],
+        DetailViewer: [
+          { name: 'dataSource', type: 'enum', valueMapFrom: 'dataSources' },
+        ],
+        HTMLFlow: [
+          { name: 'contents', type: 'text' },
+        ],
+        PortalLayout: [
+          { name: 'numColumns', type: 'integer' },
+        ],
+        Window: [
+          { name: 'title', type: 'text' },
+          { name: 'autoCenter', type: 'boolean' },
+          { name: 'canDragReposition', type: 'boolean' },
+          { name: 'canDragResize', type: 'boolean' },
+          { name: 'isModal', type: 'boolean' },
+        ],
+        ToolStrip: [
+          { name: 'controls', type: 'readonly', label: 'Controls (edit via AI)' },
+        ],
+      };
+
+      return base.concat(schemas[type] || []);
+    },
   };
 
   // ── Register built-in Agentiface components ────────────

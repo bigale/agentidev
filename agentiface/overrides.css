@@ -4,9 +4,10 @@
  * Maps SC CSS classes to Agentiface design tokens for theme switching.
  */
 
-/* Body / Canvas base */
+/* Base text color — DO NOT set background-color here.
+ * .normal is SmartClient's base class for ALL widgets including
+ * clickMask overlays. A background-color blanks the page on every dropdown. */
 .normal {
-  background-color: var(--af-surface-primary);
   color: var(--af-text-primary);
 }
 

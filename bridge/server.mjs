@@ -2460,7 +2460,7 @@ function startServer() {
       }
 
       case MSG.BRIDGE_SC_GENERATE_UI: {
-        const { prompt, currentConfig, projectDescription } = msg.payload || {};
+        const { prompt, currentConfig, projectDescription, templatePrompt } = msg.payload || {};
         if (!prompt || !prompt.trim()) {
           sendTo(ws, buildError('Prompt is required', msg.id));
           break;
@@ -2479,9 +2479,11 @@ function startServer() {
   - Menu: context menu with items[]. Each item: {title, _action, _targetGrid, _targetForm}. Wire to grid via showContextMenu
   - ListGrid/ForgeListGrid: set dataSource, autoFetchData:true, fields array with name and width. For context menu, set contextMenu to a Menu ID
   - DynamicForm: set dataSource, fields with name and optionally editorType (TextItem, TextAreaItem, SelectItem, DateItem, CheckboxItem, SpinnerItem)
-  - Button: use _action for behavior: "new","save","delete". Set _targetForm and _targetGrid to reference component IDs
+  - Button: use _action for behavior: "new","save","delete","compute","clear". Set _targetForm and _targetGrid to reference component IDs
   - ListGrid recordClick: set _action:"select" and _targetForm to auto-wire
-  - Give components an ID string so buttons can reference them`;
+  - Give components an ID string so buttons can reference them
+  - _action:"compute" — client-side math. Set _sourceForm (read values), _targetForm (write results), _formulas:{fieldName:"expression"} where expressions use field names + arithmetic (+,-,*,/,**) + Math.pow/round/floor/ceil/abs. For mortgage/loan calculators also set _scheduleType:"amortization", _targetGrid for amortization schedule, _principalField, _rateField (annual %), _termField (years)
+  - _action:"clear" — reset form fields and clear grid. Set _targetForm and/or _targetGrid`;
 
         const SC_EXAMPLE = `Example for a task tracker:
 {"dataSources":[{"ID":"TaskDS","fields":[{"name":"id","type":"integer","primaryKey":true,"hidden":true},{"name":"title","type":"text","required":true,"title":"Title","length":200},{"name":"status","type":"text","title":"Status","valueMap":["Todo","In Progress","Done"]},{"name":"dueDate","type":"date","title":"Due Date"}]}],"layout":{"_type":"VLayout","width":"100%","height":"100%","membersMargin":8,"layoutMargin":12,"members":[{"_type":"ForgeListGrid","ID":"taskGrid","width":"100%","height":"*","dataSource":"TaskDS","autoFetchData":true,"canEdit":false,"selectionType":"single","_action":"select","_targetForm":"taskForm","fields":[{"name":"title","width":"*"},{"name":"status","width":120},{"name":"dueDate","width":120}]},{"_type":"DynamicForm","ID":"taskForm","width":"100%","dataSource":"TaskDS","numCols":2,"colWidths":[120,"*"],"fields":[{"name":"title","editorType":"TextItem"},{"name":"status","editorType":"SelectItem"},{"name":"dueDate","editorType":"DateItem"}]},{"_type":"HLayout","height":30,"membersMargin":8,"members":[{"_type":"Button","title":"New","width":80,"_action":"new","_targetForm":"taskForm"},{"_type":"Button","title":"Save","width":80,"_action":"save","_targetForm":"taskForm","_targetGrid":"taskGrid"},{"_type":"Button","title":"Delete","width":80,"_action":"delete","_targetGrid":"taskGrid"}]}]}}`;
@@ -2514,7 +2516,10 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           userPrompt = `User request: ${prompt.trim()}`;
         }
 
-        // Prepend project context to system prompt if available
+        // Prepend project + template context to system prompt if available
+        if (templatePrompt) {
+          systemPrompt = `Template context: ${templatePrompt}\n\n${systemPrompt}`;
+        }
         if (projectDescription) {
           systemPrompt = `Project context: ${projectDescription}\n\n${systemPrompt}`;
         }
@@ -2931,6 +2936,91 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           const filePath = pathResolve(homedir(), '.contextual-recall', 'agentiface-projects', `${delProjId}.json`);
           await rm(filePath);
           console.log('[Bridge] AF project deleted:', delProjId);
+          sendTo(ws, buildReply(msg, { success: true }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      // ---- Agentiface template persistence (Phase 4a) ----
+
+      case MSG.BRIDGE_AF_TEMPLATE_SAVE: {
+        const { id: tplId, name: tplName, description: tplDesc, category: tplCat, config: tplConfig, aiSystemPrompt: tplPrompt, suggestedPrompts: tplSuggested } = msg.payload || {};
+        if (!tplName) {
+          sendTo(ws, buildError('name is required', msg.id));
+          break;
+        }
+        try {
+          const tplDir = pathResolve(homedir(), '.contextual-recall', 'agentiface-templates');
+          await mkdir(tplDir, { recursive: true });
+
+          const templateId = tplId || `tpl_user_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+          const filePath = pathResolve(tplDir, `${templateId}.json`);
+
+          const now = new Date().toISOString();
+          const template = {
+            id: templateId,
+            name: tplName,
+            description: tplDesc || '',
+            category: tplCat || 'Custom',
+            config: tplConfig || null,
+            aiSystemPrompt: tplPrompt || '',
+            suggestedPrompts: tplSuggested || [],
+            createdAt: now,
+            updatedAt: now,
+            bundled: false,
+          };
+
+          await writeFile(filePath, JSON.stringify(template, null, 2));
+          console.log('[Bridge] AF template saved:', templateId, '-', tplName);
+          sendTo(ws, buildReply(msg, { success: true, template: { id: templateId, name: tplName } }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_AF_TEMPLATE_LIST: {
+        try {
+          const tplDir = pathResolve(homedir(), '.contextual-recall', 'agentiface-templates');
+          await mkdir(tplDir, { recursive: true });
+          const files = await readdir(tplDir);
+          const templates = [];
+          for (const file of files) {
+            if (!file.endsWith('.json')) continue;
+            try {
+              const raw = await readFile(pathResolve(tplDir, file), 'utf-8');
+              const tpl = JSON.parse(raw);
+              templates.push({
+                id: tpl.id,
+                name: tpl.name,
+                description: tpl.description || '',
+                category: tpl.category || 'Custom',
+                createdAt: tpl.createdAt,
+                updatedAt: tpl.updatedAt,
+                bundled: false,
+              });
+            } catch { /* skip corrupt files */ }
+          }
+          templates.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+          sendTo(ws, buildReply(msg, { success: true, templates }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_AF_TEMPLATE_DELETE: {
+        const { id: delTplId } = msg.payload || {};
+        if (!delTplId) {
+          sendTo(ws, buildError('id is required', msg.id));
+          break;
+        }
+        try {
+          const filePath = pathResolve(homedir(), '.contextual-recall', 'agentiface-templates', `${delTplId}.json`);
+          await rm(filePath);
+          console.log('[Bridge] AF template deleted:', delTplId);
           sendTo(ws, buildReply(msg, { success: true }));
         } catch (err) {
           sendTo(ws, buildReply(msg, { success: false, error: err.message }));

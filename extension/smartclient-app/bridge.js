@@ -65,9 +65,65 @@ else if (urlParams.get('mode') === 'dashboard') {
   }, { once: true });
 }
 
-// --- Mode 4: Playground (prompt bar + default Notes app) ---
+// --- Mode 4: Playground (sidepanel-controlled) ---
 else if (urlParams.get('mode') === 'playground') {
-  // Just let app.html load naturally — shows prompt bar + Notes CRUD
+  // Restore playground session state (config + skin) when tab first opens.
+  // The sidepanel may have already loaded a project before opening this tab,
+  // so we pull the current session from background.js rather than relying on
+  // broadcasts (which fire before this tab exists).
+  const templateId = urlParams.get('template');
+
+  chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_STATE' }, (state) => {
+    if (!state) return;
+    if (state.skin && state.skin !== 'Tahoe') {
+      iframe.src = 'app.html?skin=' + encodeURIComponent(state.skin);
+    }
+    if (state.config) {
+      sendConfigToIframe(state.config, state.capabilities);
+    } else if (templateId) {
+      // Apply bundled template config when starting a fresh project from a template
+      applyTemplate(templateId, state.capabilities);
+    }
+  });
+}
+
+/**
+ * Load a bundled template config from the sandbox's TemplateManager and send to background.
+ */
+function applyTemplate(templateId, capabilities) {
+  // Wait for iframe to be ready, then ask it for the template config
+  const onLoad = () => {
+    iframe.contentWindow.postMessage({
+      source: 'smartclient-get-template',
+      templateId,
+    }, '*');
+  };
+  iframe.addEventListener('load', onLoad, { once: true });
+
+  // Listen for the template response
+  const handler = (event) => {
+    const msg = event.data;
+    if (msg?.source === 'smartclient-template-response' && msg.templateId === templateId) {
+      window.removeEventListener('message', handler);
+      if (msg.config) {
+        // Push config to background session
+        chrome.runtime.sendMessage({
+          type: 'SC_PLAYGROUND_CONFIG_UPDATED',
+          config: msg.config,
+        });
+        // Set template prompt for AI context
+        if (msg.aiSystemPrompt) {
+          chrome.runtime.sendMessage({
+            type: 'SC_PLAYGROUND_SET_TEMPLATE',
+            templatePrompt: msg.aiSystemPrompt,
+          });
+        }
+        // Render in iframe
+        sendConfigToIframe(msg.config, capabilities);
+      }
+    }
+  };
+  window.addEventListener('message', handler);
 }
 
 // --- Mode 5: Load project by ID ---
@@ -282,6 +338,17 @@ chrome.runtime.onMessage.addListener((message) => {
     return;
   }
 
+  // Inspector mode toggle from sidepanel
+  if (message.type === 'AUTO_BROADCAST_SC_MODE' && urlParams.get('mode') === 'playground') {
+    try {
+      iframe.contentWindow.postMessage({
+        source: 'smartclient-set-mode',
+        mode: message.mode,
+      }, '*');
+    } catch (e) {}
+    return;
+  }
+
   const dsId = BROADCAST_DS_MAP[message.type];
   if (dsId) {
     try {
@@ -416,6 +483,15 @@ window.addEventListener('message', async (event) => {
       } catch (e) {
         // iframe may not be ready
       }
+    });
+    return;
+  }
+
+  // Inspector: config updated from visual editing in sandbox
+  if (msg.source === 'smartclient-config-updated') {
+    chrome.runtime.sendMessage({
+      type: 'SC_PLAYGROUND_CONFIG_UPDATED',
+      config: msg.config,
     });
     return;
   }

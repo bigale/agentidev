@@ -223,7 +223,165 @@ var ACTION_MAP = {
   'idbSync': function (component) {
     // Wired dynamically in dashboard-app.js loadDashboard()
   },
+  // ---- Client-side compute action ----
+  // Reads form values, evaluates safe math expressions, writes results back.
+  // Supports _scheduleType:"amortization" to populate a target grid.
+  'compute': function (component, node) {
+    component.click = function () {
+      var form = resolveRef(node._sourceForm || node._targetForm);
+      if (!form) { console.warn('[Renderer] compute: no source form'); return; }
+      var vals = form.getValues();
+
+      // Evaluate _formulas: { targetFieldName: "expression" }
+      if (node._formulas) {
+        var computed = {};
+        for (var field in node._formulas) {
+          computed[field] = _safeEval(node._formulas[field], vals, computed);
+        }
+        var targetForm = resolveRef(node._targetForm);
+        if (targetForm) {
+          for (var f in computed) {
+            targetForm.setValue(f, Math.round(computed[f] * 100) / 100);
+          }
+        }
+        // Merge computed into vals for schedule generation
+        for (var k in computed) vals[k] = computed[k];
+      }
+
+      // Generate amortization schedule if requested
+      if (node._scheduleType === 'amortization') {
+        var grid = resolveRef(node._targetGrid);
+        if (grid) {
+          var P = Number(vals[node._principalField || 'loanAmount']) || 0;
+          var annualRate = Number(vals[node._rateField || 'annualRate']) || 0;
+          var years = Number(vals[node._termField || 'termYears']) || 0;
+          var r = annualRate / 100 / 12;
+          var n = years * 12;
+          var monthly = r > 0 ? P * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1) : (n > 0 ? P / n : 0);
+          var schedule = [];
+          var balance = P;
+          for (var i = 1; i <= n; i++) {
+            var interest = balance * r;
+            var principal = monthly - interest;
+            balance -= principal;
+            if (balance < 0) balance = 0;
+            var dt = new Date();
+            dt.setMonth(dt.getMonth() + i);
+            schedule.push({
+              id: i,
+              number: i,
+              date: (dt.getMonth() + 1) + '/' + dt.getFullYear(),
+              payment: Math.round(monthly * 100) / 100,
+              principal: Math.round(principal * 100) / 100,
+              interest: Math.round(interest * 100) / 100,
+              balance: Math.round(balance * 100) / 100,
+            });
+          }
+          grid.setData(schedule);
+        }
+      }
+    };
+  },
+  // Clear form fields
+  'clear': function (component, node) {
+    component.click = function () {
+      var form = resolveRef(node._targetForm);
+      if (form) form.clearValues();
+      var grid = resolveRef(node._targetGrid);
+      if (grid) grid.setData([]);
+    };
+  },
 };
+
+// ---- Safe expression evaluator (no eval, no Function) ----
+// Supports: numbers, field names, +, -, *, /, **, Math.pow/round/floor/ceil/abs/min/max
+function _safeEval(expr, vars, computed) {
+  var all = {};
+  for (var k in vars) all[k] = Number(vars[k]) || 0;
+  for (var c in computed) all[c] = Number(computed[c]) || 0;
+
+  var pos = 0;
+  var str = String(expr).replace(/\s+/g, '');
+
+  function peek() { return str[pos]; }
+  function advance() { return str[pos++]; }
+  function isDigit(ch) { return ch >= '0' && ch <= '9'; }
+  function isAlpha(ch) { return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch === '_'; }
+
+  function parseNumber() {
+    var s = pos;
+    while (pos < str.length && (isDigit(str[pos]) || str[pos] === '.')) pos++;
+    return parseFloat(str.slice(s, pos));
+  }
+
+  function parseIdent() {
+    var s = pos;
+    while (pos < str.length && (isAlpha(str[pos]) || isDigit(str[pos]))) pos++;
+    return str.slice(s, pos);
+  }
+
+  function parsePrimary() {
+    var ch = peek();
+    if (ch === '(') { advance(); var v = parseAddSub(); advance(); return v; }
+    if (ch === '-') { advance(); return -parsePrimary(); }
+    if (isDigit(ch) || ch === '.') return parseNumber();
+    if (isAlpha(ch)) {
+      var name = parseIdent();
+      if (name === 'Math' && peek() === '.') {
+        advance(); // '.'
+        var fn = parseIdent();
+        if (peek() === '(') {
+          advance(); // '('
+          var args = [parseAddSub()];
+          while (peek() === ',') { advance(); args.push(parseAddSub()); }
+          advance(); // ')'
+          if (typeof Math[fn] === 'function') return Math[fn].apply(null, args);
+          return NaN;
+        }
+        return typeof Math[fn] === 'number' ? Math[fn] : NaN;
+      }
+      // Check for function-like call: pow(x, y)
+      if (peek() === '(' && typeof Math[name] === 'function') {
+        advance();
+        var a2 = [parseAddSub()];
+        while (peek() === ',') { advance(); a2.push(parseAddSub()); }
+        advance();
+        return Math[name].apply(null, a2);
+      }
+      return all.hasOwnProperty(name) ? all[name] : 0;
+    }
+    return 0;
+  }
+
+  function parsePower() {
+    var left = parsePrimary();
+    while (pos + 1 < str.length && str[pos] === '*' && str[pos + 1] === '*') {
+      pos += 2; left = Math.pow(left, parsePrimary());
+    }
+    return left;
+  }
+
+  function parseMulDiv() {
+    var left = parsePower();
+    while (peek() === '*' || peek() === '/') {
+      var op = advance();
+      left = op === '*' ? left * parsePower() : left / parsePower();
+    }
+    return left;
+  }
+
+  function parseAddSub() {
+    var left = parseMulDiv();
+    while (peek() === '+' || peek() === '-') {
+      var op = advance();
+      left = op === '+' ? left + parseMulDiv() : left - parseMulDiv();
+    }
+    return left;
+  }
+
+  try { return parseAddSub(); }
+  catch (e) { console.warn('[Renderer] Formula error:', expr, e); return NaN; }
+}
 
 function wireAction(component, node) {
   var action = node._action;
@@ -259,8 +417,11 @@ function createDataSource(dsConfig) {
 
 // ---- Recursive component creation ----
 
-function createComponent(node) {
+function createComponent(node, nodePath) {
   if (!node || !node._type) return null;
+
+  // Attach path for inspector click-to-select
+  if (nodePath) node._nodePath = nodePath;
 
   var type = node._type;
   if (!ALLOWED_TYPES.has(type)) {
@@ -299,20 +460,22 @@ function createComponent(node) {
   if (Array.isArray(node.members) && type !== 'PortalLayout') {
     config.members = [];
     for (var i = 0; i < node.members.length; i++) {
-      var child = createComponent(node.members[i]);
+      var childPath = (nodePath || 'layout') + '.members[' + i + ']';
+      var child = createComponent(node.members[i], childPath);
       if (child) config.members.push(child);
     }
   }
 
   // TabSet: create each tab's pane through createComponent so components get registered
   if (type === 'TabSet' && Array.isArray(node.tabs)) {
-    config.tabs = node.tabs.map(function (tab) {
+    config.tabs = node.tabs.map(function (tab, tabIdx) {
       var tabCfg = {};
       for (var k in tab) {
         if (k !== 'pane') tabCfg[k] = tab[k];
       }
       if (tab.pane) {
-        tabCfg.pane = tab.pane._type ? createComponent(tab.pane) : tab.pane;
+        var panePath = (nodePath || 'layout') + '.tabs[' + tabIdx + '].pane';
+        tabCfg.pane = tab.pane._type ? createComponent(tab.pane, panePath) : tab.pane;
       }
       return tabCfg;
     });
@@ -327,7 +490,8 @@ function createComponent(node) {
       var pNode = node.portlets[p];
       var col = pNode._column || 0;
       var row = pNode._row || 0;
-      var portlet = createComponent(pNode);
+      var portletPath = (nodePath || 'layout') + '.portlets[' + p + ']';
+      var portlet = createComponent(pNode, portletPath);
       if (portlet) component.addPortlet(portlet, col, row);
     }
   }
@@ -339,6 +503,20 @@ function createComponent(node) {
 
   // Wire actions after creation (needs component reference)
   wireAction(component, node);
+
+  // Inspector click-to-select: attach mouseDown handler for components with IDs
+  if (node.ID && component.addProperties && node._nodePath) {
+    (function (nodePath) {
+      component.addProperties({
+        mouseDown: function () {
+          if (typeof InspectorUI !== 'undefined' && InspectorUI.isVisible()) {
+            InspectorUI.selectByPath(nodePath);
+          }
+          return true; // allow default SC handling to continue
+        },
+      });
+    })(node._nodePath);
+  }
 
   generatedComponents.push(component);
   return component;
@@ -464,7 +642,7 @@ function renderConfig(config, options) {
   // Create component tree
   var mainLayout = null;
   if (config.layout) {
-    mainLayout = createComponent(config.layout);
+    mainLayout = createComponent(config.layout, 'layout');
   }
 
   // Inject capabilities bar if enabled

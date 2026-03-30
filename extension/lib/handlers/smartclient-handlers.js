@@ -22,6 +22,8 @@ let playgroundSession = {
   capabilities: { skinPicker: true },
   skin: 'Tahoe',
   model: 'sonnet',
+  mode: 'render',          // render | visual
+  templatePrompt: null,    // domain-specific AI context from template
 };
 
 function broadcastPlaygroundState() {
@@ -40,6 +42,8 @@ function broadcastPlaygroundState() {
     capabilities: playgroundSession.capabilities,
     skin: playgroundSession.skin,
     model: playgroundSession.model,
+    mode: playgroundSession.mode,
+    templatePrompt: playgroundSession.templatePrompt,
   };
   chrome.runtime.sendMessage(msg).catch(() => {});
 }
@@ -87,7 +91,7 @@ function deriveName(input) {
 }
 
 async function handleGenerateUI(message) {
-  const { prompt, currentConfig, projectDescription, model } = message;
+  const { prompt, currentConfig, projectDescription, templatePrompt, model } = message;
   if (!prompt || !prompt.trim()) {
     return { success: false, error: 'Prompt is required' };
   }
@@ -99,7 +103,7 @@ async function handleGenerateUI(message) {
   try {
     const mode = currentConfig ? 'modify' : 'generate';
     console.log(`[SmartClient AI] ${mode} UI via bridge (${model || 'sonnet'}) for:`, prompt);
-    const result = await bridgeClient.generateSmartClientUI(prompt, currentConfig, projectDescription || null, model || null);
+    const result = await bridgeClient.generateSmartClientUI(prompt, currentConfig, projectDescription || null, model || null, templatePrompt || null);
 
     if (!result.success) {
       return { success: false, error: result.error || 'Generation failed' };
@@ -323,6 +327,7 @@ async function handlePlaygroundGenerate(message) {
       prompt,
       currentConfig: playgroundSession.config || undefined,
       projectDescription: playgroundSession.projectDescription || undefined,
+      templatePrompt: playgroundSession.templatePrompt || undefined,
       model: playgroundSession.model || 'sonnet',
     });
 
@@ -365,7 +370,30 @@ function handlePlaygroundState() {
     success: true,
     ...playgroundSession,
     config: playgroundSession.config ? structuredClone(playgroundSession.config) : null,
+    history: playgroundSession.promptHistory.map((prompt, i) => ({
+      prompt,
+      index: i,
+    })),
   };
+}
+
+function handlePlaygroundRestoreVersion(message) {
+  const { index } = message;
+  if (index == null || index < 0 || index >= playgroundSession.undoStack.length) {
+    return { success: false, error: 'Invalid version index' };
+  }
+  // Push current config so the restore itself is undoable
+  if (playgroundSession.config) {
+    playgroundSession.undoStack.push(structuredClone(playgroundSession.config));
+    playgroundSession.promptHistory.push('(restored version)');
+  }
+  playgroundSession.config = structuredClone(playgroundSession.undoStack[index]);
+  playgroundSession.status = 'idle';
+  playgroundSession.error = null;
+
+  broadcastConfig();
+  broadcastPlaygroundState();
+  return { success: true };
 }
 
 function handlePlaygroundUndo() {
@@ -517,6 +545,9 @@ function handlePlaygroundReset() {
     status: 'idle', error: null,
     capabilities: { skinPicker: true },
     skin: 'Tahoe',
+    model: 'sonnet',
+    mode: 'render',
+    templatePrompt: null,
   };
   broadcastConfig();
   broadcastPlaygroundState();
@@ -611,8 +642,10 @@ async function handlePlaygroundLoadProject(message) {
   playgroundSession.config = project.config ? structuredClone(project.config) : null;
   playgroundSession.appId = null;
   playgroundSession.appName = null;
-  playgroundSession.undoStack = [];
-  playgroundSession.promptHistory = [];
+  // Restore undo history from disk (bridge projects have history[] with config snapshots)
+  const history = project.history || [];
+  playgroundSession.undoStack = history.map(h => structuredClone(h.config));
+  playgroundSession.promptHistory = history.map(h => h.prompt || '');
   playgroundSession.status = 'idle';
   playgroundSession.error = null;
   playgroundSession.skin = project.skin || 'Tahoe';
@@ -669,6 +702,102 @@ async function handlePromoteAppToProject(message) {
   }
 }
 
+// ---- Visual edit + mode handlers ----
+
+function handlePlaygroundConfigUpdated(message) {
+  const { config } = message;
+  if (!config) return { success: false, error: 'config is required' };
+
+  try {
+    validateConfig(config);
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+
+  // Push current config to undo stack
+  if (playgroundSession.config) {
+    playgroundSession.undoStack.push(structuredClone(playgroundSession.config));
+    playgroundSession.promptHistory.push('(visual edit)');
+  }
+
+  playgroundSession.config = structuredClone(config);
+  playgroundSession.status = 'idle';
+  playgroundSession.error = null;
+
+  // Auto-save to project if bound
+  if (playgroundSession.projectId) {
+    autoSaveToProject('(visual edit)').catch(e =>
+      console.warn('[SmartClient AI] Visual edit auto-save failed:', e.message));
+  }
+
+  broadcastPlaygroundState();
+  return { success: true };
+}
+
+function handlePlaygroundSetMode(message) {
+  const { mode } = message;
+  if (!mode || !['render', 'visual'].includes(mode)) {
+    return { success: false, error: 'mode must be render or visual' };
+  }
+  playgroundSession.mode = mode;
+  chrome.runtime.sendMessage({
+    type: 'AUTO_BROADCAST_SC_MODE',
+    mode,
+  }).catch(() => {});
+  broadcastPlaygroundState();
+  return { success: true, mode };
+}
+
+function handlePlaygroundSetTemplate(message) {
+  const { templatePrompt } = message;
+  playgroundSession.templatePrompt = templatePrompt || null;
+  broadcastPlaygroundState();
+  return { success: true };
+}
+
+// ---- Template persistence (bridge-backed) ----
+
+async function handleTemplateSave(message) {
+  if (!bridgeClient.isConnected()) {
+    return { success: false, error: 'Bridge server not connected' };
+  }
+  try {
+    return await bridgeClient.afTemplateSave({
+      id: message.id,
+      name: message.name,
+      description: message.description || '',
+      category: message.category || 'Custom',
+      config: message.config,
+      aiSystemPrompt: message.aiSystemPrompt || '',
+      suggestedPrompts: message.suggestedPrompts || [],
+    });
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+async function handleTemplateList() {
+  if (!bridgeClient.isConnected()) {
+    return { success: true, templates: [] };
+  }
+  try {
+    return await bridgeClient.afTemplateList();
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+async function handleTemplateDelete(message) {
+  if (!bridgeClient.isConnected()) {
+    return { success: false, error: 'Bridge server not connected' };
+  }
+  try {
+    return await bridgeClient.afTemplateDelete(message.id);
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
 export function register(handlers) {
   handlers['SC_GENERATE_UI'] = (msg) => handleGenerateUI(msg);
   handlers['SC_CLONE_PAGE'] = (msg) => handleClonePage(msg);
@@ -700,7 +829,18 @@ export function register(handlers) {
   // Project-bound playground
   handlers['SC_PLAYGROUND_CREATE_PROJECT'] = (msg) => handlePlaygroundCreateProject(msg);
   handlers['SC_PLAYGROUND_LOAD_PROJECT'] = (msg) => handlePlaygroundLoadProject(msg);
+  handlers['SC_PLAYGROUND_RESTORE_VERSION'] = (msg) => handlePlaygroundRestoreVersion(msg);
   handlers['SC_PROMOTE_APP_TO_PROJECT'] = (msg) => handlePromoteAppToProject(msg);
+
+  // Visual edit + inspector mode
+  handlers['SC_PLAYGROUND_CONFIG_UPDATED'] = (msg) => handlePlaygroundConfigUpdated(msg);
+  handlers['SC_PLAYGROUND_SET_MODE'] = (msg) => handlePlaygroundSetMode(msg);
+  handlers['SC_PLAYGROUND_SET_TEMPLATE'] = (msg) => handlePlaygroundSetTemplate(msg);
+
+  // Template CRUD
+  handlers['SC_TEMPLATE_SAVE'] = (msg) => handleTemplateSave(msg);
+  handlers['SC_TEMPLATE_LIST'] = () => handleTemplateList();
+  handlers['SC_TEMPLATE_DELETE'] = (msg) => handleTemplateDelete(msg);
 
   // Bridge-backed project persistence (routed through bridge)
   handlers['AF_PROJECT_SAVE'] = (msg) => handleAfProjectSave(msg);

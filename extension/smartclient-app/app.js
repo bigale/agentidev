@@ -63,6 +63,43 @@ window.addEventListener('message', (event) => {
   if (msg.source === 'smartclient-ai-response') {
     handleAIResponse(msg);
   }
+
+  // Inspector mode toggle from sidepanel via bridge
+  if (msg.source === 'smartclient-set-mode') {
+    if (typeof InspectorUI !== 'undefined') {
+      if (msg.mode === 'visual' && !InspectorUI.isVisible()) {
+        InspectorUI.toggle();
+      } else if (msg.mode === 'render' && InspectorUI.isVisible()) {
+        InspectorUI.toggle();
+      }
+    }
+    return;
+  }
+
+  // Component selected in canvas (from renderer click handlers)
+  if (msg.source === 'smartclient-component-selected') {
+    if (typeof InspectorUI !== 'undefined') {
+      InspectorUI.selectByPath(msg.nodePath);
+    }
+    return;
+  }
+
+  // Template request from bridge.js — look up bundled template config
+  if (msg.source === 'smartclient-get-template') {
+    var tplId = msg.templateId;
+    var tpl = null;
+    if (typeof Agentiface !== 'undefined' && Agentiface.TemplateManager) {
+      tpl = Agentiface.TemplateManager.getById(tplId);
+    }
+    window.parent.postMessage({
+      source: 'smartclient-template-response',
+      templateId: tplId,
+      config: tpl ? tpl.config : null,
+      aiSystemPrompt: tpl ? tpl.aiSystemPrompt : null,
+      suggestedPrompts: tpl ? tpl.suggestedPrompts : null,
+    }, '*');
+    return;
+  }
 });
 
 // ---- AI response handling ----
@@ -79,6 +116,11 @@ function handleAIResponse(msg) {
         skin: typeof _skinName !== 'undefined' ? _skinName : 'Tahoe',
       });
       console.log('[App] Config rendered');
+
+      // Refresh inspector tree if visible
+      if (typeof InspectorUI !== 'undefined' && InspectorUI.isVisible()) {
+        InspectorUI.refresh();
+      }
     } catch (err) {
       console.error('[App] Render error:', err);
     }
@@ -212,4 +254,9 @@ function loadNotesApp() {
 
 isc.Page.setEvent('load', function () {
   loadNotesApp();
+
+  // Initialize inspector (hidden by default)
+  if (typeof InspectorUI !== 'undefined') {
+    InspectorUI.init();
+  }
 });

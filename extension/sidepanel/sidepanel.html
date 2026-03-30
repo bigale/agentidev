@@ -650,6 +650,28 @@
     .af-btn.danger { background: #fce8e6; color: #d93025; }
     .af-btn.danger:hover:not(:disabled) { background: #f5c6c3; }
 
+    .af-mode-bar {
+      padding: 4px 12px; font-size: 11px; color: #5f6368;
+      background: #f8f9fa; border-bottom: 1px solid #e0e0e0;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .af-mode-bar .mode-visual { color: #1a73e8; font-weight: 600; }
+
+    .af-suggested-prompts {
+      padding: 6px 12px; border-bottom: 1px solid #e0e0e0;
+    }
+    .af-suggested-prompts .af-section-label {
+      font-size: 10px; color: #80868b; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .af-suggested-prompts .af-suggestion {
+      display: inline-block; padding: 3px 8px; margin: 2px 4px 2px 0;
+      font-size: 11px; background: #e8f0fe; color: #1a73e8;
+      border-radius: 12px; cursor: pointer; border: 1px solid #d2e3fc;
+    }
+    .af-suggested-prompts .af-suggestion:hover {
+      background: #d2e3fc;
+    }
+
     .af-config-summary {
       padding: 6px 12px; font-size: 11px; color: #1967d2;
       background: #e8f0fe; border-bottom: 1px solid #d2e3fc;
@@ -767,6 +789,43 @@
     }
     .af-thinking-label { color: #1a73e8; font-weight: 500; }
     .af-thinking-timer { color: #9aa0a6; margin-left: auto; font-variant-numeric: tabular-nums; }
+
+    /* History panel */
+    .af-history-panel {
+      display: none; max-height: 200px; overflow-y: auto;
+      border-bottom: 1px solid #e0e0e0; background: #f8f9fa;
+      padding: 4px 0;
+    }
+    .af-history-panel.open { display: block; }
+    .af-history-entry {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 12px; cursor: pointer; font-size: 12px;
+      border-left: 3px solid transparent; transition: background 0.15s;
+    }
+    .af-history-entry:hover { background: #e8f0fe; }
+    .af-history-entry.active { border-left-color: #1a73e8; background: #e8f0fe; }
+    .af-history-idx { color: #9aa0a6; font-variant-numeric: tabular-nums; min-width: 18px; text-align: right; }
+    .af-history-prompt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #202124; }
+    .af-history-restore {
+      background: none; border: 1px solid #dadce0; border-radius: 4px;
+      padding: 1px 6px; font-size: 11px; color: #1a73e8; cursor: pointer;
+      opacity: 0; transition: opacity 0.15s;
+    }
+    .af-history-entry:hover .af-history-restore { opacity: 1; }
+    .af-history-restore:hover { background: #e8f0fe; }
+    .af-history-empty { padding: 8px 12px; color: #9aa0a6; font-size: 12px; }
+
+    /* Status log */
+    .af-log {
+      max-height: 120px; overflow-y: auto; padding: 6px 12px;
+      border-bottom: 1px solid #e0e0e0; background: #fafafa;
+      font-family: monospace; font-size: 11px; line-height: 1.5;
+    }
+    .af-log:empty { display: none; }
+    .af-log-entry { color: #5f6368; white-space: pre-wrap; word-break: break-word; }
+    .af-log-entry.error { color: #d93025; }
+    .af-log-entry.success { color: #1e8e3e; }
+    .af-log-entry .af-log-time { color: #9aa0a6; margin-right: 6px; }
   </style>
 </head>
 <body>
@@ -1116,11 +1175,33 @@
         <span class="af-thinking-timer" id="af-thinking-timer">0s</span>
       </div>
 
+      <!-- Status log -->
+      <div id="af-log" class="af-log"></div>
+
       <!-- Action buttons -->
       <div class="af-actions">
         <button id="af-save-btn" class="af-btn secondary" style="display:none;">Save</button>
         <button id="af-undo-btn" class="af-btn secondary" style="display:none;">Undo</button>
+        <button id="af-history-btn" class="af-btn secondary" style="display:none;">History</button>
+        <button id="af-inspector-btn" class="af-btn secondary" style="display:none;">Inspector</button>
+        <button id="af-save-template-btn" class="af-btn secondary" style="display:none;">Save as Template</button>
         <button id="af-reset-btn" class="af-btn danger" style="display:none;">Reset</button>
+      </div>
+
+      <!-- Mode indicator (shown when inspector is active) -->
+      <div id="af-mode-bar" class="af-mode-bar" style="display:none;">
+        <span id="af-mode-label">Mode: Render</span>
+      </div>
+
+      <!-- Suggested prompts (shown when template has suggestions) -->
+      <div id="af-suggested-prompts" class="af-suggested-prompts" style="display:none;">
+        <div class="af-section-label">Suggested prompts:</div>
+        <div id="af-suggested-list"></div>
+      </div>
+
+      <!-- History panel (collapsible) -->
+      <div id="af-history-panel" class="af-history-panel">
+        <div id="af-history-list"></div>
       </div>
 
       <!-- Error display -->
@@ -1169,12 +1250,32 @@
         </select>
       </div>
 
+      <!-- Save-as-Template Dialog (hidden by default) -->
+      <div id="af-save-template-form" class="af-create-form" style="display:none;">
+        <label for="af-tpl-name">Template Name *</label>
+        <input type="text" id="af-tpl-name" placeholder="My Custom Template" />
+        <label for="af-tpl-desc">Description</label>
+        <textarea id="af-tpl-desc" rows="2" placeholder="What this template is for..."></textarea>
+        <label for="af-tpl-category">Category</label>
+        <input type="text" id="af-tpl-category" placeholder="Custom" value="Custom" />
+        <label for="af-tpl-ai-prompt">AI Context Prompt</label>
+        <textarea id="af-tpl-ai-prompt" rows="3" placeholder="Domain-specific context for AI generation..."></textarea>
+        <div class="af-create-actions">
+          <button id="af-save-template-confirm-btn" class="af-btn primary">Save Template</button>
+          <button id="af-cancel-template-btn" class="af-btn secondary">Cancel</button>
+        </div>
+      </div>
+
       <!-- Create Project Form (hidden by default) -->
       <div id="af-create-form" class="af-create-form" style="display:none;">
         <label for="af-new-project-name">Project Name *</label>
         <input type="text" id="af-new-project-name" placeholder="My Dashboard" />
         <label for="af-new-project-desc">Description</label>
         <textarea id="af-new-project-desc" rows="2" placeholder="Brief description of what this project builds..."></textarea>
+        <label for="af-new-project-template">Template</label>
+        <select id="af-new-project-template">
+          <option value="">None (blank)</option>
+        </select>
         <label for="af-new-project-skin">Default Skin</label>
         <select id="af-new-project-skin">
           <option value="Tahoe">Tahoe</option>

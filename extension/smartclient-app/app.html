@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="../lib/agentiface/animations.css">
   <link rel="stylesheet" href="../lib/agentiface/container-queries.css">
   <style>
-    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; box-sizing: border-box; background-color: var(--af-surface-primary, #ffffff); }
   </style>
 </head>
 <body>
@@ -75,8 +75,17 @@
 <script src="../lib/agentiface/forge-a11y.js"></script>
 <script src="../lib/agentiface/forge-registry.js"></script>
 
+<!-- Config inspector (pure logic, no SC dependency) -->
+<script src="inspector.js"></script>
+
+<!-- Templates (bundled starters + template manager) -->
+<script src="templates.js"></script>
+
 <!-- AI renderer (before app.js so functions are available) -->
 <script src="renderer.js"></script>
+
+<!-- Inspector UI (SC components, after renderer.js and forge-registry.js) -->
+<script src="inspector-ui.js"></script>
 
 <!-- App logic -->
 <script src="app.js"></script>

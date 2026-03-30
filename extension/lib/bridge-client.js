@@ -449,10 +449,11 @@ export function onScheduleUpdate(cb) {
  * @param {string} [projectDescription] - Optional project description for system prompt context
  * @returns {Promise<{ success: boolean, config?: object, error?: string }>}
  */
-export function generateSmartClientUI(prompt, currentConfig = null, projectDescription = null, model = null) {
+export function generateSmartClientUI(prompt, currentConfig = null, projectDescription = null, model = null, templatePrompt = null) {
   const payload = { prompt };
   if (currentConfig) payload.currentConfig = currentConfig;
   if (projectDescription) payload.projectDescription = projectDescription;
+  if (templatePrompt) payload.templatePrompt = templatePrompt;
   if (model) payload.model = model;
   return _sendRequest('BRIDGE_SC_GENERATE_UI', payload, 180000);
 }
@@ -550,6 +551,20 @@ export function afProjectList() {
  */
 export function afProjectDelete(id) {
   return _sendRequest('BRIDGE_AF_PROJECT_DELETE', { id });
+}
+
+// ---- Agentiface template persistence (bridge-backed) ----
+
+export function afTemplateSave(template) {
+  return _sendRequest('BRIDGE_AF_TEMPLATE_SAVE', template);
+}
+
+export function afTemplateList() {
+  return _sendRequest('BRIDGE_AF_TEMPLATE_LIST', {});
+}
+
+export function afTemplateDelete(id) {
+  return _sendRequest('BRIDGE_AF_TEMPLATE_DELETE', { id });
 }
 
 // ---- System process management ----

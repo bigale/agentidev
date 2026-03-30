@@ -119,6 +119,11 @@ export const MSG = {
   BRIDGE_AF_PROJECT_LOAD: 'BRIDGE_AF_PROJECT_LOAD',      // load project by ID from disk
   BRIDGE_AF_PROJECT_LIST: 'BRIDGE_AF_PROJECT_LIST',      // list all projects (metadata only)
   BRIDGE_AF_PROJECT_DELETE: 'BRIDGE_AF_PROJECT_DELETE',   // delete project from disk
+
+  // Agentiface template persistence (Phase 4a)
+  BRIDGE_AF_TEMPLATE_SAVE: 'BRIDGE_AF_TEMPLATE_SAVE',      // save user template to disk
+  BRIDGE_AF_TEMPLATE_LIST: 'BRIDGE_AF_TEMPLATE_LIST',      // list all user templates
+  BRIDGE_AF_TEMPLATE_DELETE: 'BRIDGE_AF_TEMPLATE_DELETE',   // delete user template from disk
 };
 
 /**
