@@ -446,6 +446,7 @@ async function handlePlaygroundSave() {
   if (playgroundSession.projectId) {
     try {
       const result = await autoSaveToProject(lastPrompt);
+      if (result.success) broadcastPlaygroundState();
       return result;
     } catch (err) {
       return { success: false, error: err.message };

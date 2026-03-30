@@ -457,14 +457,20 @@
 
   // ---- Internal: Config Application ----
 
-  function _applyConfigUpdate(newConfig) {
-    // Post to bridge.js via parent for persistence + undo
-    window.parent.postMessage({
-      source: 'smartclient-config-updated',
-      config: newConfig,
-    }, '*');
+  var _persistDebounce = null;
 
-    // Debounced re-render
+  function _applyConfigUpdate(newConfig) {
+    // Debounced post to bridge.js for persistence + undo (avoids one history
+    // entry per keystroke when editing text properties)
+    if (_persistDebounce) clearTimeout(_persistDebounce);
+    _persistDebounce = setTimeout(function () {
+      window.parent.postMessage({
+        source: 'smartclient-config-updated',
+        config: newConfig,
+      }, '*');
+    }, 800);
+
+    // Debounced re-render (faster than persist so UI feels responsive)
     if (_renderDebounce) clearTimeout(_renderDebounce);
     _renderDebounce = setTimeout(function () {
       _setCurrentConfig(newConfig);
