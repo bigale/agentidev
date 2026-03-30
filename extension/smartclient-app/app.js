@@ -253,10 +253,17 @@ function loadNotesApp() {
 // ---- Wait for SmartClient framework ----
 
 isc.Page.setEvent('load', function () {
-  loadNotesApp();
+  // Only load default Notes app if no AI config was already rendered
+  // (playground mode may deliver config via postMessage before Page.load fires)
+  if (!_currentConfig) {
+    loadNotesApp();
+  }
 
   // Initialize inspector (hidden by default)
   if (typeof InspectorUI !== 'undefined') {
     InspectorUI.init();
   }
+
+  // Signal readiness to bridge.js so it can send buffered configs
+  window.parent.postMessage({ source: 'smartclient-ready' }, '*');
 });

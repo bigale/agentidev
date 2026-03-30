@@ -14,26 +14,59 @@ const urlParams = new URLSearchParams(window.location.search);
 
 /**
  * Send a config to the sandboxed iframe as a smartclient-ai-response message.
+ * Buffers the config until the sandbox signals 'smartclient-ready' (after SC Page.load).
+ * This prevents a race where config arrives before isc.Page.load, causing the default
+ * Notes app to be created on top of the rendered config.
  */
+let _sandboxReady = false;
+let _pendingConfig = null;
+let _pendingCapabilities = null;
+let _navigating = false; // true while iframe is loading after src change
+
 function sendConfigToIframe(config, capabilities) {
-  const doSend = () => {
-    try {
-      iframe.contentWindow.postMessage({
-        source: 'smartclient-ai-response',
-        success: true,
-        config,
-        capabilities: capabilities || {},
-      }, '*');
-    } catch (e) {
-      // iframe not ready yet
-    }
-  };
-  // app.html is sandboxed (manifest) → contentDocument is null (unique origin).
-  // Can't check readyState, so send immediately (works if loaded) and also
-  // listen for load as fallback (works if still loading).
-  doSend();
-  iframe.addEventListener('load', doSend, { once: true });
+  if (_sandboxReady) {
+    _doSendConfig(config, capabilities);
+  } else {
+    // Buffer until sandbox is ready
+    _pendingConfig = config;
+    _pendingCapabilities = capabilities;
+  }
 }
+
+function _doSendConfig(config, capabilities) {
+  try {
+    iframe.contentWindow.postMessage({
+      source: 'smartclient-ai-response',
+      success: true,
+      config,
+      capabilities: capabilities || {},
+    }, '*');
+  } catch (e) {
+    // iframe not ready yet
+  }
+}
+
+/** Call before changing iframe.src to invalidate stale ready signals. */
+function _beginIframeNavigation() {
+  _sandboxReady = false;
+  _navigating = true;
+}
+
+// Listen for sandbox ready signal (sent after isc.Page.load in app.js)
+window.addEventListener('message', (event) => {
+  if (event.data?.source === 'smartclient-ready') {
+    if (_navigating) return; // stale signal from old page being replaced
+    _sandboxReady = true;
+    if (_pendingConfig) {
+      _doSendConfig(_pendingConfig, _pendingCapabilities);
+      _pendingConfig = null;
+      _pendingCapabilities = null;
+    }
+  }
+});
+
+// When iframe finishes loading, clear navigation flag so next ready signal is accepted
+iframe.addEventListener('load', () => { _navigating = false; });
 
 // --- Mode 1: Load persisted app by ID ---
 const appId = urlParams.get('app');
@@ -76,6 +109,7 @@ else if (urlParams.get('mode') === 'playground') {
   chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_STATE' }, (state) => {
     if (!state) return;
     if (state.skin && state.skin !== 'Tahoe') {
+      _beginIframeNavigation();
       iframe.src = 'app.html?skin=' + encodeURIComponent(state.skin);
     }
     if (state.config) {
@@ -85,6 +119,29 @@ else if (urlParams.get('mode') === 'playground') {
       applyTemplate(templateId, state.capabilities);
     }
   });
+}
+
+// --- Mode 5: Load project by ID ---
+else if (urlParams.get('project')) {
+  const projectId = urlParams.get('project');
+  sendMessageWithTimeout({ type: 'SC_PLAYGROUND_LOAD_PROJECT', id: projectId }).then((response) => {
+    if (response?.success && response.project?.config) {
+      document.title = response.project.name + ' — Agentiface';
+      sendConfigToIframe(response.project.config, response.project.capabilities);
+    } else if (response?.success) {
+      // Project exists but has no config yet — just set title
+      document.title = (response.project?.name || 'Project') + ' — Agentiface';
+    } else {
+      console.error('[Bridge] Failed to load project:', response?.error || 'not found');
+    }
+  }).catch((err) => {
+    console.error('[Bridge] Failed to load project:', err.message);
+  });
+}
+
+// --- Mode 6: Gallery (no params) ---
+else {
+  buildGallery();
 }
 
 /**
@@ -124,29 +181,6 @@ function applyTemplate(templateId, capabilities) {
     }
   };
   window.addEventListener('message', handler);
-}
-
-// --- Mode 5: Load project by ID ---
-else if (urlParams.get('project')) {
-  const projectId = urlParams.get('project');
-  sendMessageWithTimeout({ type: 'SC_PLAYGROUND_LOAD_PROJECT', id: projectId }).then((response) => {
-    if (response?.success && response.project?.config) {
-      document.title = response.project.name + ' — Agentiface';
-      sendConfigToIframe(response.project.config, response.project.capabilities);
-    } else if (response?.success) {
-      // Project exists but has no config yet — just set title
-      document.title = (response.project?.name || 'Project') + ' — Agentiface';
-    } else {
-      console.error('[Bridge] Failed to load project:', response?.error || 'not found');
-    }
-  }).catch((err) => {
-    console.error('[Bridge] Failed to load project:', err.message);
-  });
-}
-
-// --- Mode 6: Gallery (no params) ---
-else {
-  buildGallery();
 }
 
 async function buildGallery() {
@@ -321,14 +355,14 @@ const BROADCAST_DS_MAP = {
 chrome.runtime.onMessage.addListener((message) => {
   // Playground mode: skin change triggers iframe reload
   if (message.type === 'AUTO_BROADCAST_SC_SKIN' && urlParams.get('mode') === 'playground') {
+    _beginIframeNavigation();
     iframe.src = 'app.html?skin=' + encodeURIComponent(message.skin);
-    iframe.addEventListener('load', () => {
-      chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_STATE' }, (state) => {
-        if (state?.config) {
-          sendConfigToIframe(state.config, state.capabilities);
-        }
-      });
-    }, { once: true });
+    // After new skin loads, re-send current config (buffered via ready signal)
+    chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_STATE' }, (state) => {
+      if (state?.config) {
+        sendConfigToIframe(state.config, state.capabilities);
+      }
+    });
     return;
   }
 

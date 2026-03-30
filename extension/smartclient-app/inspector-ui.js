@@ -48,9 +48,9 @@
       if (_inspectorVisible) {
         this.refresh();
         _splitPane.show();
-        _splitPane.showNavigationPane();
+        _splitPane.bringToFront();
       } else {
-        _splitPane.hideNavigationPane();
+        _splitPane.hide();
       }
       _updateToggleButton();
     },
@@ -229,27 +229,23 @@
   }
 
   function _buildSplitPane() {
-    var leftPanel = isc.VLayout.create({
+    // Inspector is a floating overlay panel on the left side, not a full-page layout.
+    // The rendered app draws at the page root; inspector overlays on top when visible.
+    _splitPane = isc.VLayout.create({
+      ID: 'inspectorSplitPane',
       width: INSPECTOR_WIDTH,
       height: '100%',
+      top: 30,  // below toolbar
+      left: 0,
       members: [_treeGrid, _propForm],
-    });
-
-    // The main canvas placeholder — renderConfig will set its content
-    _mainCanvas = isc.Canvas.create({
-      ID: 'inspectorMainCanvas',
-      width: '*',
-      height: '100%',
-      overflow: 'auto',
-    });
-
-    _splitPane = isc.HLayout.create({
-      ID: 'inspectorSplitPane',
-      width: '100%',
-      height: '100%',
-      members: [leftPanel, _mainCanvas],
+      backgroundColor: '#ffffff',
+      border: '0px 1px 0px 0px solid #ccc',
+      styleName: 'inspectorPanel',
       visibility: 'hidden',
+      autoDraw: true,
     });
+    // Bring to front so it overlays the rendered app
+    _splitPane.bringToFront();
   }
 
   // ---- Internal: Property Editing ----
