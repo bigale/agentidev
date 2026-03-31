@@ -322,7 +322,7 @@ function renderHistoryEntries(history, undoCount) {
     return `<div class="af-history-entry${isActive ? ' active' : ''}" data-index="${h.index}">
       <span class="af-history-idx">${i + 1}</span>
       <span class="af-history-prompt">${esc(promptSnippet)}</span>
-      ${!isActive ? `<button class="af-history-restore" data-index="${h.index}">Restore</button>` : ''}
+      <button class="af-history-restore" data-index="${h.index}">Restore</button>
     </div>`;
   }).join('');
 
