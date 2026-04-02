@@ -1561,6 +1561,18 @@ function startServer() {
         break;
       }
 
+      case MSG.BRIDGE_ADO_GET_CONTEXT: {
+        const adoBridgeClient = findClientByRole(ROLES.ADO_BRIDGE);
+        if (!adoBridgeClient) {
+          sendTo(ws, buildError('ADO QA Manager not connected — open the QA Manager hub in Azure DevOps', msg.id));
+          return;
+        }
+        const ctxMsg = buildMessage(MSG.BRIDGE_ADO_GET_CONTEXT, msg.payload || {}, 'server');
+        pendingRelays.set(ctxMsg.id, { ws, originalMsgId: msg.id });
+        sendTo(adoBridgeClient, ctxMsg);
+        break;
+      }
+
       // ---- Script Integration (Phase 3) ----
 
       case MSG.BRIDGE_SCRIPT_REGISTER: {
