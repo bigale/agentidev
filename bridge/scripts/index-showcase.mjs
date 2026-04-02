@@ -25,7 +25,7 @@ const args = process.argv.slice(2);
 const sdkPathArg = args.find(a => a.startsWith('--sdk-path='));
 const SDK_BASE = sdkPathArg
   ? sdkPathArg.split('=').slice(1).join('=')
-  : '/home/bigale/repos/SmartClient/SmartClient_v141p_2026-02-23_LGPL/smartclientSDK';
+  : 'C:/Users/everiale/source/repos/smartclient/smartclientSDK';
 const EXAMPLE_TREE_PATH = join(SDK_BASE, 'isomorphic/system/reference/exampleTree.js');
 const INLINE_EXAMPLES_DIR = join(SDK_BASE, 'isomorphic/system/reference/inlineExamples');
 const SHARED_DS_DIR = join(SDK_BASE, 'examples/shared/ds');
@@ -295,7 +295,8 @@ async function main() {
   // Apply category filter
   if (CATEGORY_FILTER) {
     examples = examples.filter(ex =>
-      ex.categoryPath.some(p => p.toLowerCase().includes(CATEGORY_FILTER))
+      ex.categoryPath.some(p => p.toLowerCase().includes(CATEGORY_FILTER)) ||
+      ex.categoryPath.join(' > ').toLowerCase().includes(CATEGORY_FILTER)
     );
     console.log(`Filtered to ${examples.length} examples matching category "${CATEGORY_FILTER}"\n`);
   }
