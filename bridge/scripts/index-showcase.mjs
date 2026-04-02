@@ -21,7 +21,11 @@ import vm from 'vm';
 
 // ---- Configuration ----
 
-const SDK_BASE = '/home/bigale/repos/SmartClient/SmartClient_v141p_2026-02-23_LGPL/smartclientSDK';
+const args = process.argv.slice(2);
+const sdkPathArg = args.find(a => a.startsWith('--sdk-path='));
+const SDK_BASE = sdkPathArg
+  ? sdkPathArg.split('=').slice(1).join('=')
+  : '/home/bigale/repos/SmartClient/SmartClient_v141p_2026-02-23_LGPL/smartclientSDK';
 const EXAMPLE_TREE_PATH = join(SDK_BASE, 'isomorphic/system/reference/exampleTree.js');
 const INLINE_EXAMPLES_DIR = join(SDK_BASE, 'isomorphic/system/reference/inlineExamples');
 const SHARED_DS_DIR = join(SDK_BASE, 'examples/shared/ds');
@@ -71,7 +75,6 @@ const SC_COMPONENT_RE = new RegExp(
 
 // ---- CLI args ----
 
-const args = process.argv.slice(2);
 const DRY_RUN = args.includes('--dry-run');
 const LIMIT = (() => {
   const limitArg = args.find(a => a.startsWith('--limit='));

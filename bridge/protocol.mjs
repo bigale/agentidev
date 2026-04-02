@@ -124,6 +124,9 @@ export const MSG = {
   BRIDGE_AF_TEMPLATE_SAVE: 'BRIDGE_AF_TEMPLATE_SAVE',      // save user template to disk
   BRIDGE_AF_TEMPLATE_LIST: 'BRIDGE_AF_TEMPLATE_LIST',      // list all user templates
   BRIDGE_AF_TEMPLATE_DELETE: 'BRIDGE_AF_TEMPLATE_DELETE',   // delete user template from disk
+
+  // Azure DevOps QA Management
+  BRIDGE_ADO_COVERAGE: 'BRIDGE_ADO_COVERAGE',   // run test coverage analysis against local repos
 };
 
 /**

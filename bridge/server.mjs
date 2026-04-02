@@ -3028,6 +3028,28 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
         break;
       }
 
+      // ---- Azure DevOps QA: Coverage Analysis ----
+      case MSG.BRIDGE_ADO_COVERAGE: {
+        try {
+          // Dynamic import of coverage scanner (created in Sprint 2)
+          let coverageModule;
+          try {
+            coverageModule = await import('./ado-coverage.mjs');
+          } catch {
+            sendTo(ws, buildReply(msg, {
+              success: false,
+              error: 'Coverage scanner not yet implemented. Coming in Sprint 2.',
+            }));
+            break;
+          }
+          const results = await coverageModule.scanCoverage(msg.payload || {});
+          sendTo(ws, buildReply(msg, { success: true, items: results }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
       case 'BRIDGE_SHUTDOWN': {
         console.log('[Bridge] Shutdown requested');
         await shutdown();
