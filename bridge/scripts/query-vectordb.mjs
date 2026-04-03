@@ -42,7 +42,7 @@ try {
   const payload = {
     query,
     topK,
-    threshold: 0.2,
+    threshold: 0.1,
     queryKeywords: query.toLowerCase().split(/\s+/).filter(w => w.length > 3),
   };
   if (sources) payload.sources = sources;

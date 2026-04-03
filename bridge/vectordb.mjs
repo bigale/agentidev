@@ -110,7 +110,7 @@ export async function addPage({ url, title, text, source, keywords = [], metadat
  */
 export async function search(queryText, {
   topK = 10,
-  threshold = 0.25,
+  threshold = 0.1,
   sources = null,
   queryKeywords = [],
 } = {}) {
@@ -137,7 +137,7 @@ export async function search(queryText, {
     q = q.where(`source IN (${inList})`);
   }
 
-  q = q.select(['id', 'url', 'title', 'text', 'source', 'keywords', 'timestamp', '_distance']);
+  q = q.select(['id', 'url', 'title', 'text', 'source', 'keywords', 'timestamp']);
 
   let rows;
   try {
