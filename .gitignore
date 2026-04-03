@@ -10,6 +10,7 @@ build/
 
 # IDE
 .vscode/
+!.vscode/tasks.json
 .idea/
 *.swp
 *.swo
@@ -32,12 +33,18 @@ coverage/
 .env
 .env.local
 
+# AI evaluation output (local only — contains live ADO data)
+.ado-eval/
+
 # Temporary files
 tmp/
 temp/
 
 # Playwright CLI config
 .playwright-cli/
+
+# ADO eval output (generated, not committed)
+.ado-eval/
 
 # AI toolkit
 .aikit/

@@ -32,11 +32,13 @@ import { initVectorDB, addPage as vectorAddPage, search as vectorSearch, getStat
 const DEFAULT_PORT = 9876;
 const HEALTH_INTERVAL = 30000; // 30s ping/pong
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT  = pathResolve(__dirname, '..');
 const SHIM_PATH = pathResolve(__dirname, 'playwright-shim.mjs');
 const SCRIPTS_DIR = pathResolve(homedir(), '.contextual-recall', 'scripts');
 const AUTH_DIR = pathResolve(homedir(), '.contextual-recall', 'auth');
 const CLONES_DIR = pathResolve(homedir(), '.contextual-recall', 'clones');
 const ARTIFACTS_DIR = pathResolve(homedir(), '.contextual-recall', 'artifacts');
+const ADO_EVAL_DIR  = pathResolve(REPO_ROOT, '.ado-eval');
 const ARTIFACT_INLINE_LIMIT = 100 * 1024; // 100KB — below this, store as base64 inline
 const CONSOLE_BUFFER_LIMIT = 500 * 1024;  // 500KB max console buffer per script
 
@@ -3153,37 +3155,40 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
             sendTo(ws, buildReply(msg, { success: false, error: 'No items provided' }));
             break;
           }
-          const evalDir = `${homedir()}/.contextual-recall/ado-eval`;
-          await mkdir(evalDir, { recursive: true });
+          await mkdir(ADO_EVAL_DIR, { recursive: true });
 
-          const contextPath = `${evalDir}/context.json`;
+          const contextPath = pathResolve(ADO_EVAL_DIR, 'context.json');
           await writeFile(contextPath, JSON.stringify({ summary, items }, null, 2), 'utf8');
 
           const idList = items.map(i => i.id).join(', ');
-          const instrPath = '.github/instructions/ado-qa-analysis.md';
+          // Workspace-relative paths so Copilot #file: works
+          const instrRel  = '.github/instructions/ado-qa-analysis.md';
+          const ctxRel    = '.ado-eval/context.json';
           const promptLines = [
             `# ADO QA Evaluation — ${new Date().toLocaleString()}`,
             '',
             `**Work items (${items.length}):** ${idList}`,
             `**Project:** ${summary?.org}/${summary?.project}`,
             '',
-            '## Instructions',
-            `Analyze the work items in the context file per the analysis instructions.`,
-            '',
-            '## Files',
-            `- Context (full ADO data):  \`${contextPath}\``,
-            `- Analysis instructions:     \`${instrPath}\``,
-            '',
             '## Paste into Copilot Chat',
             '```',
-            `Analyze the ADO work items in #file:${contextPath} following the checklist in #file:${instrPath}`,
+            `Analyze the ADO work items in #file:${ctxRel} following the checklist in #file:${instrRel}`,
             '```',
+            '',
+            '## Files',
+            `- Context (full ADO data):   \`${ctxRel}\``,
+            `- Analysis instructions:      \`${instrRel}\``,
           ];
-          const promptPath = `${evalDir}/prompt.md`;
+          const promptPath = pathResolve(ADO_EVAL_DIR, 'prompt.md');
           await writeFile(promptPath, promptLines.join('\n'), 'utf8');
 
           console.log(`[Bridge] Eval context written: ${items.length} items → ${contextPath}`);
-          sendTo(ws, buildReply(msg, { success: true, contextPath, promptPath, count: items.length }));
+          sendTo(ws, buildReply(msg, {
+            success: true,
+            contextPath: ctxRel,
+            promptPath: '.ado-eval/prompt.md',
+            count: items.length,
+          }));
         } catch (err) {
           console.error('[Bridge] BRIDGE_WRITE_EVAL_CONTEXT error:', err);
           sendTo(ws, buildReply(msg, { success: false, error: err.message }));
