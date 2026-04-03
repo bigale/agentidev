@@ -970,7 +970,18 @@ function startServer() {
           } catch {}
         }
         const seen = new Map();
-        for (const c of merged.cookies) seen.set(`${c.name}|${c.domain}|${c.path}`, c);
+        for (const c of merged.cookies) {
+          const key = `${c.name}|${c.domain}|${c.path}`;
+          const existing = seen.get(key);
+          if (!existing) { seen.set(key, c); continue; }
+          // Prefer: later positive expiry > any positive > session; session cookies: last-file-wins
+          // (domain files are added after script-specific files, so last-wins lets domain override stale script auth)
+          const newExp = c.expires ?? -1;
+          const oldExp = existing.expires ?? -1;
+          if (newExp > 0 && oldExp > 0 && newExp > oldExp) seen.set(key, c);  // later expiry wins
+          else if (newExp > 0 && oldExp <= 0) seen.set(key, c);               // positive beats session
+          else if (newExp <= 0 && oldExp <= 0) seen.set(key, c);              // both session: last wins
+        }
         merged.cookies = [...seen.values()];
         const mergedPath = pathResolve(AUTH_DIR, `_merged_${scriptBaseName}.json`);
         await writeFile(mergedPath, JSON.stringify(merged));
