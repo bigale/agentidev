@@ -129,6 +129,7 @@ export const MSG = {
   // Azure DevOps QA Management
   BRIDGE_ADO_COVERAGE: 'BRIDGE_ADO_COVERAGE',   // run test coverage analysis against local repos
   BRIDGE_ADO_GET_CONTEXT: 'BRIDGE_ADO_GET_CONTEXT', // relay → ado-bridge: get active grid selection + tab
+  BRIDGE_WRITE_EVAL_CONTEXT: 'BRIDGE_WRITE_EVAL_CONTEXT', // write AI eval context + prompt to ~/.contextual-recall/ado-eval/
 };
 
 /**

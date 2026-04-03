@@ -3146,6 +3146,51 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
         break;
       }
 
+      case MSG.BRIDGE_WRITE_EVAL_CONTEXT: {
+        try {
+          const { items, summary } = msg.payload || {};
+          if (!items || !items.length) {
+            sendTo(ws, buildReply(msg, { success: false, error: 'No items provided' }));
+            break;
+          }
+          const evalDir = `${homedir()}/.contextual-recall/ado-eval`;
+          await mkdir(evalDir, { recursive: true });
+
+          const contextPath = `${evalDir}/context.json`;
+          await writeFile(contextPath, JSON.stringify({ summary, items }, null, 2), 'utf8');
+
+          const idList = items.map(i => i.id).join(', ');
+          const instrPath = '.github/instructions/ado-qa-analysis.md';
+          const promptLines = [
+            `# ADO QA Evaluation — ${new Date().toLocaleString()}`,
+            '',
+            `**Work items (${items.length}):** ${idList}`,
+            `**Project:** ${summary?.org}/${summary?.project}`,
+            '',
+            '## Instructions',
+            `Analyze the work items in the context file per the analysis instructions.`,
+            '',
+            '## Files',
+            `- Context (full ADO data):  \`${contextPath}\``,
+            `- Analysis instructions:     \`${instrPath}\``,
+            '',
+            '## Paste into Copilot Chat',
+            '```',
+            `Analyze the ADO work items in #file:${contextPath} following the checklist in #file:${instrPath}`,
+            '```',
+          ];
+          const promptPath = `${evalDir}/prompt.md`;
+          await writeFile(promptPath, promptLines.join('\n'), 'utf8');
+
+          console.log(`[Bridge] Eval context written: ${items.length} items → ${contextPath}`);
+          sendTo(ws, buildReply(msg, { success: true, contextPath, promptPath, count: items.length }));
+        } catch (err) {
+          console.error('[Bridge] BRIDGE_WRITE_EVAL_CONTEXT error:', err);
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
       case 'BRIDGE_SHUTDOWN': {
         console.log('[Bridge] Shutdown requested');
         await shutdown();
