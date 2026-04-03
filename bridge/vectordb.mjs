@@ -8,7 +8,7 @@
  */
 
 import * as lancedb from '@lancedb/lancedb';
-import { embed, embedSimple, isEmbeddingReady, EMBEDDING_DIM } from './embeddings.mjs';
+import { embed, embedSimple, isEmbeddingReady, initEmbeddings, EMBEDDING_DIM } from './embeddings.mjs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { mkdir } from 'fs/promises';
@@ -116,9 +116,15 @@ export async function search(queryText, {
 } = {}) {
   if (!_table) return [];
 
+  // Wait for neural model — TF-IDF query vectors won't match neural-indexed data
+  if (!isEmbeddingReady()) {
+    console.log('[VectorDB] Waiting for embedding model before search...');
+    await initEmbeddings();
+  }
+
   const queryVec = isEmbeddingReady()
     ? await embed(queryText)
-    : embedSimple(queryText);
+    : embedSimple(queryText); // only if init failed
 
   // Over-fetch so threshold pruning can pick best topK
   let q = _table
