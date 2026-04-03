@@ -6,22 +6,28 @@
 import { ScriptClient } from '../script-client.mjs';
 import { MSG } from '../protocol.mjs';
 
-const query = process.argv.slice(2).join(' ') || 'grid saved search builtin';
+const args = process.argv.slice(2);
+const sourceArg = args.find(a => a.startsWith('--source='));
+const sources = sourceArg ? sourceArg.split('=')[1].split(',') : null;
+const query = args.filter(a => !a.startsWith('--')).join(' ') || 'grid saved search builtin';
 
 const client = new ScriptClient('query-vectordb', { totalSteps: 1 });
 
-console.log(`\nSearching vector DB for: "${query}"\n`);
+console.log(`\nSearching vector DB for: "${query}"${sources ? ` [sources: ${sources.join(',')}]` : ''}\n`);
 
 try {
   await client.connect();
 
   // BRIDGE_SEARCH_VECTORDB relays to extension → vector search → results
-  const result = await client._sendRequest(MSG.BRIDGE_SEARCH_VECTORDB, {
+  const payload = {
     query,
     topK: 5,
     threshold: 0.2,
     queryKeywords: query.toLowerCase().split(/\s+/).filter(w => w.length > 3),
-  }, 30000);
+  };
+  if (sources) payload.sources = sources;
+
+  const result = await client._sendRequest(MSG.BRIDGE_SEARCH_VECTORDB, payload, 30000);
 
   if (result.error) {
     console.error('Search error:', result.error);

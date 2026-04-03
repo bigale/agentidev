@@ -283,8 +283,8 @@ export function initBridgeCallbacks(snapshotStorageFn, deps = {}) {
 
   if (deps.generateEmbedding && deps.vectorDB) {
     bridgeClient.onSearchVectorDB(async (payload) => {
-      const { query, limit, threshold, queryKeywords } = payload;
-      console.log(`[Background] VectorDB search: "${query}"`);
+      const { query, limit, threshold, queryKeywords, sources } = payload;
+      console.log(`[Background] VectorDB search: "${query}"${sources ? ` [sources: ${sources.join(',')}]` : ''}`);
 
       let embedding;
       if (deps.isInitialized()) {
@@ -302,6 +302,7 @@ export function initBridgeCallbacks(snapshotStorageFn, deps = {}) {
         limit: limit || 10,
         threshold: threshold || (deps.isInitialized() ? 0.3 : 0.1),
         queryKeywords: queryKeywords || [],
+        sources: sources || null,
       });
 
       return results;
@@ -333,6 +334,7 @@ export function initBridgeCallbacks(snapshotStorageFn, deps = {}) {
         embedding,
         keywords: keywords || [],
         metadata: metadata || {},
+        source: payload.source || metadata?.source || 'reference',
       });
 
       return { success: true, id };

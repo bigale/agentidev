@@ -262,6 +262,7 @@ function buildDocument(example) {
     text,
     html: '',
     contentType: 'api_reference',
+    source: 'showcase',
     keywords,
     metadata: {
       source: 'smartclient-showcase',
@@ -387,6 +388,7 @@ async function main() {
           text: doc.text,
           html: doc.html,
           contentType: doc.contentType,
+          source: doc.source,
           keywords: doc.keywords,
           metadata: doc.metadata,
         });

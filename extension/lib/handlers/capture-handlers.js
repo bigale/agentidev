@@ -172,6 +172,7 @@ async function handlePageCapture(data, tab) {
       contentType: contentType,
       embedding: embedding,
       keywords: chunk.keywords || [],
+      source: 'browsing',
       metadata: {
         ...data.metadata,
         chunkIndex: i,

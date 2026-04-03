@@ -261,9 +261,9 @@ export class ScriptClient {
    * @param {object} [content.metadata] - Arbitrary metadata
    * @returns {Promise<{success: boolean, id?: string}>}
    */
-  async indexContent({ url, title, text, html, contentType, keywords, metadata }) {
+  async indexContent({ url, title, text, html, contentType, source, keywords, metadata }) {
     return this._sendRequest('BRIDGE_INDEX_CONTENT', {
-      url, title, text, html, contentType, keywords, metadata,
+      url, title, text, html, contentType, source, keywords, metadata,
     }, 30000);
   }
 
