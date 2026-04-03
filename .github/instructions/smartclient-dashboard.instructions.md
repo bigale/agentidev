@@ -1,9 +1,7 @@
 <!-- Generated from docs/ai-context/. Do not edit directly. -->
 
 ---
-description: SmartClient sandbox iframe, renderer, dashboard, Monaco editor
-globs: extension/smartclient-app/**
-alwaysApply: false
+applyTo: ["extension/smartclient-app/**"]
 ---
 
 

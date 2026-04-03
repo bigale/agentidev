@@ -20,7 +20,9 @@
     "dash:screenshot": "node bridge/dashboard-driver.mjs screenshot",
     "dash:status": "node bridge/dashboard-driver.mjs status",
     "dev:start": "bash bridge/start-dev.sh",
-    "dev:stop": "bash bridge/start-dev.sh --stop"
+    "dev:stop": "bash bridge/start-dev.sh --stop",
+    "ai:sync": "node scripts/sync-ai-context.mjs",
+    "ai:check": "node scripts/sync-ai-context.mjs --check"
   },
   "repository": {
     "type": "git",

@@ -2,8 +2,7 @@
 
 ---
 description: Extension message handlers, DataSource proxy, bridge client, script library
-globs: extension/lib/**
-alwaysApply: false
+paths: ["extension/lib/**"]
 ---
 
 

@@ -1,9 +1,7 @@
 <!-- Generated from docs/ai-context/. Do not edit directly. -->
 
 ---
-description: Bridge WebSocket server, script management, sessions, scheduling
-globs: bridge/**
-alwaysApply: false
+applyTo: ["bridge/**"]
 ---
 
 

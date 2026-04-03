@@ -2,8 +2,7 @@
 
 ---
 description: Testing patterns and conventions
-globs: tests/**
-alwaysApply: false
+paths: ["tests/**"]
 ---
 
 

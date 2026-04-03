@@ -1,11 +1,8 @@
-<!-- Generated from docs/ai-context/. Do not edit directly. -->
-
 ---
 description: Testing patterns and conventions
-globs: tests/**
+globs: ["tests/**"]
 alwaysApply: false
 ---
-
 
 # Testing
 

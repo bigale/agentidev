@@ -1,11 +1,8 @@
-<!-- Generated from docs/ai-context/. Do not edit directly. -->
-
 ---
 description: SmartClient sandbox iframe, renderer, dashboard, Monaco editor
-globs: extension/smartclient-app/**
+globs: ["extension/smartclient-app/**"]
 alwaysApply: false
 ---
-
 
 # SmartClient Dashboard (`extension/smartclient-app/`)
 

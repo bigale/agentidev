@@ -1,11 +1,8 @@
-<!-- Generated from docs/ai-context/. Do not edit directly. -->
-
 ---
 description: Bridge WebSocket server, script management, sessions, scheduling
-globs: bridge/**
+globs: ["bridge/**"]
 alwaysApply: false
 ---
-
 
 # Bridge Server (`bridge/server.mjs`)
 

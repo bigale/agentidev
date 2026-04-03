@@ -2,7 +2,6 @@
 
 ---
 description: Project overview and global coding rules
-globs:
 alwaysApply: true
 ---
 

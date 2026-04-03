@@ -1,11 +1,8 @@
-<!-- Generated from docs/ai-context/. Do not edit directly. -->
-
 ---
 description: Project overview and global coding rules
 globs:
 alwaysApply: true
 ---
-
 
 # Contextual Recall
 

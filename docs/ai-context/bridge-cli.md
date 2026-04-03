@@ -1,5 +1,6 @@
 ---
 description: Browser automation bridge CLI reference for controlling Playwright sessions, scripts, and schedules
+globs:
 alwaysApply: true
 ---
 

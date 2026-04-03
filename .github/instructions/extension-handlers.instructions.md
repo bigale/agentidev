@@ -1,9 +1,7 @@
 <!-- Generated from docs/ai-context/. Do not edit directly. -->
 
 ---
-description: Extension message handlers, DataSource proxy, bridge client, script library
-globs: extension/lib/**
-alwaysApply: false
+applyTo: ["extension/lib/**"]
 ---
 
 

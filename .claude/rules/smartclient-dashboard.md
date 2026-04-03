@@ -2,8 +2,7 @@
 
 ---
 description: SmartClient sandbox iframe, renderer, dashboard, Monaco editor
-globs: extension/smartclient-app/**
-alwaysApply: false
+paths: ["extension/smartclient-app/**"]
 ---
 
 

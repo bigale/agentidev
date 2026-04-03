@@ -2,8 +2,7 @@
 
 ---
 description: Bridge WebSocket server, script management, sessions, scheduling
-globs: bridge/**
-alwaysApply: false
+paths: ["bridge/**"]
 ---
 
 

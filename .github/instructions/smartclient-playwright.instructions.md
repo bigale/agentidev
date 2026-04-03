@@ -1,9 +1,7 @@
 <!-- Generated from docs/ai-context/. Do not edit directly. -->
 
 ---
-description: Playwright E2E testing for SmartClient dashboard — locators, commands, interaction patterns
-globs: tests/e2e/**, tests/playwright/**
-alwaysApply: false
+applyTo: ["tests/e2e/**","tests/playwright/**"]
 ---
 
 
