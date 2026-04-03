@@ -30,10 +30,11 @@ export const MSG = {
   BRIDGE_FILL: 'BRIDGE_FILL',
   BRIDGE_EVAL: 'BRIDGE_EVAL',
 
-  // Search (routed to extension)
+  // Search / indexing (bridge-routed or relayed to extension)
   BRIDGE_SEARCH_SNAPSHOTS: 'BRIDGE_SEARCH_SNAPSHOTS',
   BRIDGE_SEARCH_VECTORDB: 'BRIDGE_SEARCH_VECTORDB',
   BRIDGE_INDEX_CONTENT: 'BRIDGE_INDEX_CONTENT',
+  BRIDGE_VECTORDB_STATS: 'BRIDGE_VECTORDB_STATS',  // stats + embedding readiness
 
   // Claude-specific (Phase E)
   BRIDGE_PAUSE: 'BRIDGE_PAUSE',

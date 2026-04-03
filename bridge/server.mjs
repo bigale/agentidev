@@ -26,6 +26,8 @@ import { PlaywrightSession, SESSION_STATE } from './playwright-session.mjs';
 import { InspectorClient, parseInspectorUrl } from './inspector-client.mjs';
 import { actionToCommandArgs } from './cli-commands.mjs';
 import { initDB, saveRun, saveArtifact, upsertStore, exportAll } from './db.mjs';
+import { initEmbeddings, isEmbeddingReady } from './embeddings.mjs';
+import { initVectorDB, addPage as vectorAddPage, search as vectorSearch, getStats as vectorGetStats } from './vectordb.mjs';
 
 const DEFAULT_PORT = 9876;
 const HEALTH_INTERVAL = 30000; // 30s ping/pong
@@ -37,6 +39,9 @@ const CLONES_DIR = pathResolve(homedir(), '.contextual-recall', 'clones');
 const ARTIFACTS_DIR = pathResolve(homedir(), '.contextual-recall', 'artifacts');
 const ARTIFACT_INLINE_LIMIT = 100 * 1024; // 100KB — below this, store as base64 inline
 const CONSOLE_BUFFER_LIMIT = 500 * 1024;  // 500KB max console buffer per script
+
+// Sources stored in bridge LanceDB (not relayed to extension)
+const BRIDGE_VECTOR_SOURCES = new Set(['showcase', 'reference', 'docs', 'template']);
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -597,6 +602,10 @@ function startServer() {
   startFileWatcher();
   loadSchedules();
   initDB();
+  // Initialize bridge-side vector DB and embedding model (non-blocking — bridge
+  // accepts connections immediately; indexing waits for isEmbeddingReady())
+  initVectorDB().catch(err => console.error('[Bridge] VectorDB init failed:', err.message));
+  initEmbeddings().catch(err => console.error('[Bridge] Embeddings init failed:', err.message));
 
   const wss = new WebSocketServer({ port: PORT });
 
@@ -1202,18 +1211,50 @@ function startServer() {
   }
 
   /**
-   * Handle incoming message
+   * Relay a message to a target role client and await the reply as a Promise.
+   * Returns the reply payload, or {} on timeout/no client.
    */
+  function awaitRelay(targetRole, msgType, payload, timeoutMs = 8000) {
+    return new Promise((resolve) => {
+      const client = findClientByRole(targetRole);
+      if (!client) { resolve({}); return; }
+      const relayMsg = buildMessage(msgType, payload, 'server');
+      const timer = setTimeout(() => {
+        pendingRelays.delete(relayMsg.id);
+        resolve({});
+      }, timeoutMs);
+      pendingRelays.set(relayMsg.id, {
+        ws: null,
+        originalMsgId: null,
+        promiseResolve: (replyPayload) => { clearTimeout(timer); resolve(replyPayload); },
+      });
+      sendTo(client, relayMsg);
+    });
+  }
+
+  /** Merge and de-duplicate results from bridge + extension, ranked by score. */
+  function mergeVectorResults(bridgeResults, extResults, topK) {
+    const seen = new Set();
+    return [...bridgeResults, ...extResults]
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+      .filter(r => { if (seen.has(r.url)) return false; seen.add(r.url); return true; })
+      .slice(0, topK);
+  }
   async function handleMessage(ws, msg) {
     const clientInfo = clients.get(ws);
 
     // Check if this is a relay reply from the extension
     if (msg.replyTo && pendingRelays.has(msg.replyTo)) {
-      const { ws: requesterWs, originalMsgId } = pendingRelays.get(msg.replyTo);
+      const { ws: requesterWs, originalMsgId, promiseResolve } = pendingRelays.get(msg.replyTo);
       pendingRelays.delete(msg.replyTo);
-      // Forward the reply with the original message ID so the requester can match it
-      const relayed = { ...msg, replyTo: originalMsgId };
-      sendTo(requesterWs, relayed);
+      if (promiseResolve) {
+        // Promise-based relay — caller is awaiting the result
+        promiseResolve(msg.payload || {});
+      } else {
+        // Classic WebSocket relay — forward reply to the original requester
+        const relayed = { ...msg, replyTo: originalMsgId };
+        sendTo(requesterWs, relayed);
+      }
       return;
     }
 
@@ -1522,6 +1563,16 @@ function startServer() {
         break;
       }
 
+      case MSG.BRIDGE_VECTORDB_STATS: {
+        try {
+          const stats = await vectorGetStats();
+          sendTo(ws, buildReply(msg, { ...stats, embeddingReady: isEmbeddingReady() }, 'server'));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { total: 0, bySource: {}, embeddingReady: isEmbeddingReady() }, 'server'));
+        }
+        break;
+      }
+
       case MSG.BRIDGE_SEARCH_SNAPSHOTS: {
         // Forward search request to the extension client and relay reply
         const extClient = findClientByRole(ROLES.EXTENSION);
@@ -1538,26 +1589,59 @@ function startServer() {
       }
 
       case MSG.BRIDGE_INDEX_CONTENT: {
-        const extClient = findClientByRole(ROLES.EXTENSION);
-        if (!extClient) {
-          sendTo(ws, buildError('No extension client connected', msg.id));
-          return;
+        const { source } = msg.payload || {};
+        if (source && BRIDGE_VECTOR_SOURCES.has(source)) {
+          // Store directly in bridge LanceDB — no extension round-trip
+          try {
+            const id = await vectorAddPage(msg.payload);
+            sendTo(ws, buildReply(msg, { success: true, id }, 'server'));
+          } catch (err) {
+            sendTo(ws, buildError(`Bridge index failed: ${err.message}`, msg.id, 'server'));
+          }
+        } else {
+          // Browsing / unknown sources → relay to extension
+          const extClient = findClientByRole(ROLES.EXTENSION);
+          if (!extClient) {
+            sendTo(ws, buildError('No extension client connected', msg.id));
+            return;
+          }
+          const indexMsg = buildMessage(MSG.BRIDGE_INDEX_CONTENT, msg.payload, 'server');
+          pendingRelays.set(indexMsg.id, { ws, originalMsgId: msg.id });
+          sendTo(extClient, indexMsg);
         }
-        const indexMsg = buildMessage(MSG.BRIDGE_INDEX_CONTENT, msg.payload, 'server');
-        pendingRelays.set(indexMsg.id, { ws, originalMsgId: msg.id });
-        sendTo(extClient, indexMsg);
         break;
       }
 
       case MSG.BRIDGE_SEARCH_VECTORDB: {
-        const extClient = findClientByRole(ROLES.EXTENSION);
-        if (!extClient) {
-          sendTo(ws, buildError('No extension client connected', msg.id));
-          return;
+        const { query, sources, topK = 10, threshold, queryKeywords } = msg.payload || {};
+        const wantsBridge   = !sources || sources.some(s => BRIDGE_VECTOR_SOURCES.has(s));
+        const wantsBrowsing = !sources || sources.includes('browsing');
+
+        let bridgeResults = [];
+        let extResults    = [];
+
+        if (wantsBridge) {
+          const bridgeSources = sources ? sources.filter(s => BRIDGE_VECTOR_SOURCES.has(s)) : null;
+          try {
+            bridgeResults = await vectorSearch(query, {
+              topK: topK * 2,
+              threshold,
+              sources: bridgeSources,
+              queryKeywords,
+            });
+          } catch (err) {
+            console.error('[Bridge] VectorDB search error:', err.message);
+          }
         }
-        const searchVdbMsg = buildMessage(MSG.BRIDGE_SEARCH_VECTORDB, msg.payload, 'server');
-        pendingRelays.set(searchVdbMsg.id, { ws, originalMsgId: msg.id });
-        sendTo(extClient, searchVdbMsg);
+
+        if (wantsBrowsing) {
+          const browsingPayload = { ...msg.payload, sources: ['browsing'] };
+          const reply = await awaitRelay(ROLES.EXTENSION, MSG.BRIDGE_SEARCH_VECTORDB, browsingPayload, 8000);
+          extResults = reply.results || [];
+        }
+
+        const results = mergeVectorResults(bridgeResults, extResults, topK);
+        sendTo(ws, buildReply(msg, { success: true, results }, 'server'));
         break;
       }
 

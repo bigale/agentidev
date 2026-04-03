@@ -3,17 +3,19 @@
  * SmartClient Showcase Indexer
  *
  * Reads ~627 showcase examples from the SmartClient SDK, sends each through
- * the bridge to the extension for neural embedding (all-MiniLM-L6-v2, 384-dim),
- * and stores in the vector DB.
+ * the bridge for neural embedding (all-MiniLM-L6-v2, 384-dim),
+ * and stores in the bridge-side LanceDB (source: 'showcase').
  *
  * Usage:
- *   node bridge/scripts/index-showcase.mjs                 # index all examples
- *   node bridge/scripts/index-showcase.mjs --dry-run       # parse only, print stats
- *   node bridge/scripts/index-showcase.mjs --limit=10      # index first 10
- *   node bridge/scripts/index-showcase.mjs --category=AI   # only AI category
+ *   node bridge/scripts/index-showcase.mjs                      # index all examples
+ *   node bridge/scripts/index-showcase.mjs --dry-run            # parse only, print stats
+ *   node bridge/scripts/index-showcase.mjs --limit=10           # index first 10
+ *   node bridge/scripts/index-showcase.mjs --category=AI        # only AI category
+ *   node bridge/scripts/index-showcase.mjs --wait-for-neural    # wait for neural model before indexing
  */
 
 import { ScriptClient } from '../script-client.mjs';
+import { MSG } from '../protocol.mjs';
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname, basename } from 'path';
 import { createRequire } from 'module';
@@ -49,7 +51,7 @@ const SC_COMPONENTS = [
   'DrawPane', 'DrawItem', 'DrawRect', 'DrawOval', 'DrawLine', 'DrawPath',
   'DrawTriangle', 'DrawLabel', 'DrawImage', 'Gauge',
   'FacetChart', 'ChartLabel',
-  'TreeMenuButton', 'Slider',
+  'TreeMenuButton', 'Slider', 'Shuttle', 'MultiPickerItem',
   'DataSource', 'RestDataSource', 'WSDataSource',
   'RPCManager', 'DMI',
   'Offline', 'OfflineDataSource',
@@ -76,6 +78,7 @@ const SC_COMPONENT_RE = new RegExp(
 // ---- CLI args ----
 
 const DRY_RUN = args.includes('--dry-run');
+const WAIT_FOR_NEURAL = args.includes('--wait-for-neural');
 const LIMIT = (() => {
   const limitArg = args.find(a => a.startsWith('--limit='));
   return limitArg ? parseInt(limitArg.split('=')[1], 10) : Infinity;
@@ -374,6 +377,18 @@ async function main() {
   try {
     await client.connect();
     console.log('Connected. Starting indexing...\n');
+
+    // If --wait-for-neural, poll until the bridge embedding model is ready
+    if (WAIT_FOR_NEURAL) {
+      process.stdout.write('Waiting for neural embedding model...');
+      for (let attempt = 0; attempt < 120; attempt++) {
+        const stats = await client._sendRequest(MSG.BRIDGE_VECTORDB_STATS, {}, 5000).catch(() => ({}));
+        if (stats.embeddingReady) { process.stdout.write(' ready!\n\n'); break; }
+        if (attempt === 119) { process.stdout.write(' timed out — using TF-IDF fallback\n\n'); break; }
+        process.stdout.write('.');
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
 
     let indexed = 0;
     let errors = 0;
