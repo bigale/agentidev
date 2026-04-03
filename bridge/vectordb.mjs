@@ -16,8 +16,11 @@ import { mkdir } from 'fs/promises';
 const DB_PATH = join(homedir(), '.contextual-recall', 'vectors');
 const TABLE_NAME = 'pages';
 
-// Build an ANN index once the table grows past this size
-const INDEX_THRESHOLD = 512;
+// Build an ANN index once the table grows past this size.
+// For datasets < this size, LanceDB brute-force scan is fast (< 5ms) and exact.
+// Raising this high avoids stale IVF-PQ centroids if data is re-indexed with a
+// different embedding model (e.g. going from TF-IDF to neural).
+const INDEX_THRESHOLD = 10000;
 
 let _db = null;
 let _table = null;     // null until first record or openTable succeeds
