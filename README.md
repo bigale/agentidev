@@ -166,6 +166,72 @@ npm run build
 
 ---
 
+## AI Context System
+
+Contextual Recall maintains a unified AI context system that keeps Claude Code, Cursor, and GitHub Copilot in sync with project knowledge. It also exports that knowledge to other repositories.
+
+### Unified Context (Intra-Repo)
+
+Single source of truth in `docs/ai-context/` (9 files with YAML frontmatter) generates tool-native configs:
+
+```bash
+npm run ai:sync     # Generate all tool configs from source files
+npm run ai:check    # Exit 1 if generated files are stale
+```
+
+Generates:
+- `AGENTS.md` — universal context (all tools)
+- `.claude/rules/*.md` — Claude Code path-scoped rules
+- `.cursor/rules/*.mdc` — Cursor path-scoped rules
+- `.github/copilot-instructions.md` — Copilot global instructions
+- `.github/instructions/*.instructions.md` — Copilot path-scoped instructions
+
+Edit files in `docs/ai-context/`, then run `npm run ai:sync` to propagate changes to all tools.
+
+### Knowledge Export (Cross-Repo)
+
+CR acts as a portable knowledge engine. The adapt script detects what a target repo uses and generates context files with access to CR's indexed knowledge (627 SmartClient showcase examples in LanceDB with neural embeddings).
+
+```bash
+# Export CR knowledge to another repo
+npm run ai:adapt -- --repo=/path/to/target
+
+# Check if generated files are up to date
+npm run ai:adapt -- --repo=/path/to/target --check
+
+# Remove generated files from target
+npm run ai:adapt -- --repo=/path/to/target --clean
+
+# Skip detection, force all modules
+npm run ai:adapt -- --repo=/path/to/target --force
+```
+
+Generated files are prefixed `cr-` to avoid collisions with the target repo's own context files. The target repo can layer hand-written skills/rules on top.
+
+**No MCP dependency** — everything works via bridge CLI shell commands, so it functions identically in environments where MCP servers are unavailable.
+
+### Module Detection
+
+The adapt script auto-detects which knowledge modules to export:
+
+| Module | Detects | Exports |
+|--------|---------|---------|
+| SmartClient | `isc.*` usage, SC type declarations, agentiface/forge imports | Vector search command, SC skill, component patterns, Cursor/Copilot rules |
+
+Future modules can be added for bridge automation, RAG pipeline, etc.
+
+### Vector Search (Bridge CLI)
+
+All AI tools access the showcase knowledge base via the same CLI:
+
+```bash
+node bridge/claude-client.mjs search '{"query":"grid with filtering","limit":5}'
+```
+
+Requires the bridge server: `npm run bridge`
+
+---
+
 ## Documentation
 
 - **[Architecture](docs/architecture.md)**: Complete system design

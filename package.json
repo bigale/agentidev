@@ -22,7 +22,8 @@
     "dev:start": "bash bridge/start-dev.sh",
     "dev:stop": "bash bridge/start-dev.sh --stop",
     "ai:sync": "node scripts/sync-ai-context.mjs",
-    "ai:check": "node scripts/sync-ai-context.mjs --check"
+    "ai:check": "node scripts/sync-ai-context.mjs --check",
+    "ai:adapt": "node scripts/adapt-to-repo.mjs"
   },
   "repository": {
     "type": "git",
