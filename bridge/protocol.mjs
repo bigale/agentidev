@@ -130,6 +130,8 @@ export const MSG = {
   BRIDGE_ADO_COVERAGE: 'BRIDGE_ADO_COVERAGE',   // run test coverage analysis against local repos
   BRIDGE_ADO_GET_CONTEXT: 'BRIDGE_ADO_GET_CONTEXT', // relay → ado-bridge: get active grid selection + tab
   BRIDGE_WRITE_EVAL_CONTEXT: 'BRIDGE_WRITE_EVAL_CONTEXT', // write AI eval context + prompt to ~/.contextual-recall/ado-eval/
+  BRIDGE_READ_EVAL_ACTIONS:  'BRIDGE_READ_EVAL_ACTIONS',  // read .ado-eval/actions.json → return parsed JSON
+  BRIDGE_READ_FILE:          'BRIDGE_READ_FILE',           // read local file → return base64 (for attachment uploads)
 };
 
 /**

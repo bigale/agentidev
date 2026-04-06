@@ -3207,6 +3207,29 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
         break;
       }
 
+      case MSG.BRIDGE_READ_EVAL_ACTIONS: {
+        try {
+          const p = pathResolve(ADO_EVAL_DIR, 'actions.json');
+          const raw = await readFile(p, 'utf8');
+          const data = JSON.parse(raw);
+          sendTo(ws, buildReply(msg, { success: true, ...data }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_READ_FILE: {
+        try {
+          const p = pathResolve(process.cwd(), msg.payload.path);
+          const buf = await readFile(p);
+          sendTo(ws, buildReply(msg, { success: true, base64: buf.toString('base64'), size: buf.length }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
       case 'BRIDGE_SHUTDOWN': {
         console.log('[Bridge] Shutdown requested');
         await shutdown();
