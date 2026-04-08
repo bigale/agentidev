@@ -1,11 +1,20 @@
 {
-  "name": "@contextual-recall/bridge",
+  "name": "@bigale/contextual-recall-bridge",
   "version": "0.1.0",
   "type": "module",
   "description": "WebSocket bridge between Chrome extension and Claude Code for playwright-cli automation",
+  "license": "MIT",
   "main": "server.mjs",
   "bin": {
     "bridge-cli": "./bridge-cli.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bigale/agentidev.git",
+    "directory": "packages/bridge"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   },
   "scripts": {
     "start": "node server.mjs",
