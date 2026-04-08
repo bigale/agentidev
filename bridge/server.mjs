@@ -38,7 +38,6 @@ const SCRIPTS_DIR = pathResolve(homedir(), '.contextual-recall', 'scripts');
 const AUTH_DIR = pathResolve(homedir(), '.contextual-recall', 'auth');
 const CLONES_DIR = pathResolve(homedir(), '.contextual-recall', 'clones');
 const ARTIFACTS_DIR = pathResolve(homedir(), '.contextual-recall', 'artifacts');
-const ADO_EVAL_DIR  = pathResolve(REPO_ROOT, '.ado-eval');
 const ARTIFACT_INLINE_LIMIT = 100 * 1024; // 100KB — below this, store as base64 inline
 const CONSOLE_BUFFER_LIMIT = 500 * 1024;  // 500KB max console buffer per script
 
@@ -1658,18 +1657,6 @@ function startServer() {
         break;
       }
 
-      case MSG.BRIDGE_ADO_GET_CONTEXT: {
-        const adoBridgeClient = findClientByRole(ROLES.ADO_BRIDGE);
-        if (!adoBridgeClient) {
-          sendTo(ws, buildError('ADO QA Manager not connected — open the QA Manager hub in Azure DevOps', msg.id));
-          return;
-        }
-        const ctxMsg = buildMessage(MSG.BRIDGE_ADO_GET_CONTEXT, msg.payload || {}, 'server');
-        pendingRelays.set(ctxMsg.id, { ws, originalMsgId: msg.id });
-        sendTo(adoBridgeClient, ctxMsg);
-        break;
-      }
-
       // ---- Script Integration (Phase 3) ----
 
       case MSG.BRIDGE_SCRIPT_REGISTER: {
@@ -3137,98 +3124,6 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
         break;
       }
 
-      // ---- Azure DevOps QA: Coverage Analysis ----
-      case MSG.BRIDGE_ADO_COVERAGE: {
-        try {
-          // Dynamic import of coverage scanner (created in Sprint 2)
-          let coverageModule;
-          try {
-            coverageModule = await import('./ado-coverage.mjs');
-          } catch {
-            sendTo(ws, buildReply(msg, {
-              success: false,
-              error: 'Coverage scanner not yet implemented. Coming in Sprint 2.',
-            }));
-            break;
-          }
-          const results = await coverageModule.scanCoverage(msg.payload || {});
-          sendTo(ws, buildReply(msg, { success: true, items: results }));
-        } catch (err) {
-          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
-        }
-        break;
-      }
-
-      case MSG.BRIDGE_WRITE_EVAL_CONTEXT: {
-        try {
-          const { items, summary } = msg.payload || {};
-          if (!items || !items.length) {
-            sendTo(ws, buildReply(msg, { success: false, error: 'No items provided' }));
-            break;
-          }
-          await mkdir(ADO_EVAL_DIR, { recursive: true });
-
-          const contextPath = pathResolve(ADO_EVAL_DIR, 'context.json');
-          await writeFile(contextPath, JSON.stringify({ summary, items }, null, 2), 'utf8');
-
-          const idList = items.map(i => i.id).join(', ');
-          // Workspace-relative paths so Copilot #file: works
-          const instrRel  = '.github/instructions/ado-qa-analysis.md';
-          const ctxRel    = '.ado-eval/context.json';
-          const promptLines = [
-            `# ADO QA Evaluation — ${new Date().toLocaleString()}`,
-            '',
-            `**Work items (${items.length}):** ${idList}`,
-            `**Project:** ${summary?.org}/${summary?.project}`,
-            '',
-            '## Paste into Copilot Chat',
-            '```',
-            `Analyze the ADO work items in #file:${ctxRel} following the checklist in #file:${instrRel}`,
-            '```',
-            '',
-            '## Files',
-            `- Context (full ADO data):   \`${ctxRel}\``,
-            `- Analysis instructions:      \`${instrRel}\``,
-          ];
-          const promptPath = pathResolve(ADO_EVAL_DIR, 'prompt.md');
-          await writeFile(promptPath, promptLines.join('\n'), 'utf8');
-
-          console.log(`[Bridge] Eval context written: ${items.length} items → ${contextPath}`);
-          sendTo(ws, buildReply(msg, {
-            success: true,
-            contextPath: ctxRel,
-            promptPath: '.ado-eval/prompt.md',
-            count: items.length,
-          }));
-        } catch (err) {
-          console.error('[Bridge] BRIDGE_WRITE_EVAL_CONTEXT error:', err);
-          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
-        }
-        break;
-      }
-
-      case MSG.BRIDGE_READ_EVAL_ACTIONS: {
-        try {
-          const p = pathResolve(ADO_EVAL_DIR, 'actions.json');
-          const raw = await readFile(p, 'utf8');
-          const data = JSON.parse(raw);
-          sendTo(ws, buildReply(msg, { success: true, ...data }));
-        } catch (err) {
-          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
-        }
-        break;
-      }
-
-      case MSG.BRIDGE_READ_FILE: {
-        try {
-          const p = pathResolve(process.cwd(), msg.payload.path);
-          const buf = await readFile(p);
-          sendTo(ws, buildReply(msg, { success: true, base64: buf.toString('base64'), size: buf.length }));
-        } catch (err) {
-          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
-        }
-        break;
-      }
 
       case 'BRIDGE_SHUTDOWN': {
         console.log('[Bridge] Shutdown requested');
