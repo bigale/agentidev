@@ -1,0 +1,91 @@
+/* Agentiface Container Queries — component-level responsiveness
+ *
+ * SC Canvas elements become container contexts when given the
+ * .af-container class. Forms and grids adapt at component level
+ * rather than viewport level.
+ */
+
+/* ── Container context ────────────────────────────────── */
+
+.af-container {
+  container-type: inline-size;
+}
+
+/* ── Form: stack fields vertically at narrow widths ───── */
+
+@container (max-width: 400px) {
+  .af-container .formTable .formCell {
+    display: block;
+    width: 100% !important;
+  }
+  .af-container .formTable .formTitleCell {
+    text-align: left;
+    padding-bottom: var(--af-space-xs);
+    width: 100% !important;
+  }
+}
+
+/* ── Grid: hide secondary columns at narrow widths ────── */
+
+@container (max-width: 500px) {
+  .af-container .af-col-hide-narrow {
+    display: none;
+  }
+}
+
+@container (max-width: 350px) {
+  .af-container .af-col-hide-xnarrow {
+    display: none;
+  }
+}
+
+/* ── Button bar: stack vertically when tight ──────────── */
+
+@container (max-width: 300px) {
+  .af-container .af-button-bar {
+    flex-direction: column;
+    gap: var(--af-space-xs);
+  }
+  .af-container .af-button-bar .button {
+    width: 100%;
+  }
+}
+
+/* ── Card layout: single column at narrow widths ──────── */
+
+@container (max-width: 600px) {
+  .af-container .af-card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@container (min-width: 601px) and (max-width: 900px) {
+  .af-container .af-card-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@container (min-width: 901px) {
+  .af-container .af-card-grid {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+}
+
+/* ── Portlet: reduce padding in tight spaces ──────────── */
+
+@container (max-width: 250px) {
+  .af-container .portletItem {
+    padding: var(--af-space-xs);
+  }
+}
+
+/* ── Tab bar: scroll instead of wrap at narrow widths ─── */
+
+@container (max-width: 400px) {
+  .af-container .tabBar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+}

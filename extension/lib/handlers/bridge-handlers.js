@@ -5,10 +5,14 @@
  */
 import * as bridgeClient from '../bridge-client.js';
 import { upsertShimImport } from '../shim-utils.js';
+import { dsAdd } from './datasource-handlers.js';
 import { state } from '../init-state.js';
+import { startPeriodicSync } from './sync-handlers.js';
 
 // Command log: circular buffer for tracking all bridge commands
 const commandLog = [];
+
+export function getCommandLog() { return commandLog; }
 const MAX_LOG = 200;
 
 function logCommand(type, sessionId, request, source = 'extension') {
@@ -68,13 +72,16 @@ export function register(handlers) {
     );
     return { success: true, ...result };
   };
+  handlers['SESSION_CREATE'] = handlers['BRIDGE_CREATE_SESSION'];
 
   handlers['BRIDGE_DESTROY_SESSION'] = async (msg) => {
-    const result = await tracked('destroy_session', msg.sessionId, {}, () =>
-      bridgeClient.destroySession(msg.sessionId)
+    const sessionId = msg.sessionId || msg.id;
+    const result = await tracked('destroy_session', sessionId, {}, () =>
+      bridgeClient.destroySession(sessionId)
     );
     return { success: true, ...result };
   };
+  handlers['SESSION_DESTROY'] = handlers['BRIDGE_DESTROY_SESSION'];
 
   handlers['BRIDGE_LIST_SESSIONS'] = async () => {
     const result = await bridgeClient.listSessions();
@@ -156,6 +163,15 @@ export function register(handlers) {
     return { success: true, ...result };
   };
 
+  // Native file picker (via bridge → powershell.exe)
+  handlers['FILE_PICKER'] = async (msg) => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge' };
+    }
+    const result = await bridgeClient.filePicker({ title: msg.title, filter: msg.filter });
+    return { success: true, ...result };
+  };
+
   // Bridge info (scripts dir, shim path)
   handlers['BRIDGE_GET_INFO'] = async () => {
     return {
@@ -189,7 +205,7 @@ export function register(handlers) {
  * Set up bridge event callbacks that forward broadcasts to extension UIs.
  * Called once during background initialization.
  */
-export function initBridgeCallbacks(snapshotStorageFn) {
+export function initBridgeCallbacks(snapshotStorageFn, deps = {}) {
   bridgeClient.onSnapshotReceived(async (data) => {
     console.log(`[Background] Snapshot broadcast received (${data.lines} lines)`);
     // Forward to sidepanel
@@ -213,17 +229,40 @@ export function initBridgeCallbacks(snapshotStorageFn) {
     console.log(`[Background] Bridge connection: ${data.connected ? 'connected' : 'disconnected'}`);
     chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_CONNECTION', ...data }).catch(() => {});
 
+    // Start periodic IDB sync for browser-only stores on first connect
+    if (data.connected) startPeriodicSync();
+
     // Auto-sync all library scripts to disk on bridge connect
     if (data.connected) {
       try {
         const stored = await chrome.storage.local.get('bridge-scripts');
         const lib = stored['bridge-scripts'] || {};
+        let dirty = false;
+
+        // Migrate corrupted entries where name is a full path (Windows .split('/') bug)
+        for (const name of Object.keys(lib)) {
+          if (name.includes('/') || name.includes('\\')) {
+            const safeName = name.split(/[/\\]/).pop().replace(/\.(mjs|js)$/, '');
+            console.log(`[Background] Migrating corrupted library entry: "${name}" → "${safeName}"`);
+            const entry = lib[name];
+            entry.name = safeName;
+            const shimPath = bridgeClient.getShimPath();
+            if (shimPath) entry.source = upsertShimImport(entry.source, shimPath);
+            lib[safeName] = entry;
+            delete lib[name];
+            dirty = true;
+          }
+        }
+        if (dirty) await chrome.storage.local.set({ 'bridge-scripts': lib });
+
         const names = Object.keys(lib);
         if (names.length > 0) {
           console.log(`[Background] Auto-syncing ${names.length} library scripts to bridge...`);
+          const shimPath = bridgeClient.getShimPath();
           for (const name of names) {
             try {
-              await bridgeClient.saveScript(name, lib[name].source);
+              const source = shimPath ? upsertShimImport(lib[name].source, shimPath) : lib[name].source;
+              await bridgeClient.saveScript(name, source);
             } catch (err) {
               console.warn(`[Background] Failed to sync ${name}:`, err.message);
             }
@@ -241,6 +280,66 @@ export function initBridgeCallbacks(snapshotStorageFn) {
     const { handleSnapshotSearch } = await import('./snapshot-handlers.js');
     return handleSnapshotSearch(query, options);
   });
+
+  if (deps.generateEmbedding && deps.vectorDB) {
+    bridgeClient.onSearchVectorDB(async (payload) => {
+      const { query, limit, threshold, queryKeywords, sources } = payload;
+      console.log(`[Background] VectorDB search: "${query}"${sources ? ` [sources: ${sources.join(',')}]` : ''}`);
+
+      let embedding;
+      if (deps.isInitialized()) {
+        try {
+          embedding = await deps.generateEmbedding(query);
+        } catch (err) {
+          console.error('[Background] Neural embedding failed for search, using TF-IDF:', err);
+          embedding = deps.generateSimpleEmbedding(query);
+        }
+      } else {
+        embedding = deps.generateSimpleEmbedding(query);
+      }
+
+      const results = await deps.vectorDB.search(embedding, {
+        limit: limit || 10,
+        threshold: threshold || (deps.isInitialized() ? 0.3 : 0.1),
+        queryKeywords: queryKeywords || [],
+        sources: sources || null,
+      });
+
+      return results;
+    });
+
+    bridgeClient.onIndexContent(async (payload) => {
+      const { url, title, text, html, contentType, keywords, metadata } = payload;
+      console.log(`[Background] Index content: "${title}"`);
+
+      let embedding;
+      if (deps.isInitialized()) {
+        try {
+          embedding = await deps.generateEmbedding(text);
+        } catch (err) {
+          console.error('[Background] Neural embedding failed, using TF-IDF:', err);
+          embedding = deps.generateSimpleEmbedding(text);
+        }
+      } else {
+        embedding = deps.generateSimpleEmbedding(text);
+      }
+
+      const id = await deps.vectorDB.addPage({
+        url: url || `indexed://${Date.now()}`,
+        title: title || 'Untitled',
+        text: text || '',
+        html: html || '',
+        timestamp: Date.now(),
+        contentType: contentType || 'general',
+        embedding,
+        keywords: keywords || [],
+        metadata: metadata || {},
+        source: payload.source || metadata?.source || 'reference',
+      });
+
+      return { success: true, id };
+    });
+  }
 
   bridgeClient.onScriptUpdate((data) => {
     console.log(`[Background] Script update: ${data.name} state=${data.state} ${data.step}/${data.total}`);
@@ -261,6 +360,64 @@ export function initBridgeCallbacks(snapshotStorageFn) {
   bridgeClient.onScheduleUpdate((data) => {
     console.log(`[Background] Schedule update: ${data.schedule?.name || data.scheduleId || 'unknown'}`);
     chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_SCHEDULE', ...data }).catch(() => {});
+  });
+
+  bridgeClient.onRunComplete(async (data) => {
+    const { run, artifacts } = data;
+    console.log(`[Background] Run complete: ${run?.name} (${run?.state}, ${artifacts?.length || 0} artifacts)`);
+    // Persist run + artifacts to IndexedDB directly (chrome.runtime.sendMessage is SW-to-SW and fails in MV3)
+    if (run && run.scriptId) {
+      try {
+        const runResp = await dsAdd({ dataSource: 'ScriptRuns', data: run });
+        if (runResp.status !== 0) console.warn('[Background] Failed to save run:', runResp.data);
+        else console.log(`[Background] Run saved to IndexedDB: ${run.name} (${run.scriptId})`);
+      } catch (err) {
+        console.warn('[Background] Failed to save run:', err.message);
+      }
+      if (Array.isArray(artifacts)) {
+        for (const artifact of artifacts) {
+          try {
+            await dsAdd({
+              dataSource: 'ScriptArtifacts',
+              data: {
+                runId: run.scriptId,
+                type: artifact.type,
+                timestamp: artifact.timestamp,
+                label: artifact.label || '',
+                data: artifact.data || null,
+                diskPath: artifact.diskPath || null,
+                size: artifact.size || 0,
+                contentType: artifact.contentType || 'application/octet-stream',
+              },
+            });
+          } catch (err) {
+            console.warn('[Background] Failed to save artifact:', err.message);
+          }
+        }
+      }
+    }
+    // Forward to dashboard UIs
+    chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_RUN_COMPLETE', ...data }).catch(() => {});
+  });
+
+  bridgeClient.onArtifact((data) => {
+    console.log(`[Background] Artifact: ${data.artifact?.label} (${data.artifact?.type})`);
+    chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_ARTIFACT', ...data }).catch(() => {});
+  });
+
+  // IDB restore broadcast: bridge sends SQLite data → import into IndexedDB
+  bridgeClient.onIdbRestore(async (data) => {
+    const { stores } = data || {};
+    if (!stores) return;
+    console.log(`[Background] IDB restore broadcast received: ${Object.keys(stores).join(', ')}`);
+    try {
+      const { importStores } = await import('./sync-handlers.js');
+      const result = await importStores(stores);
+      console.log(`[Background] IDB restore complete: ${result.totalImported} records`);
+      chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_IDB_RESTORED', result }).catch(() => {});
+    } catch (err) {
+      console.warn('[Background] IDB restore failed:', err.message);
+    }
   });
 
   bridgeClient.onFileChanged(async (data) => {

@@ -85,7 +85,7 @@ export class ScriptPanel {
       </div>
     ` : isDead ? `
       <div class="dash-sc-actions">
-        <button class="dash-sc-btn normal" data-action="dismiss" data-sid="${s.scriptId}" title="Remove from list">Dismiss</button>
+        <button class="dash-sc-btn normal" data-action="dismiss" data-sid="${s.scriptId}" title="Remove from list" aria-label="Dismiss ${esc(s.name)}">Dismiss</button>
       </div>
     ` : '';
 

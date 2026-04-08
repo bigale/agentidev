@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ADO: Open Eval Prompt",
+      "type": "shell",
+      "command": "code \"${workspaceFolder}/.ado-eval/prompt.md\"",
+      "group": "none",
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "ADO: Open Eval Context",
+      "type": "shell",
+      "command": "code \"${workspaceFolder}/.ado-eval/context.json\"",
+      "group": "none",
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "ADO: Open Analysis Output",
+      "type": "shell",
+      "command": "code \"${workspaceFolder}/.ado-eval/analysis.md\"",
+      "group": "none",
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "ADO: Eval — Open All",
+      "dependsOn": ["ADO: Open Eval Prompt", "ADO: Open Eval Context"],
+      "group": "none",
+      "problemMatcher": []
+    }
+  ]
+}

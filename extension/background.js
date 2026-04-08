@@ -12,7 +12,7 @@
  */
 
 import { vectorDB } from './lib/vectordb.js';
-import { initEmbeddings } from './lib/embeddings.js';
+import { initEmbeddings, generateEmbedding, isInitialized } from './lib/embeddings.js';
 import { checkAvailability, initSession, getStatus } from './lib/chrome-prompt-api.js';
 import { structDB } from './lib/structdb.js';
 import { yamlSnapshotStore } from './lib/yaml-snapshot-store.js';
@@ -28,11 +28,15 @@ import { register as registerAgent } from './lib/handlers/agent-handlers.js';
 import { register as registerGrammar } from './lib/handlers/grammar-handlers.js';
 import { register as registerBridge, initBridgeCallbacks } from './lib/handlers/bridge-handlers.js';
 import * as bridgeClient from './lib/bridge-client.js';
+import { upsertShimImport } from './lib/shim-utils.js';
 import { register as registerSnapshot, handleSnapshotStorage } from './lib/handlers/snapshot-handlers.js';
 import { register as registerAutomation } from './lib/handlers/automation-handlers.js';
 import { register as registerScript } from './lib/handlers/script-handlers.js';
 import { register as registerDataSource } from './lib/handlers/datasource-handlers.js';
 import { register as registerSmartClient } from './lib/handlers/smartclient-handlers.js';
+import { register as registerAppPersistence } from './lib/handlers/app-persistence.js';
+import { register as registerProjectPersistence } from './lib/handlers/project-persistence.js';
+import { register as registerSync } from './lib/handlers/sync-handlers.js';
 
 console.log('Contextual Recall: Background service worker started');
 console.log('[Background] Note: Extension reload = re-initialize (models are cached, not re-downloaded)');
@@ -70,9 +74,11 @@ async function ensureExampleScripts() {
       console.log('[Background] ✓ Example scripts loaded into library');
       // Sync new examples to disk if bridge is already connected
       if (bridgeClient.isConnected()) {
+        const shimPath = bridgeClient.getShimPath();
         for (const ex of EXAMPLE_SCRIPTS) {
           if (lib[ex.name]) {
-            try { await bridgeClient.saveScript(ex.name, lib[ex.name].source); } catch {}
+            const src = shimPath ? upsertShimImport(lib[ex.name].source, shimPath) : lib[ex.name].source;
+            try { await bridgeClient.saveScript(ex.name, src); } catch {}
           }
         }
         console.log('[Background] ✓ Example scripts synced to disk');
@@ -188,6 +194,9 @@ registerAutomation(handlers);
 registerScript(handlers);
 registerDataSource(handlers);
 registerSmartClient(handlers);
+registerAppPersistence(handlers);
+registerProjectPersistence(handlers);
+registerSync(handlers);
 
 chrome.runtime.onMessage.addListener(createMessageRouter(handlers));
 
@@ -205,7 +214,10 @@ chrome.runtime.onMessage.addListener(createMessageRouter(handlers));
 })();
 
 // Set up bridge event forwarding (broadcasts snapshots/status to sidepanel)
-initBridgeCallbacks(handleSnapshotStorage);
+import { generateSimpleEmbedding } from './lib/handlers/capture-handlers.js';
+initBridgeCallbacks(handleSnapshotStorage, {
+  generateEmbedding, isInitialized, generateSimpleEmbedding, vectorDB,
+});
 
 // Auto-connect to bridge server on startup (silent failure if bridge not running)
 bridgeClient.connectToBridge(9876).then(() => {

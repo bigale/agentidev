@@ -17,7 +17,7 @@ export function createMessageRouter(handlers) {
     const handler = handlers[message.type];
     if (!handler) return false;
 
-    handler(message, sender)
+    Promise.resolve(handler(message, sender))
       .then(result => sendResponse(result))
       .catch(error => {
         console.error(`[Router] ${message.type} error:`, error);

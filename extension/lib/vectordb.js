@@ -5,10 +5,11 @@
  * This is a POC implementation - production would use LanceDB WASM.
  *
  * v2: Added keywords multiEntry index and hybrid search scoring.
+ * v3: Added source partitioning index for scoped queries.
  */
 
 const DB_NAME = 'contextual-recall-db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = 'pages';
 
 // Recency half-life: 1 week in milliseconds
@@ -57,6 +58,14 @@ class VectorDB {
             store.createIndex('keywords', 'keywords', { unique: false, multiEntry: true });
           }
         }
+
+        // v3: Add source partitioning index
+        if (oldVersion < 3) {
+          const store = event.target.transaction.objectStore(STORE_NAME);
+          if (!store.indexNames.contains('source')) {
+            store.createIndex('source', 'source', { unique: false });
+          }
+        }
       };
     });
   }
@@ -78,7 +87,8 @@ class VectorDB {
       contentType: pageData.contentType || 'unknown',
       embedding: pageData.embedding, // Float32Array or regular array
       keywords: pageData.keywords || [],
-      metadata: pageData.metadata || {}
+      metadata: pageData.metadata || {},
+      source: pageData.source || 'browsing'
     };
 
     return new Promise((resolve, reject) => {
@@ -120,6 +130,31 @@ class VectorDB {
   }
 
   /**
+   * Get pages matching any of the given source values using the source index.
+   * @param {string[]} sources - Source values to fetch (e.g. ['browsing', 'showcase'])
+   * @returns {Promise<Array>}
+   */
+  async getPagesBySources(sources) {
+    if (!sources || sources.length === 0) return this.getAllPages();
+
+    const transaction = this.db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const index = store.index('source');
+    const allPages = [];
+
+    const fetches = sources.map(source =>
+      new Promise((resolve, reject) => {
+        const request = index.getAll(source);
+        request.onsuccess = () => { allPages.push(...request.result); resolve(); };
+        request.onerror = () => reject(request.error);
+      })
+    );
+
+    await Promise.all(fetches);
+    return allPages;
+  }
+
+  /**
    * Search for similar pages using hybrid scoring:
    *   finalScore = vectorScore * 0.7 + keywordScore * 0.2 + recencyScore * 0.1
    *
@@ -131,6 +166,7 @@ class VectorDB {
    * @param {string[]} [options.queryKeywords] - Keywords extracted from the query
    * @param {string} [options.domainFilter] - Restrict results to this domain
    * @param {string} [options.afterDate] - ISO date string, only return results after this date
+   * @param {string[]} [options.sources] - Source partitions to search (e.g. ['browsing', 'showcase'])
    */
   async search(queryEmbedding, options = {}) {
     const {
@@ -139,14 +175,17 @@ class VectorDB {
       threshold = 0.5,
       queryKeywords = [],
       domainFilter = null,
-      afterDate = null
+      afterDate = null,
+      sources = null
     } = options;
 
     const hasKeywords = queryKeywords.length > 0;
     const now = Date.now();
 
-    // Get all pages (for POC - production would use vector index)
-    let pages = await this.getAllPages();
+    // Use source index when filtering by partition, otherwise full scan
+    let pages = sources && sources.length > 0
+      ? await this.getPagesBySources(sources)
+      : await this.getAllPages();
 
     // If keywords provided, also fetch keyword-matched pages to ensure they're included
     // (they'll be in the full scan too, but this ensures scoring works)
@@ -209,6 +248,7 @@ class VectorDB {
         snippet: this.generateSnippet(r.text),
         timestamp: r.timestamp,
         score: r.score,
+        source: r.source || 'browsing',
         contentType: r.contentType,
         keywords: r.keywords || [],
         chunkType: r.metadata?.chunkType || 'unknown',
@@ -320,11 +360,19 @@ class VectorDB {
       ? stats.stats.queriesToday
       : 0;
 
+    // Group by source partition
+    const bySource = {};
+    for (const chunk of chunks) {
+      const src = chunk.source || 'browsing';
+      bySource[src] = (bySource[src] || 0) + 1;
+    }
+
     return {
       pagesIndexed: chunks.length, // Total chunks
       pagesUnique: uniqueUrls.size, // Unique pages
       storageUsed: storageBytes,
-      queriesToday: queriesToday
+      queriesToday: queriesToday,
+      bySource
     };
   }
 

@@ -1,6 +1,6 @@
 /**
  * Static registry of playwright-cli commands with typed argument definitions.
- * Browser-compatible copy of bridge/cli-commands.mjs for dashboard UI rendering.
+ * Browser-compatible copy of packages/bridge/cli-commands.mjs for dashboard UI rendering.
  */
 
 export const CLI_COMMANDS = {

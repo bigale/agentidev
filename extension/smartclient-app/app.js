@@ -3,13 +3,16 @@
  * Runs inside sandbox (eval allowed, no chrome.* APIs).
  * Communicates with wrapper.html via postMessage.
  *
- * AI integration: prompt bar sends descriptions to Gemini Nano,
- * renderer.js creates SmartClient components from JSON configs.
+ * AI-generated configs arrive via postMessage from bridge.js (sidepanel controls
+ * generation, save, undo — no prompt bar in this iframe).
  */
 
 // Pending DS requests awaiting response
 const pendingRequests = {};
 let requestCounter = 0;
+
+// Current rendered config (updated when sidepanel broadcasts new configs)
+var _currentConfig = null;
 
 // ---- postMessage bridge ----
 
@@ -28,16 +31,26 @@ function sendDSRequest(dsRequest) {
   });
 }
 
-function sendAIRequest(prompt) {
-  window.parent.postMessage({
-    source: 'smartclient-ai',
-    prompt: prompt,
-  }, '*');
-}
-
 window.addEventListener('message', (event) => {
   const msg = event.data;
   if (!msg) return;
+
+  // DS cache invalidation from bridge broadcasts
+  if (msg.source === 'smartclient-ds-update') {
+    invalidateDSCaches(msg.dataSource);
+    return;
+  }
+
+  // Dashboard mode: action responses and broadcasts handled by dashboard-app.js
+  if (msg.source === 'smartclient-action-response' || msg.source === 'smartclient-broadcast') {
+    return;
+  }
+
+  // Dashboard mode: load dashboard layout
+  if (msg.source === 'smartclient-load-dashboard') {
+    if (typeof loadDashboard === 'function') loadDashboard();
+    return;
+  }
 
   // DS response
   if (msg.source === 'smartclient-ds-response' && pendingRequests[msg.id]) {
@@ -50,34 +63,70 @@ window.addEventListener('message', (event) => {
   if (msg.source === 'smartclient-ai-response') {
     handleAIResponse(msg);
   }
+
+  // Inspector mode toggle from sidepanel via bridge
+  if (msg.source === 'smartclient-set-mode') {
+    if (typeof InspectorUI !== 'undefined') {
+      if (msg.mode === 'visual' && !InspectorUI.isVisible()) {
+        InspectorUI.toggle();
+      } else if (msg.mode === 'render' && InspectorUI.isVisible()) {
+        InspectorUI.toggle();
+      }
+    }
+    return;
+  }
+
+  // Component selected in canvas (from renderer click handlers)
+  if (msg.source === 'smartclient-component-selected') {
+    if (typeof InspectorUI !== 'undefined') {
+      InspectorUI.selectByPath(msg.nodePath);
+    }
+    return;
+  }
+
+  // Template request from bridge.js — look up bundled template config
+  if (msg.source === 'smartclient-get-template') {
+    var tplId = msg.templateId;
+    var tpl = null;
+    if (typeof Agentiface !== 'undefined' && Agentiface.TemplateManager) {
+      tpl = Agentiface.TemplateManager.getById(tplId);
+    }
+    window.parent.postMessage({
+      source: 'smartclient-template-response',
+      templateId: tplId,
+      config: tpl ? tpl.config : null,
+      aiSystemPrompt: tpl ? tpl.aiSystemPrompt : null,
+      suggestedPrompts: tpl ? tpl.suggestedPrompts : null,
+    }, '*');
+    return;
+  }
 });
 
 // ---- AI response handling ----
 
 function handleAIResponse(msg) {
-  var btn = document.getElementById('ai-generate');
-  if (btn) btn.disabled = false;
-
   if (msg.success && msg.config) {
-    setStatus('Rendering...');
     try {
+      // Store clean JSON copy BEFORE rendering (SC mutates objects with functions)
+      _currentConfig = JSON.parse(JSON.stringify(msg.config));
+
       clearNotesApp();
-      renderConfig(msg.config);
-      setStatus('Done');
-      setTimeout(function () { setStatus(''); }, 2000);
+      renderConfig(msg.config, {
+        capabilities: msg.capabilities,
+        skin: typeof _skinName !== 'undefined' ? _skinName : 'Tahoe',
+      });
+      console.log('[App] Config rendered');
+
+      // Refresh inspector tree if visible
+      if (typeof InspectorUI !== 'undefined' && InspectorUI.isVisible()) {
+        InspectorUI.refresh();
+      }
     } catch (err) {
-      setStatus('Render error: ' + err.message);
       console.error('[App] Render error:', err);
     }
   } else {
-    setStatus('Error: ' + (msg.error || 'Unknown error'));
     console.error('[App] AI error:', msg.error);
   }
-}
-
-function setStatus(text) {
-  var el = document.getElementById('ai-status');
-  if (el) el.textContent = text;
 }
 
 // Track Notes app components for cleanup when AI generates new UI
@@ -201,35 +250,20 @@ function loadNotesApp() {
   notesAppComponents.push(mainLayout);
 }
 
-// ---- Prompt bar event handlers ----
-
-function initPromptBar() {
-  var input = document.getElementById('ai-prompt');
-  var btn = document.getElementById('ai-generate');
-
-  if (!input || !btn) return;
-
-  btn.addEventListener('click', function () {
-    var prompt = input.value.trim();
-    if (!prompt) return;
-    btn.disabled = true;
-    setStatus('Generating...');
-    sendAIRequest(prompt);
-  });
-
-  input.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') {
-      btn.click();
-    }
-  });
-}
-
 // ---- Wait for SmartClient framework ----
 
 isc.Page.setEvent('load', function () {
-  // Load default Notes app
-  loadNotesApp();
+  // Only load default Notes app if no AI config was already rendered
+  // (playground mode may deliver config via postMessage before Page.load fires)
+  if (!_currentConfig) {
+    loadNotesApp();
+  }
 
-  // Bind prompt bar
-  initPromptBar();
+  // Initialize inspector (hidden by default)
+  if (typeof InspectorUI !== 'undefined') {
+    InspectorUI.init();
+  }
+
+  // Signal readiness to bridge.js so it can send buffered configs
+  window.parent.postMessage({ source: 'smartclient-ready' }, '*');
 });

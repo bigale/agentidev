@@ -1,0 +1,52 @@
+---
+description: SmartClient sandbox iframe, renderer, dashboard, Monaco editor
+globs: ["extension/smartclient-app/**"]
+alwaysApply: false
+---
+
+# SmartClient Dashboard (`extension/smartclient-app/`)
+
+## Sandbox Architecture
+
+Runs inside sandboxed iframe (`app.html` loaded by `wrapper.html`). All communication via postMessage through `bridge.js` (host page) <-> `app.js` (sandbox).
+
+- `bridge.js`: translates postMessage DS operations to `chrome.runtime.sendMessage` calls
+- `app.js`: receives configs, calls `renderer.js`, handles DS responses
+- Loading modes: `?app=<id>` (IndexedDB), `?clone=1` (storage.session), or gallery
+
+## Renderer (`renderer.js`)
+
+Whitelist of allowed SmartClient types (ALLOWED_TYPES Set):
+`VLayout`, `HLayout`, `ListGrid`, `DynamicForm`, `Button`, `Label`, `TabSet`, `Tab`, `DetailViewer`, `SectionStack`, `HTMLFlow`, `Window`, `ToolStrip`, `ToolStripButton`, `PortalLayout`, `Portlet`, `Canvas`, `Progressbar`, `ImgButton`, `ToolStripSeparator`, `ToolStripMenuButton`, `Menu`
+
+Config is JSON with special properties:
+- `_type` — SmartClient class name (must be in whitelist)
+- `ID` — component ID, registered in `componentRegistry`
+- `_action` — action descriptor mapped via `ACTION_MAP` (no eval)
+- `_formatter` — cell formatter name (`stateDot`, `timestamp`, `elapsed`, `progressBar`)
+
+Key functions:
+- `resolveRef(id)` — finds components by ID in `componentRegistry`
+- `dispatchAction(messageType, payload)` — fire-and-forget to bridge.js via postMessage
+- `dispatchActionAsync(messageType, payload)` — returns Promise, uses `msg.id` for response matching
+
+## Dashboard
+
+`dashboard-config.js` defines PortalLayout config (3-column layout, toolbar, grids).
+`dashboard-app.js` wires it up, handles `AUTO_BROADCAST_*` messages via `handleBroadcast(type, payload)`.
+
+## Monaco Editor
+
+SmartClient clobbers `window.DataView` in Simple Names mode. Fix:
+1. Save native `DataView` before SC loads (`_nativeDataView`)
+2. Restore before Monaco initialization
+3. Save/restore AMD loader globals around Monaco loader
+
+Monaco deferred 500ms to avoid blocking on extension reload. Host div sized programmatically from SC Canvas dimensions (CSS `height:100%` fails in SC layout).
+
+## Cell Formatters
+
+- `stateDot` — colored circle by state (running=green, paused=orange, error=red, etc.)
+- `timestamp` — formats epoch to HH:MM:SS
+- `elapsed` — relative time display
+- `progressBar` — visual progress indicator

@@ -373,6 +373,7 @@ async function indexChunks(chunks) {
         html: '', // Not needed for spec chunks
         embedding: embedding,
         timestamp: chunk.metadata.timestamp,
+        source: 'reference',
         metadata: chunk.metadata
       });
 

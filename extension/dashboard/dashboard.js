@@ -948,9 +948,9 @@ function renderSchedules() {
       <span class="dash-schedule-name" title="${escHtml(s.scriptPath || '')}">${escHtml(s.name)}</span>
       <span class="dash-schedule-info">every ${interval} · ${s.runCount} runs${next ? ' · ' + next : ''}</span>
       <span class="dash-schedule-actions">
-        <button class="dash-schedule-btn trigger" data-sched-action="trigger" data-sched-id="${s.id}" title="Run now">▶</button>
-        <button class="dash-schedule-btn toggle" data-sched-action="toggle" data-sched-id="${s.id}" title="${s.enabled ? 'Disable' : 'Enable'}">${s.enabled ? '⏸' : '▶'}</button>
-        <button class="dash-schedule-btn delete" data-sched-action="delete" data-sched-id="${s.id}" title="Delete">✕</button>
+        <button class="dash-schedule-btn trigger" data-sched-action="trigger" data-sched-id="${s.id}" title="Run now" aria-label="Run ${escHtml(s.name)} now">▶</button>
+        <button class="dash-schedule-btn toggle" data-sched-action="toggle" data-sched-id="${s.id}" title="${s.enabled ? 'Disable' : 'Enable'}" aria-label="${s.enabled ? 'Disable' : 'Enable'} ${escHtml(s.name)}">${s.enabled ? '⏸' : '▶'}</button>
+        <button class="dash-schedule-btn delete" data-sched-action="delete" data-sched-id="${s.id}" title="Delete" aria-label="Delete schedule ${escHtml(s.name)}">✕</button>
       </span>
     </div>`;
   }).join('');
@@ -1269,6 +1269,10 @@ document.getElementById('dash-smartclient-btn').addEventListener('click', () => 
   chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html') });
 });
 
+document.getElementById('dash-apps-btn').addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html') });
+});
+
 // Site Clone — clone active session's current page to SmartClient
 const siteCloneBtn = document.getElementById('dash-site-clone-btn');
 const cloneStatus = document.getElementById('dash-clone-status');
@@ -1283,9 +1287,14 @@ siteCloneBtn.addEventListener('click', () => {
     siteCloneBtn.disabled = !state.activeSessionId || !state.connected;
     if (response?.success) {
       cloneStatus.textContent = '';
-      chrome.storage.session.set({ sc_clone_config: response.config }, () => {
-        chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html?clone=1') });
-      });
+      if (response.appId) {
+        chrome.tabs.create({ url: chrome.runtime.getURL(`smartclient-app/wrapper.html?app=${response.appId}`) });
+      } else {
+        // Fallback: ephemeral clone (backward compat)
+        chrome.storage.session.set({ sc_clone_config: response.config }, () => {
+          chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html?clone=1') });
+        });
+      }
     } else {
       cloneStatus.textContent = response?.error || 'Clone failed';
     }

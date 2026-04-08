@@ -1,0 +1,8 @@
+# Vendor code — large SmartClient SDK
+extension/smartclient-app/isomorphic/
+
+# Vendor ML library
+extension/lib/transformers/
+
+# Dependencies
+node_modules/

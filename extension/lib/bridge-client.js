@@ -10,11 +10,13 @@
 const DEFAULT_PORT = 9876;
 const MAX_RECONNECT_DELAY = 30000;
 const INITIAL_RECONNECT_DELAY = 1000;
+const KEEPALIVE_INTERVAL = 20000; // 20s - prevents Chrome MV3 service worker suspension
 
 let ws = null;
 let port = DEFAULT_PORT;
 let reconnectDelay = INITIAL_RECONNECT_DELAY;
 let reconnectTimer = null;
+let keepaliveTimer = null;
 let intentionalClose = false;
 let bridgeShimPath = null;
 let bridgeScriptsDir = null;
@@ -29,11 +31,16 @@ const callbacks = {
   onError: [],
   onConnectionChange: [],
   onSearchRequest: [],
+  onSearchVectorDB: [],
+  onIndexContent: [],
   onScriptUpdate: [],
   onFileChanged: [],
   onDbgPaused: [],
   onDbgResumed: [],
   onScheduleUpdate: [],
+  onRunComplete: [],
+  onArtifact: [],
+  onIdbRestore: [],
 };
 
 /**
@@ -65,6 +72,9 @@ export function connectToBridge(serverPort = DEFAULT_PORT) {
       // Identify as extension
       const identifyMsg = _buildMessage('BRIDGE_IDENTIFY', { role: 'extension' });
       ws.send(JSON.stringify(identifyMsg));
+
+      // Start keepalive to prevent Chrome MV3 service worker suspension
+      _startKeepalive();
 
       _fireCallbacks('onConnectionChange', { connected: true });
       resolve(true);
@@ -99,6 +109,7 @@ export function connectToBridge(serverPort = DEFAULT_PORT) {
 
     ws.onclose = () => {
       console.log('[BridgeClient] Disconnected from bridge server');
+      _stopKeepalive();
       _fireCallbacks('onConnectionChange', { connected: false });
 
       // Reject all pending requests
@@ -128,6 +139,7 @@ export function connectToBridge(serverPort = DEFAULT_PORT) {
  */
 export function disconnectFromBridge() {
   intentionalClose = true;
+  _stopKeepalive();
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
@@ -253,7 +265,7 @@ export function listScripts() {
  * @param {string} scriptPath - Absolute path to .mjs or .js script
  * @param {string[]} [args] - Optional CLI args
  */
-export function launchScript(scriptPath, args = [], breakpoints = [], lineBreakpoints = [], debug = false, sessionId = null, originalPath = null, preActions = null, postActions = null) {
+export function launchScript(scriptPath, args = [], breakpoints = [], lineBreakpoints = [], debug = false, sessionId = null, originalPath = null, preActions = null, postActions = null, captureArtifacts = false) {
   const payload = { path: scriptPath, args };
   if (breakpoints.length > 0) payload.breakpoints = breakpoints;
   if (lineBreakpoints.length > 0) payload.lineBreakpoints = lineBreakpoints;
@@ -262,7 +274,17 @@ export function launchScript(scriptPath, args = [], breakpoints = [], lineBreakp
   if (originalPath) payload.originalPath = originalPath;
   if (preActions && preActions.length > 0) payload.preActions = preActions;
   if (postActions && postActions.length > 0) payload.postActions = postActions;
+  if (captureArtifacts) payload.captureArtifacts = true;
   return _sendRequest('BRIDGE_SCRIPT_LAUNCH', payload);
+}
+
+/**
+ * Get an artifact file from disk via bridge server (base64)
+ * @param {string} diskPath - Absolute path to artifact file
+ * @returns {Promise<object>} { success, data (base64 data URI) }
+ */
+export function getArtifact(diskPath) {
+  return _sendRequest('BRIDGE_SCRIPT_GET_ARTIFACT', { diskPath });
 }
 
 /**
@@ -410,6 +432,9 @@ export function listSchedules() {
 export function triggerSchedule(scheduleId) {
   return _sendRequest('BRIDGE_SCHEDULE_TRIGGER', { scheduleId });
 }
+export function scheduleHistory(scheduleId) {
+  return _sendRequest('BRIDGE_SCHEDULE_HISTORY', { scheduleId });
+}
 
 export function onScheduleUpdate(cb) {
   callbacks.onScheduleUpdate.push(cb);
@@ -420,10 +445,17 @@ export function onScheduleUpdate(cb) {
 /**
  * Generate SmartClient UI config via Claude Code (bridge spawns claude -p).
  * @param {string} prompt - Natural language UI description
+ * @param {object} [currentConfig] - Existing config for modification mode (Phase 5b)
+ * @param {string} [projectDescription] - Optional project description for system prompt context
  * @returns {Promise<{ success: boolean, config?: object, error?: string }>}
  */
-export function generateSmartClientUI(prompt) {
-  return _sendRequest('BRIDGE_SC_GENERATE_UI', { prompt }, 60000);
+export function generateSmartClientUI(prompt, currentConfig = null, projectDescription = null, model = null, templatePrompt = null) {
+  const payload = { prompt };
+  if (currentConfig) payload.currentConfig = currentConfig;
+  if (projectDescription) payload.projectDescription = projectDescription;
+  if (templatePrompt) payload.templatePrompt = templatePrompt;
+  if (model) payload.model = model;
+  return _sendRequest('BRIDGE_SC_GENERATE_UI', payload, 180000);
 }
 
 /**
@@ -438,6 +470,103 @@ export function clonePageToSmartClient(sessionId, options = {}) {
   return _sendRequest('BRIDGE_SC_CLONE_PAGE', { sessionId, url: options.url, model: options.model }, 120000);
 }
 
+/**
+ * Delete persisted clone artifacts from disk.
+ * @param {string} cloneId - Clone ID (e.g. 'clone_1710500000000_a3xk')
+ * @returns {Promise<{ success: boolean, cloneId: string }>}
+ */
+export function deleteCloneArtifacts(cloneId) {
+  return _sendRequest('BRIDGE_SC_DELETE_CLONE_ARTIFACTS', { cloneId }, 10000);
+}
+
+// ---- Agentiface App Persistence (Phase 5b) ----
+
+/**
+ * Save/update an Agentiface app to disk via bridge server.
+ * @param {object} app - { id?, name, config, prompt?, history? }
+ * @returns {Promise<{ success: boolean, app: object }>}
+ */
+export function afAppSave(app) {
+  return _sendRequest('BRIDGE_AF_APP_SAVE', app);
+}
+
+/**
+ * Load an Agentiface app by ID from disk.
+ * @param {string} id - App ID
+ * @returns {Promise<{ success: boolean, app: object }>}
+ */
+export function afAppLoad(id) {
+  return _sendRequest('BRIDGE_AF_APP_LOAD', { id });
+}
+
+/**
+ * List all saved Agentiface apps (metadata only).
+ * @returns {Promise<{ success: boolean, apps: object[] }>}
+ */
+export function afAppList() {
+  return _sendRequest('BRIDGE_AF_APP_LIST', {});
+}
+
+/**
+ * Delete an Agentiface app from disk.
+ * @param {string} id - App ID
+ * @returns {Promise<{ success: boolean }>}
+ */
+export function afAppDelete(id) {
+  return _sendRequest('BRIDGE_AF_APP_DELETE', { id });
+}
+
+// ---- Agentiface Project Persistence ----
+
+/**
+ * Save/update an Agentiface project to disk via bridge server.
+ * @param {object} project - { id?, name, description?, skin?, capabilities?, config?, prompt?, history? }
+ * @returns {Promise<{ success: boolean, project: object }>}
+ */
+export function afProjectSave(project) {
+  return _sendRequest('BRIDGE_AF_PROJECT_SAVE', project);
+}
+
+/**
+ * Load an Agentiface project by ID from disk.
+ * @param {string} id - Project ID
+ * @returns {Promise<{ success: boolean, project: object }>}
+ */
+export function afProjectLoad(id) {
+  return _sendRequest('BRIDGE_AF_PROJECT_LOAD', { id });
+}
+
+/**
+ * List all saved Agentiface projects (metadata only).
+ * @returns {Promise<{ success: boolean, projects: object[] }>}
+ */
+export function afProjectList() {
+  return _sendRequest('BRIDGE_AF_PROJECT_LIST', {});
+}
+
+/**
+ * Delete an Agentiface project from disk.
+ * @param {string} id - Project ID
+ * @returns {Promise<{ success: boolean }>}
+ */
+export function afProjectDelete(id) {
+  return _sendRequest('BRIDGE_AF_PROJECT_DELETE', { id });
+}
+
+// ---- Agentiface template persistence (bridge-backed) ----
+
+export function afTemplateSave(template) {
+  return _sendRequest('BRIDGE_AF_TEMPLATE_SAVE', template);
+}
+
+export function afTemplateList() {
+  return _sendRequest('BRIDGE_AF_TEMPLATE_LIST', {});
+}
+
+export function afTemplateDelete(id) {
+  return _sendRequest('BRIDGE_AF_TEMPLATE_DELETE', { id });
+}
+
 // ---- System process management ----
 
 export function getSystemProcesses() {
@@ -445,6 +574,9 @@ export function getSystemProcesses() {
 }
 export function killProcess(pid) {
   return _sendRequest('BRIDGE_KILL_PROCESS', { pid });
+}
+export function filePicker(options = {}) {
+  return _sendRequest('BRIDGE_FILE_PICKER', options, 120000);
 }
 
 /**
@@ -518,6 +650,12 @@ export function onDbgPaused(cb) {
 export function onDbgResumed(cb) {
   callbacks.onDbgResumed.push(cb);
 }
+export function onRunComplete(cb) {
+  callbacks.onRunComplete.push(cb);
+}
+export function onArtifact(cb) {
+  callbacks.onArtifact.push(cb);
+}
 
 /**
  * Register callback for search requests relayed from bridge server.
@@ -526,6 +664,42 @@ export function onDbgResumed(cb) {
  */
 export function onSearchRequest(cb) {
   callbacks.onSearchRequest.push(cb);
+}
+
+/**
+ * Register callback for vectorDB search requests relayed from bridge server.
+ * Callback receives (payload) and must return a Promise<results[]>.
+ * @param {function} cb - async Callback(payload) => results[]
+ */
+export function onSearchVectorDB(cb) {
+  callbacks.onSearchVectorDB.push(cb);
+}
+
+/**
+ * Register callback for index content requests relayed from bridge server.
+ * Callback receives (payload) and must return a Promise<{success, id}>.
+ * @param {function} cb - async Callback(payload) => {success, id}
+ */
+export function onIndexContent(cb) {
+  callbacks.onIndexContent.push(cb);
+}
+
+/**
+ * Register callback for IDB restore broadcasts from the bridge.
+ * @param {function} cb - Callback({ stores }) where stores is { storeName: records[] }
+ */
+export function onIdbRestore(cb) {
+  callbacks.onIdbRestore.push(cb);
+}
+
+/**
+ * Send a raw message to the bridge and wait for a reply.
+ * Useful for custom message types not covered by typed helpers.
+ * @param {{ type: string, payload: object }} msg
+ * @param {number} [timeout=30000]
+ */
+export function sendRaw(msg, timeout = 30000) {
+  return _sendRequest(msg.type, msg.payload || {}, timeout);
 }
 
 // --- Internal ---
@@ -600,8 +774,23 @@ function _handleBroadcast(msg) {
     case 'BRIDGE_SCHEDULE_DELETED':
       _fireCallbacks('onScheduleUpdate', msg.payload);
       break;
+    case 'BRIDGE_SCRIPT_RUN_COMPLETE':
+      _fireCallbacks('onRunComplete', msg.payload);
+      break;
+    case 'BRIDGE_SCRIPT_ARTIFACT':
+      _fireCallbacks('onArtifact', msg.payload);
+      break;
+    case 'BRIDGE_IDB_RESTORE':
+      _fireCallbacks('onIdbRestore', msg.payload);
+      break;
     case 'BRIDGE_SEARCH_SNAPSHOTS':
       _handleSearchRequest(msg);
+      break;
+    case 'BRIDGE_SEARCH_VECTORDB':
+      _handleVectorDBSearch(msg);
+      break;
+    case 'BRIDGE_INDEX_CONTENT':
+      _handleIndexRequest(msg);
       break;
   }
 }
@@ -649,6 +838,90 @@ async function _handleSearchRequest(msg) {
   }
 }
 
+/**
+ * Handle a vectorDB search request relayed from the bridge server.
+ * Calls registered onSearchVectorDB callbacks and sends the reply.
+ */
+async function _handleVectorDBSearch(msg) {
+  const payload = msg.payload || {};
+  console.log(`[BridgeClient] VectorDB search request: "${payload.query}"`);
+
+  try {
+    let results = [];
+    for (const cb of callbacks.onSearchVectorDB) {
+      results = await cb(payload);
+      if (results && results.length > 0) break;
+    }
+
+    const reply = {
+      id: `ext_${Date.now()}_${++_msgCounter}`,
+      type: 'BRIDGE_SEARCH_VECTORDB',
+      source: 'extension',
+      timestamp: Date.now(),
+      replyTo: msg.id,
+      payload: { success: true, results },
+    };
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(reply));
+    }
+  } catch (err) {
+    console.error('[BridgeClient] VectorDB search failed:', err);
+    const reply = {
+      id: `ext_${Date.now()}_${++_msgCounter}`,
+      type: 'BRIDGE_ERROR',
+      source: 'extension',
+      timestamp: Date.now(),
+      replyTo: msg.id,
+      payload: { error: err.message },
+    };
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(reply));
+    }
+  }
+}
+
+/**
+ * Handle an index content request relayed from the bridge server.
+ * Calls registered onIndexContent callbacks and sends the reply.
+ */
+async function _handleIndexRequest(msg) {
+  const payload = msg.payload || {};
+  console.log(`[BridgeClient] Index request: "${payload.title}"`);
+
+  try {
+    let result = { success: false, error: 'No handler registered' };
+    for (const cb of callbacks.onIndexContent) {
+      result = await cb(payload);
+      if (result && result.success) break;
+    }
+
+    const reply = {
+      id: `ext_${Date.now()}_${++_msgCounter}`,
+      type: 'BRIDGE_INDEX_CONTENT',
+      source: 'extension',
+      timestamp: Date.now(),
+      replyTo: msg.id,
+      payload: result,
+    };
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(reply));
+    }
+  } catch (err) {
+    console.error('[BridgeClient] Index request failed:', err);
+    const reply = {
+      id: `ext_${Date.now()}_${++_msgCounter}`,
+      type: 'BRIDGE_ERROR',
+      source: 'extension',
+      timestamp: Date.now(),
+      replyTo: msg.id,
+      payload: { error: err.message },
+    };
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(reply));
+    }
+  }
+}
+
 function _fireCallbacks(event, data) {
   for (const cb of callbacks[event] || []) {
     try {
@@ -656,6 +929,22 @@ function _fireCallbacks(event, data) {
     } catch (err) {
       console.error(`[BridgeClient] Callback error (${event}):`, err);
     }
+  }
+}
+
+function _startKeepalive() {
+  _stopKeepalive();
+  keepaliveTimer = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(_buildMessage('BRIDGE_HEALTH', {})));
+    }
+  }, KEEPALIVE_INTERVAL);
+}
+
+function _stopKeepalive() {
+  if (keepaliveTimer) {
+    clearInterval(keepaliveTimer);
+    keepaliveTimer = null;
   }
 }
 
