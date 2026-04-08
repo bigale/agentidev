@@ -1,8 +1,16 @@
 {
-  "name": "@contextual-recall/forge",
+  "name": "@bigale/contextual-recall-forge",
   "version": "0.1.0",
   "description": "Agentiface Forge — UI toolkit built on SmartClient LGPL",
   "license": "LGPL-2.1-only",
   "keywords": ["ui-toolkit", "smartclient", "design-tokens", "theme-engine"],
-  "files": ["*.css", "*.js"]
+  "files": ["*.css", "*.js"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bigale/agentidev.git",
+    "directory": "packages/forge"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
 }

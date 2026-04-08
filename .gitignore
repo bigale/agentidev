@@ -58,3 +58,4 @@ twinspires-races.txt
 *.png
 nul
 .specstory/
+.npmrc
