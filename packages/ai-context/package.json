@@ -1,0 +1,11 @@
+{
+  "name": "@contextual-recall/ai-context",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AI context sync — generates tool-native configs for Claude Code, Cursor, and Copilot",
+  "license": "MIT",
+  "bin": {
+    "ai-sync": "./sync.mjs",
+    "ai-adapt": "./adapt.mjs"
+  }
+}

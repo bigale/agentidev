@@ -1,4 +1,4 @@
-<!-- Generated from docs/ai-context/. Do not edit directly. -->
+<!-- Generated from packages/ai-context/sources/. Do not edit directly. -->
 
 ---
 description: Playwright E2E testing for SmartClient dashboard — locators, commands, interaction patterns

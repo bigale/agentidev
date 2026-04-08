@@ -2,13 +2,13 @@
 # Start the full development stack: bridge server + Chromium with extension.
 #
 # Usage:
-#   ./bridge/start-dev.sh          # start both
-#   ./bridge/start-dev.sh --stop   # kill both
+#   ./packages/bridge/start-dev.sh          # start both
+#   ./packages/bridge/start-dev.sh --stop   # kill both
 #
 # The bridge server must start first so the extension can auto-connect.
 
 set -e
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 BRIDGE_PID_FILE="/tmp/contextual-recall-bridge.pid"
 BROWSER_PID_FILE="/tmp/contextual-recall-browser.pid"
@@ -26,8 +26,8 @@ stop_all() {
     fi
   done
   # Sweep any orphans
-  pkill -f "node bridge/server.mjs" 2>/dev/null || true
-  pkill -f "node bridge/launch-browser.mjs" 2>/dev/null || true
+  pkill -f "node packages/bridge/server.mjs" 2>/dev/null || true
+  pkill -f "node packages/bridge/launch-browser.mjs" 2>/dev/null || true
   echo "[dev] Stopped."
 }
 
@@ -40,7 +40,7 @@ fi
 stop_all 2>/dev/null
 
 echo "[dev] Starting bridge server..."
-node bridge/server.mjs > /tmp/contextual-recall-bridge.log 2>&1 &
+node packages/bridge/server.mjs > /tmp/contextual-recall-bridge.log 2>&1 &
 echo $! > "$BRIDGE_PID_FILE"
 echo "[dev] Bridge PID: $(cat $BRIDGE_PID_FILE)"
 
@@ -54,7 +54,7 @@ for i in $(seq 1 10); do
 done
 
 echo "[dev] Launching Chromium with extension..."
-DISPLAY="${DISPLAY:-localhost:10.0}" node bridge/launch-browser.mjs > /tmp/contextual-recall-browser.log 2>&1 &
+DISPLAY="${DISPLAY:-localhost:10.0}" node packages/bridge/launch-browser.mjs > /tmp/contextual-recall-browser.log 2>&1 &
 echo $! > "$BROWSER_PID_FILE"
 echo "[dev] Browser PID: $(cat $BROWSER_PID_FILE)"
 
@@ -63,7 +63,7 @@ sleep 3
 if kill -0 "$(cat $BROWSER_PID_FILE)" 2>/dev/null; then
   echo "[dev] Ready!"
   echo "[dev] Dashboard: check /tmp/contextual-recall-browser.log for URL"
-  echo "[dev] Stop with: ./bridge/start-dev.sh --stop"
+  echo "[dev] Stop with: ./packages/bridge/start-dev.sh --stop"
   cat /tmp/contextual-recall-browser.log 2>/dev/null | grep -E '^\{' | head -1
 else
   echo "[dev] Browser failed to start. Check /tmp/contextual-recall-browser.log"

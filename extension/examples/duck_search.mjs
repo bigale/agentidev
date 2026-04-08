@@ -7,7 +7,7 @@
  * Uses playwright-shim for bridge integration + named checkpoints.
  */
 
-import { chromium, client } from '../../bridge/playwright-shim.mjs';
+import { chromium, client } from '../../packages/bridge/playwright-shim.mjs';
 
 const QUERY = 'playwright browser automation';
 

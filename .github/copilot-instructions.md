@@ -1,4 +1,4 @@
-<!-- Generated from docs/ai-context/. Do not edit directly. -->
+<!-- Generated from packages/ai-context/sources/. Do not edit directly. -->
 
 
 # Browser Automation Bridge
@@ -11,10 +11,10 @@ Use the CLI to control Playwright Chromium browsers, run automation scripts, tak
 All commands run from the workspace root:
 
 ```
-node bridge/claude-client.mjs <command> [json-payload]
+node packages/bridge/claude-client.mjs <command> [json-payload]
 ```
 
-Shorthand below: `bcli` = `node bridge/claude-client.mjs`
+Shorthand below: `bcli` = `node packages/bridge/claude-client.mjs`
 
 ## Startup
 
@@ -23,7 +23,7 @@ If the bridge is not running, start it before any commands:
 ```
 npm run bridge &          # start bridge server (port 9876)
 sleep 2
-node bridge/launch-browser.mjs   # launch Chromium with extension + dashboard
+node packages/bridge/launch-browser.mjs   # launch Chromium with extension + dashboard
 ```
 
 The extension auto-connects once the browser is up.
@@ -91,9 +91,9 @@ Snapshots are the "eyes" -- structured accessibility tree, not screenshots.
 
 ## Important Notes
 
-- The bridge server (`bridge/server.mjs`) is a persistent Node.js process. It does NOT hot-reload -- run `npm run bridge:restart` after code changes.
+- The bridge server (`packages/bridge/server.mjs`) is a persistent Node.js process. It does NOT hot-reload -- run `npm run bridge:restart` after code changes.
 - Always use Playwright bundled Chromium (not system Chrome) for extension support.
-- Scripts in `~/.contextual-recall/scripts/` use `bridge/playwright-shim.mjs` for bridge integration.
+- Scripts in `~/.contextual-recall/scripts/` use `packages/bridge/playwright-shim.mjs` for bridge integration.
 - All data is local. No external API calls.
 - JSON payloads on Windows may need double-quote escaping in the shell. Use single quotes when possible.
 
@@ -108,7 +108,7 @@ Browser extension for semantic memory and automation. Local-first (IndexedDB), p
 - **Offscreen document** (`extension/offscreen.js`): DOM APIs, spawns Web Workers for ML inference
 - **Web Workers**: `embeddings-worker.js` (all-MiniLM-L6-v2, 384-dim vectors), future `llm-worker.js`
 - **Sandbox iframe** (`extension/smartclient-app/`): SmartClient UI dashboard, communicates via postMessage
-- **Bridge server** (`bridge/server.mjs`): WebSocket on port 9876, manages sessions/scripts/scheduling
+- **Bridge server** (`packages/bridge/server.mjs`): WebSocket on port 9876, manages sessions/scripts/scheduling
 - No webpack — native ESM modules throughout
 
 ## Dev Commands
@@ -131,9 +131,9 @@ Browser extension for semantic memory and automation. Local-first (IndexedDB), p
 
 ## Key File Locations
 
-- Protocol constants: `bridge/protocol.mjs` (all message types)
-- Script client SDK: `bridge/script-client.mjs`
-- Playwright shim: `bridge/playwright-shim.mjs`
+- Protocol constants: `packages/bridge/protocol.mjs` (all message types)
+- Script client SDK: `packages/bridge/script-client.mjs`
+- Playwright shim: `packages/bridge/playwright-shim.mjs`
 - Extension bridge client: `extension/lib/bridge-client.js`
 - Script handlers: `extension/lib/handlers/script-handlers.js`
 - SmartClient renderer: `extension/smartclient-app/renderer.js`

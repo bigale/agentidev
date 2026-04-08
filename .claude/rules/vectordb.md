@@ -1,4 +1,4 @@
-<!-- Generated from docs/ai-context/. Do not edit directly. -->
+<!-- Generated from packages/ai-context/sources/. Do not edit directly. -->
 
 ---
 description: Vector database architecture, source partitioning, search and indexing
@@ -51,4 +51,4 @@ Records without `source` field default to `'browsing'` (backward compat, no migr
 
 ## CLI
 
-`bridge/query-vectordb.mjs` supports `--source=showcase` flag for partition-scoped queries.
+`packages/bridge/scripts/query-vectordb.mjs` supports `--source=showcase` flag for partition-scoped queries.

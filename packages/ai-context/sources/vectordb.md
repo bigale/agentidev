@@ -49,4 +49,4 @@ Records without `source` field default to `'browsing'` (backward compat, no migr
 
 ## CLI
 
-`bridge/query-vectordb.mjs` supports `--source=showcase` flag for partition-scoped queries.
+`packages/bridge/scripts/query-vectordb.mjs` supports `--source=showcase` flag for partition-scoped queries.

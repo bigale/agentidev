@@ -10,8 +10,8 @@
  *   .github/instructions/*.instructions.md — Copilot path-scoped
  *
  * Usage:
- *   node scripts/sync-ai-context.mjs          # generate all
- *   node scripts/sync-ai-context.mjs --check  # exit 1 if stale
+ *   node packages/ai-context/sync.mjs          # generate all
+ *   node packages/ai-context/sync.mjs --check  # exit 1 if stale
  */
 
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
@@ -19,9 +19,9 @@ import { join, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, '..');
-const SOURCE_DIR = join(ROOT, 'docs', 'ai-context');
-const HEADER = '<!-- Generated from docs/ai-context/. Do not edit directly. -->\n\n';
+const ROOT = join(__dirname, '..', '..');
+const SOURCE_DIR = join(__dirname, 'sources');
+const HEADER = '<!-- Generated from packages/ai-context/sources/. Do not edit directly. -->\n\n';
 const CHECK_MODE = process.argv.includes('--check');
 
 // ---------------------------------------------------------------------------

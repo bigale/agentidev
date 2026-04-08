@@ -59,7 +59,7 @@ Replace your Playwright import with the bridge shim to get dashboard-visible aut
 import { chromium } from 'playwright';
 
 // After
-import { chromium } from './bridge/playwright-shim.mjs';
+import { chromium } from './packages/bridge/playwright-shim.mjs';
 ```
 
 The shim auto-connects to the bridge, wraps all page interactions as declared checkpoints (`p1:navigate`, `p1:click`, etc.), and enables pause/resume/cancel from the dashboard.
@@ -69,7 +69,7 @@ The shim auto-connects to the bridge, wraps all page interactions as declared ch
 For scripts that need more control:
 
 ```javascript
-import { ScriptClient } from './bridge/script-client.mjs';
+import { ScriptClient } from './packages/bridge/script-client.mjs';
 
 const client = new ScriptClient('my-script');
 await client.connect();
@@ -166,7 +166,7 @@ Projects bind a name, description, and AI system prompt to a playground session.
 
 ## AI Context System
 
-Unified source of truth in `docs/ai-context/` generates tool-native configs for Claude Code, Cursor, and GitHub Copilot:
+Unified source of truth in `packages/ai-context/sources/` generates tool-native configs for Claude Code, Cursor, and GitHub Copilot:
 
 ```bash
 npm run ai:sync     # Regenerate all tool configs from source files
@@ -216,12 +216,12 @@ npm run browser
 ### CLI Quick Reference
 
 ```bash
-node bridge/claude-client.mjs status                    # Bridge health check
-node bridge/claude-client.mjs session:list              # List browser sessions
-node bridge/claude-client.mjs session:create '{"name":"my-session"}'
-node bridge/claude-client.mjs session:snapshot '{"sessionId":"ID"}'
-node bridge/claude-client.mjs script:launch '{"path":"~/.contextual-recall/scripts/my-script.mjs"}'
-node bridge/claude-client.mjs schedule:list             # List cron schedules
+node packages/bridge/claude-client.mjs status                    # Bridge health check
+node packages/bridge/claude-client.mjs session:list              # List browser sessions
+node packages/bridge/claude-client.mjs session:create '{"name":"my-session"}'
+node packages/bridge/claude-client.mjs session:snapshot '{"sessionId":"ID"}'
+node packages/bridge/claude-client.mjs script:launch '{"path":"~/.contextual-recall/scripts/my-script.mjs"}'
+node packages/bridge/claude-client.mjs schedule:list             # List cron schedules
 ```
 
 ---
@@ -245,4 +245,4 @@ node bridge/claude-client.mjs schedule:list             # List cron schedules
 
 MIT License -- see [LICENSE](LICENSE) for details.
 
-SmartClient components (`extension/smartclient-app/`, `agentiface/`) use the SmartClient LGPL-2.1-only runtime. See [SmartClient licensing](https://www.smartclient.com/product/licensing) for details.
+SmartClient components (`extension/smartclient-app/`, `packages/forge/`) use the SmartClient LGPL-2.1-only runtime. See [SmartClient licensing](https://www.smartclient.com/product/licensing) for details.

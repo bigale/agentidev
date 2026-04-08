@@ -19,10 +19,10 @@ AI-powered SmartClient UI generation. LLM produces bounded JSON configs; determi
 1. **Sidepanel AF mode** (`sidepanel/modes/agentiface-mode.js`) — prompt input, actions, app library
 2. **Background handlers** (`lib/handlers/smartclient-handlers.js`) — `playgroundSession` state machine (idle/generating/error), broadcasts
 3. **Bridge client** (`lib/bridge-client.js`) — WebSocket to server, `generateSmartClientUI(prompt, currentConfig?)`
-4. **Bridge server** (`bridge/server.mjs`) — spawns `claude -p --model haiku`, builds system prompt (generate vs modify mode), validates config
+4. **Bridge server** (`packages/bridge/server.mjs`) — spawns `claude -p --model haiku`, builds system prompt (generate vs modify mode), validates config
 5. **Wrapper** (`smartclient-app/wrapper.html` + `bridge.js`) — postMessage relay between chrome.runtime and sandbox
 6. **Sandbox** (`smartclient-app/app.html` + `app.js` + `renderer.js`) — SmartClient runtime, Forge toolkit, config rendering
-7. **Agentiface toolkit** (`agentiface/` symlinked to `lib/agentiface/`) — 4 CSS + 7 JS files
+7. **Agentiface toolkit** (`packages/forge/` symlinked to `lib/agentiface/`) — 4 CSS + 7 JS files
 
 ## Config Format (the portable artifact)
 
@@ -111,5 +111,5 @@ Switching reloads iframe with `?skin=X`; config preserved via background session
 | `lib/handlers/app-persistence.js` | IndexedDB CRUD |
 | `lib/bridge-client.js` | WebSocket client |
 | `sidepanel/modes/agentiface-mode.js` | AF mode controller |
-| `bridge/server.mjs` | BRIDGE_SC_GENERATE_UI + BRIDGE_AF_APP_* handlers |
-| `agentiface/*.js, *.css` | Forge toolkit (7 JS + 4 CSS) |
+| `packages/bridge/server.mjs` | BRIDGE_SC_GENERATE_UI + BRIDGE_AF_APP_* handlers |
+| `packages/forge/*.js, *.css` | Forge toolkit (7 JS + 4 CSS) |

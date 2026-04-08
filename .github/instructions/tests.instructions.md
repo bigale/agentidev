@@ -1,4 +1,4 @@
-<!-- Generated from docs/ai-context/. Do not edit directly. -->
+<!-- Generated from packages/ai-context/sources/. Do not edit directly. -->
 
 ---
 applyTo: ["tests/**"]

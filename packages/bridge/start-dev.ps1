@@ -2,8 +2,8 @@
 # Start the full development stack: bridge server + headed Chromium with extension.
 #
 # Usage:
-#   .\bridge\start-dev.ps1           # start both
-#   .\bridge\start-dev.ps1 --stop    # kill both
+#   .\packages\bridge\start-dev.ps1           # start both
+#   .\packages\bridge\start-dev.ps1 --stop    # kill both
 #
 # Logs:
 #   $env:TEMP\cr-bridge.log          # bridge server output
@@ -16,7 +16,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$Root = Split-Path $PSScriptRoot -Parent
+$Root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $BridgeLog  = "$env:TEMP\cr-bridge.log"
 $BrowserLog = "$env:TEMP\cr-browser.log"
 
@@ -52,7 +52,7 @@ Write-Host "[dev] Starting bridge server..."
 $BridgeErrLog = "$env:TEMP\cr-bridge-err.log"
 $bridgeProc = Start-Process `
     -FilePath "node" `
-    -ArgumentList "bridge/server.mjs" `
+    -ArgumentList "packages/bridge/server.mjs" `
     -WorkingDirectory $Root `
     -RedirectStandardOutput $BridgeLog `
     -RedirectStandardError  $BridgeErrLog `
@@ -86,7 +86,7 @@ Write-Host "[dev] Launching headed Chromium with extension..."
 $browserProc = Start-Process `
     -FilePath "powershell" `
     -ArgumentList "-NoProfile", "-Command",
-        "Set-Location '$Root'; node bridge/launch-browser.mjs 2>&1 | Tee-Object -FilePath '$BrowserLog'; Write-Host '[browser] exited'; Read-Host 'Press Enter to close'" `
+        "Set-Location '$Root'; node packages/bridge/launch-browser.mjs 2>&1 | Tee-Object -FilePath '$BrowserLog'; Write-Host '[browser] exited'; Read-Host 'Press Enter to close'" `
     -WindowStyle Normal `
     -PassThru
 
@@ -95,4 +95,4 @@ Write-Host ""
 Write-Host "[dev] Stack is running."
 Write-Host "[dev]   Bridge log : $BridgeLog"
 Write-Host "[dev]   Browser log: $BrowserLog"
-Write-Host "[dev]   Stop with  : .\bridge\start-dev.ps1 --stop"
+Write-Host "[dev]   Stop with  : .\packages\bridge\start-dev.ps1 --stop"

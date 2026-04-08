@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Modular rules in `.claude/rules/` (auto-loaded per path). Shared context source in `docs/ai-context/`.
+Modular rules in `.claude/rules/` (auto-loaded per path). Shared context source in `packages/ai-context/sources/`.
 
-Run `npm run ai:sync` after editing any file in `docs/ai-context/` to regenerate tool-native configs.
+Run `npm run ai:sync` after editing any file in `packages/ai-context/sources/` to regenerate tool-native configs.
 
 ## Claude-Specific
 

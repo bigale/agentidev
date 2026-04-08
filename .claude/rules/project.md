@@ -1,4 +1,4 @@
-<!-- Generated from docs/ai-context/. Do not edit directly. -->
+<!-- Generated from packages/ai-context/sources/. Do not edit directly. -->
 
 ---
 description: Project overview and global coding rules
@@ -16,7 +16,7 @@ Browser extension for semantic memory and automation. Local-first (IndexedDB), p
 - **Offscreen document** (`extension/offscreen.js`): DOM APIs, spawns Web Workers for ML inference
 - **Web Workers**: `embeddings-worker.js` (all-MiniLM-L6-v2, 384-dim vectors), future `llm-worker.js`
 - **Sandbox iframe** (`extension/smartclient-app/`): SmartClient UI dashboard, communicates via postMessage
-- **Bridge server** (`bridge/server.mjs`): WebSocket on port 9876, manages sessions/scripts/scheduling
+- **Bridge server** (`packages/bridge/server.mjs`): WebSocket on port 9876, manages sessions/scripts/scheduling
 - No webpack — native ESM modules throughout
 
 ## Dev Commands
@@ -39,9 +39,9 @@ Browser extension for semantic memory and automation. Local-first (IndexedDB), p
 
 ## Key File Locations
 
-- Protocol constants: `bridge/protocol.mjs` (all message types)
-- Script client SDK: `bridge/script-client.mjs`
-- Playwright shim: `bridge/playwright-shim.mjs`
+- Protocol constants: `packages/bridge/protocol.mjs` (all message types)
+- Script client SDK: `packages/bridge/script-client.mjs`
+- Playwright shim: `packages/bridge/playwright-shim.mjs`
 - Extension bridge client: `extension/lib/bridge-client.js`
 - Script handlers: `extension/lib/handlers/script-handlers.js`
 - SmartClient renderer: `extension/smartclient-app/renderer.js`

@@ -11,7 +11,7 @@
  *   import { chromium } from 'playwright';
  *
  *   // After (everything else stays the same):
- *   import { chromium } from '../bridge/playwright-shim.mjs';
+ *   import { chromium } from '../packages/bridge/playwright-shim.mjs';
  *
  * What you get for free:
  *   - Script appears in dashboard with live step count
@@ -22,7 +22,7 @@
  *   - Uncaught exceptions forwarded to bridge as errors
  *
  * Optional — if you want named checkpoints, import client directly:
- *   import { chromium, client } from '../bridge/playwright-shim.mjs';
+ *   import { chromium, client } from '../packages/bridge/playwright-shim.mjs';
  *   await client.checkpoint('my_checkpoint', { race, step });
  */
 

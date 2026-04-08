@@ -9,7 +9,7 @@ You have access to 627 indexed SmartClient showcase examples with neural embeddi
 ## Showcase Index (static)
 
 The full category tree and component coverage is available at:
-`bridge/scripts/sc-showcase-index.md`
+`packages/bridge/scripts/sc-showcase-index.md`
 
 Read that file when you need to browse categories or find which components have examples.
 
@@ -18,7 +18,7 @@ Read that file when you need to browse categories or find which components have 
 Search the indexed showcase examples using the bridge CLI:
 
 ```bash
-node bridge/claude-client.mjs search '{"query":"<natural language query>","limit":5}'
+node packages/bridge/claude-client.mjs search '{"query":"<natural language query>","limit":5}'
 ```
 
 ### Parameters
@@ -44,27 +44,27 @@ Each result contains:
 
 **By component**: Include the component name naturally
 ```bash
-node bridge/claude-client.mjs search '{"query":"ListGrid with frozen columns","limit":5}'
+node packages/bridge/claude-client.mjs search '{"query":"ListGrid with frozen columns","limit":5}'
 ```
 
 **By pattern**: Describe the UI pattern you need
 ```bash
-node bridge/claude-client.mjs search '{"query":"master-detail grid with form editing","limit":5}'
+node packages/bridge/claude-client.mjs search '{"query":"master-detail grid with form editing","limit":5}'
 ```
 
 **By feature**: Search for specific capabilities
 ```bash
-node bridge/claude-client.mjs search '{"query":"drag and drop reorder rows","limit":5}'
+node packages/bridge/claude-client.mjs search '{"query":"drag and drop reorder rows","limit":5}'
 ```
 
 **With keyword boost**: Add queryKeywords for precision
 ```bash
-node bridge/claude-client.mjs search '{"query":"dependent selects","limit":5,"queryKeywords":["selectitem","dynamicform"]}'
+node packages/bridge/claude-client.mjs search '{"query":"dependent selects","limit":5,"queryKeywords":["selectitem","dynamicform"]}'
 ```
 
 **By category**: Search within a domain
 ```bash
-node bridge/claude-client.mjs search '{"query":"calendar event editing","limit":5}'
+node packages/bridge/claude-client.mjs search '{"query":"calendar event editing","limit":5}'
 ```
 
 ## Workflow
