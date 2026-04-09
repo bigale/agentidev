@@ -5,7 +5,7 @@ Automated testing environment for iterating on preprocessing + grammar combinati
 ## Quick Start
 
 ```bash
-cd /home/bigale/repos/contextual-recall/examples
+cd examples
 ./ixml-test-harness.sh
 ```
 
@@ -83,12 +83,12 @@ Test individual cases:
 
 ```bash
 # Test with literal input
-java -jar /home/bigale/repos/markup-blitz/build/libs/markup-blitz.jar \
+java -jar $MARKUP_BLITZ \
   grammars/simple-pipe.ixml \
   '!|form|test|/form|'
 
 # Test with file
-java -jar /home/bigale/repos/markup-blitz/build/libs/markup-blitz.jar \
+java -jar $MARKUP_BLITZ \
   --indent \
   grammars/simple-pipe.ixml \
   test-input.txt

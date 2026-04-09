@@ -7,8 +7,8 @@
  * /smartclient skill.
  *
  * Usage:
- *   node bridge/scripts/generate-sc-index.mjs
- *   node bridge/scripts/generate-sc-index.mjs --output=path/to/output.md
+ *   node packages/bridge/scripts/generate-sc-index.mjs
+ *   node packages/bridge/scripts/generate-sc-index.mjs --output=path/to/output.md
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
@@ -20,7 +20,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ---- Configuration ----
 
-const SDK_BASE = '/home/bigale/repos/SmartClient/SmartClient_v141p_2026-02-23_LGPL/smartclientSDK';
+const SDK_BASE = process.env.SMARTCLIENT_SDK || 'smartclientSDK';
 const EXAMPLE_TREE_PATH = join(SDK_BASE, 'isomorphic/system/reference/exampleTree.js');
 const INLINE_EXAMPLES_DIR = join(SDK_BASE, 'isomorphic/system/reference/inlineExamples');
 const DEFAULT_OUTPUT = join(__dirname, 'sc-showcase-index.md');

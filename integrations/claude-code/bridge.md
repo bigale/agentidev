@@ -5,11 +5,11 @@ Use it to control Playwright Chromium browsers, run automation scripts, take acc
 
 ## System Paths
 
-- **Bridge CLI**: `node /home/bigale/repos/contextual-recall/packages/bridge/claude-client.mjs`
-- **Bridge server**: `/home/bigale/repos/contextual-recall/packages/bridge/server.mjs`
-- **Browser launcher**: `/home/bigale/repos/contextual-recall/packages/bridge/launch-browser.mjs`
+- **Bridge CLI**: `node packages/bridge/claude-client.mjs`
+- **Bridge server**: `packages/bridge/server.mjs`
+- **Browser launcher**: `packages/bridge/launch-browser.mjs`
 - **Scripts directory**: `~/.contextual-recall/scripts/`
-- **npm commands** (run from `/home/bigale/repos/contextual-recall`):
+- **npm commands** (run from the repo root):
   - `npm run bridge` — start bridge server (port 9876)
   - `npm run bridge:stop` — stop bridge server
   - `npm run bridge:restart` — restart bridge server
@@ -17,7 +17,7 @@ Use it to control Playwright Chromium browsers, run automation scripts, take acc
 
 ## Quick Reference
 
-The bridge CLI is: `node /home/bigale/repos/contextual-recall/packages/bridge/claude-client.mjs <command> [json]`
+The bridge CLI is: `node packages/bridge/claude-client.mjs <command> [json]`
 
 Shorthand for examples below: `bridge-cli` = the full node command above.
 
@@ -55,7 +55,7 @@ bridge-cli script:breakpoint '{"scriptId":"ID","name":"checkpoint_name","active"
 If the bridge is not running, start it before any commands:
 
 ```bash
-cd /home/bigale/repos/contextual-recall && npm run bridge &
+npm run bridge &
 sleep 2
 node packages/bridge/launch-browser.mjs   # launches Chromium with extension, opens dashboard
 ```
