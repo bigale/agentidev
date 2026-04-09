@@ -1,6 +1,6 @@
 {
   "name": "@bigale/contextual-recall-bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "WebSocket bridge between Chrome extension and Claude Code for playwright-cli automation",
   "license": "MIT",
