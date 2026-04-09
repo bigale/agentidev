@@ -1,5 +1,5 @@
 /**
- * Content Script for Contextual Recall
+ * Content Script for Agentidev
  *
  * Injected into all pages to capture content
  *
@@ -10,7 +10,7 @@
  * - Execute generic automation actions (Phase 2.0 MVP)
  */
 
-console.log('Contextual Recall: Content script loaded');
+console.log('Agentidev: Content script loaded');
 
 // Import action executor for automation (Phase 2.0 MVP)
 let actionExecutor = null;

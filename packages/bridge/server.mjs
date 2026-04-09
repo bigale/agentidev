@@ -34,10 +34,10 @@ const HEALTH_INTERVAL = 30000; // 30s ping/pong
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT  = pathResolve(__dirname, '..', '..');
 const SHIM_PATH = pathResolve(__dirname, 'playwright-shim.mjs');
-const SCRIPTS_DIR = pathResolve(homedir(), '.contextual-recall', 'scripts');
-const AUTH_DIR = pathResolve(homedir(), '.contextual-recall', 'auth');
-const CLONES_DIR = pathResolve(homedir(), '.contextual-recall', 'clones');
-const ARTIFACTS_DIR = pathResolve(homedir(), '.contextual-recall', 'artifacts');
+const SCRIPTS_DIR = pathResolve(homedir(), '.agentidev', 'scripts');
+const AUTH_DIR = pathResolve(homedir(), '.agentidev', 'auth');
+const CLONES_DIR = pathResolve(homedir(), '.agentidev', 'clones');
+const ARTIFACTS_DIR = pathResolve(homedir(), '.agentidev', 'artifacts');
 const ARTIFACT_INLINE_LIMIT = 100 * 1024; // 100KB — below this, store as base64 inline
 const CONSOLE_BUFFER_LIMIT = 500 * 1024;  // 500KB max console buffer per script
 
@@ -72,7 +72,7 @@ if (args.includes('--stop')) {
  * Discover running browser processes managed by this system.
  * Matches:
  *  - Playwright-launched Chromium (args contain 'playwright' or 'ms-playwright')
- *  - Our debug profile Chrome (args contain 'chrome-debug-profile' or 'contextual-recall/browser-profile')
+ *  - Our debug profile Chrome (args contain 'chrome-debug-profile' or 'agentidev/browser-profile')
  * Excludes sub-processes (renderer, gpu, utility, zygote, crashpad).
  * Correlates ppid against known script PIDs to identify owner.
  * @param {Map} scripts - Active scripts map
@@ -110,7 +110,7 @@ function discoverBrowserProcesses(scripts) {
 
         // Classify: what kind of browser is this?
         const isPlaywright = args.includes('playwright') || args.includes('ms-playwright');
-        const isDebugProfile = args.includes('chrome-debug-profile') || args.includes('contextual-recall/browser-profile');
+        const isDebugProfile = args.includes('chrome-debug-profile') || args.includes('agentidev/browser-profile');
         if (!isPlaywright && !isDebugProfile) continue;
 
         const pid = parseInt(pidStr, 10);
@@ -411,7 +411,7 @@ function startServer() {
   // ---- Schedule engine ----
   const schedules = new Map();       // scheduleId → schedule object
   const scheduleTimers = new Map();  // scheduleId → setInterval handle
-  const SCHEDULES_FILE = pathResolve(homedir(), '.contextual-recall', 'schedules.json');
+  const SCHEDULES_FILE = pathResolve(homedir(), '.agentidev', 'schedules.json');
 
   async function loadSchedules() {
     try {
@@ -2819,7 +2819,7 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           break;
         }
         try {
-          const appsDir = pathResolve(homedir(), '.contextual-recall', 'agentiface-apps');
+          const appsDir = pathResolve(homedir(), '.agentidev', 'agentiface-apps');
           await mkdir(appsDir, { recursive: true });
 
           const appId = id || `app_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -2864,7 +2864,7 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           break;
         }
         try {
-          const filePath = pathResolve(homedir(), '.contextual-recall', 'agentiface-apps', `${loadId}.json`);
+          const filePath = pathResolve(homedir(), '.agentidev', 'agentiface-apps', `${loadId}.json`);
           const raw = await readFile(filePath, 'utf-8');
           const app = JSON.parse(raw);
           sendTo(ws, buildReply(msg, { success: true, app }));
@@ -2876,7 +2876,7 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
 
       case MSG.BRIDGE_AF_APP_LIST: {
         try {
-          const appsDir = pathResolve(homedir(), '.contextual-recall', 'agentiface-apps');
+          const appsDir = pathResolve(homedir(), '.agentidev', 'agentiface-apps');
           await mkdir(appsDir, { recursive: true });
           const files = await readdir(appsDir);
           const apps = [];
@@ -2911,7 +2911,7 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           break;
         }
         try {
-          const filePath = pathResolve(homedir(), '.contextual-recall', 'agentiface-apps', `${delId}.json`);
+          const filePath = pathResolve(homedir(), '.agentidev', 'agentiface-apps', `${delId}.json`);
           await rm(filePath);
           console.log('[Bridge] AF app deleted:', delId);
           sendTo(ws, buildReply(msg, { success: true }));
@@ -2930,7 +2930,7 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           break;
         }
         try {
-          const projDir = pathResolve(homedir(), '.contextual-recall', 'agentiface-projects');
+          const projDir = pathResolve(homedir(), '.agentidev', 'agentiface-projects');
           await mkdir(projDir, { recursive: true });
 
           const projId = id || `proj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -2978,7 +2978,7 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           break;
         }
         try {
-          const filePath = pathResolve(homedir(), '.contextual-recall', 'agentiface-projects', `${loadProjId}.json`);
+          const filePath = pathResolve(homedir(), '.agentidev', 'agentiface-projects', `${loadProjId}.json`);
           const raw = await readFile(filePath, 'utf-8');
           const project = JSON.parse(raw);
           sendTo(ws, buildReply(msg, { success: true, project }));
@@ -2990,7 +2990,7 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
 
       case MSG.BRIDGE_AF_PROJECT_LIST: {
         try {
-          const projDir = pathResolve(homedir(), '.contextual-recall', 'agentiface-projects');
+          const projDir = pathResolve(homedir(), '.agentidev', 'agentiface-projects');
           await mkdir(projDir, { recursive: true });
           const files = await readdir(projDir);
           const projects = [];
@@ -3029,7 +3029,7 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           break;
         }
         try {
-          const filePath = pathResolve(homedir(), '.contextual-recall', 'agentiface-projects', `${delProjId}.json`);
+          const filePath = pathResolve(homedir(), '.agentidev', 'agentiface-projects', `${delProjId}.json`);
           await rm(filePath);
           console.log('[Bridge] AF project deleted:', delProjId);
           sendTo(ws, buildReply(msg, { success: true }));
@@ -3048,7 +3048,7 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           break;
         }
         try {
-          const tplDir = pathResolve(homedir(), '.contextual-recall', 'agentiface-templates');
+          const tplDir = pathResolve(homedir(), '.agentidev', 'agentiface-templates');
           await mkdir(tplDir, { recursive: true });
 
           const templateId = tplId || `tpl_user_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -3079,7 +3079,7 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
 
       case MSG.BRIDGE_AF_TEMPLATE_LIST: {
         try {
-          const tplDir = pathResolve(homedir(), '.contextual-recall', 'agentiface-templates');
+          const tplDir = pathResolve(homedir(), '.agentidev', 'agentiface-templates');
           await mkdir(tplDir, { recursive: true });
           const files = await readdir(tplDir);
           const templates = [];
@@ -3114,7 +3114,7 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
           break;
         }
         try {
-          const filePath = pathResolve(homedir(), '.contextual-recall', 'agentiface-templates', `${delTplId}.json`);
+          const filePath = pathResolve(homedir(), '.agentidev', 'agentiface-templates', `${delTplId}.json`);
           await rm(filePath);
           console.log('[Bridge] AF template deleted:', delTplId);
           sendTo(ws, buildReply(msg, { success: true }));

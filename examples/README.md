@@ -1,6 +1,6 @@
 # Linearized Text Parsing Examples
 
-This directory contains proof-of-concept demonstrations for **linearized text parsing** - a new architectural approach for the Contextual Recall extension.
+This directory contains proof-of-concept demonstrations for **linearized text parsing** - a new architectural approach for the Agentidev extension.
 
 ## 🎯 Core Idea
 

@@ -73,7 +73,7 @@ Wrapper-to-iframe sources: `smartclient-ai-response`, `smartclient-ds-response`,
 ## Persistence
 
 - **IndexedDB** (`SC_APP_*`) — auto-save after generation
-- **Bridge disk** (`AF_APP_*`) — `~/.contextual-recall/agentiface-apps/*.json`, manual save, has history[]
+- **Bridge disk** (`AF_APP_*`) — `~/.agentidev/agentiface-apps/*.json`, manual save, has history[]
 - Gallery merges both; bridge wins on ID collision
 
 ## Portability Strategy

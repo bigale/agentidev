@@ -1,7 +1,7 @@
 /**
  * SQLite wrapper for bridge-side persistence.
  * Stores script runs, artifacts, and IDB store exports.
- * Database lives at ~/.contextual-recall/data.sqlite
+ * Database lives at ~/.agentidev/data.sqlite
  */
 
 import Database from 'better-sqlite3';
@@ -9,7 +9,7 @@ import { resolve as pathResolve } from 'path';
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
 
-const DATA_DIR = pathResolve(homedir(), '.contextual-recall');
+const DATA_DIR = pathResolve(homedir(), '.agentidev');
 const DB_PATH  = pathResolve(DATA_DIR, 'data.sqlite');
 
 let _db = null;

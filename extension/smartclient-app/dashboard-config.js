@@ -294,6 +294,13 @@ window._dashboardConfig = {
             _action: 'v8Step',
             _messageType: 'DBG_STEP_OUT',
           },
+          // Auth capture
+          {
+            _type: 'ToolStripButton',
+            ID: 'tbAuth',
+            title: 'Auth',
+            disabled: true,
+          },
           { _type: 'ToolStripSeparator' },
 
           // IDB Sync

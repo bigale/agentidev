@@ -837,7 +837,7 @@ function loadProcesses() {
       ...p,
       // Tag "self" if this browser loaded our extension
       isSelf: p.loadExtension && chrome.runtime.getURL('').includes(chrome.runtime.id) &&
-              p.loadExtension.includes('contextual-recall/extension')
+              p.loadExtension.includes('agentidev/extension')
     }));
     renderSessions();
   });
@@ -1249,7 +1249,7 @@ function loadLibraryScript(name) {
       editorBreakpoints = [];
       sourcePanel.loadSource(
         script.source,
-        script.originalPath || `~/.contextual-recall/scripts/${name}.mjs`,
+        script.originalPath || `~/.agentidev/scripts/${name}.mjs`,
         checkpointLines,
         [], null,
         name

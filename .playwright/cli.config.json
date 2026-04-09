@@ -12,6 +12,6 @@
         "--disable-extensions-except=./extension"
       ]
     },
-    "userDataDir": "/home/bigale/.contextual-recall/browser-profile"
+    "userDataDir": "/home/bigale/.agentidev/browser-profile"
   }
 }

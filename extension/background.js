@@ -1,5 +1,5 @@
 /**
- * Background Service Worker for Contextual Recall
+ * Background Service Worker for Agentidev
  *
  * Responsibilities:
  * - Coordinate content capture from all tabs
@@ -38,7 +38,7 @@ import { register as registerAppPersistence } from './lib/handlers/app-persisten
 import { register as registerProjectPersistence } from './lib/handlers/project-persistence.js';
 import { register as registerSync } from './lib/handlers/sync-handlers.js';
 
-console.log('Contextual Recall: Background service worker started');
+console.log('Agentidev: Background service worker started');
 console.log('[Background] Note: Extension reload = re-initialize (models are cached, not re-downloaded)');
 
 // ============================================================
@@ -159,7 +159,7 @@ async function ensureExampleScripts() {
 // ============================================================
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('Contextual Recall installed');
+  console.log('Agentidev installed');
 
   chrome.storage.local.set({
     captureEnabled: true,

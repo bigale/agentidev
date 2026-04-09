@@ -1,6 +1,6 @@
 <!-- Generated from packages/ai-context/sources/. Do not edit directly. -->
 
-# Contextual Recall — AI Context
+# Agentidev — AI Context
 
 
 # Browser Automation Bridge
@@ -53,7 +53,7 @@ bcli session:destroy '{"sessionId":"ID"}'
 ## Scripts (automation scripts with checkpoints)
 
 ```
-bcli script:launch '{"path":"~/.contextual-recall/scripts/my-script.mjs"}'
+bcli script:launch '{"path":"~/.agentidev/scripts/my-script.mjs"}'
 bcli script:launch '{"path":"...","breakpoints":["before_navigate","results_loaded"]}'
 bcli script:cancel '{"scriptId":"ID"}'
 bcli script:cancel '{"scriptId":"ID","force":true}'
@@ -95,7 +95,7 @@ Snapshots are the "eyes" -- structured accessibility tree, not screenshots.
 
 - The bridge server (`packages/bridge/server.mjs`) is a persistent Node.js process. It does NOT hot-reload -- run `npm run bridge:restart` after code changes.
 - Always use Playwright bundled Chromium (not system Chrome) for extension support.
-- Scripts in `~/.contextual-recall/scripts/` use `packages/bridge/playwright-shim.mjs` for bridge integration.
+- Scripts in `~/.agentidev/scripts/` use `packages/bridge/playwright-shim.mjs` for bridge integration.
 - All data is local. No external API calls.
 - JSON payloads on Windows may need double-quote escaping in the shell. Use single quotes when possible.
 
@@ -139,11 +139,11 @@ Scripts launched with `--inspect-brk=0`. Server connects via `inspector-client.m
 
 ## File Watcher
 
-Watches `~/.contextual-recall/scripts/` with `fs.watch`, 300ms debounce, echo suppression via `fileWatcherIgnore` Set.
+Watches `~/.agentidev/scripts/` with `fs.watch`, 300ms debounce, echo suppression via `fileWatcherIgnore` Set.
 
 ## Scheduling
 
-Persisted to `~/.contextual-recall/schedules.json`. Server-side cron with overlap prevention.
+Persisted to `~/.agentidev/schedules.json`. Server-side cron with overlap prevention.
 
 ## Script Launch CWD
 
@@ -202,7 +202,7 @@ Stored in `chrome.storage.local`:
 `SC_GENERATE_UI` -> `bridgeClient.generateSmartClientUI(prompt)` -> validates config (must have `dataSources[]` and `layout._type`) -> auto-saves to app persistence -> returns config to sandbox iframe.
 
 
-# Contextual Recall
+# Agentidev
 
 Browser extension for semantic memory and automation. Local-first (IndexedDB), privacy-preserving, Chrome MV3.
 

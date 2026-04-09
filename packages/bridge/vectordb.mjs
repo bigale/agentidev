@@ -4,7 +4,7 @@
  * Stores curated reference data (showcase, docs, specs) with HNSW indexing.
  * Private browsing captures stay in the extension's IndexedDB.
  *
- * Storage: ~/.contextual-recall/vectors/
+ * Storage: ~/.agentidev/vectors/
  */
 
 import * as lancedb from '@lancedb/lancedb';
@@ -13,7 +13,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { mkdir } from 'fs/promises';
 
-const DB_PATH = join(homedir(), '.contextual-recall', 'vectors');
+const DB_PATH = join(homedir(), '.agentidev', 'vectors');
 const TABLE_NAME = 'pages';
 
 // Build an ANN index once the table grows past this size.

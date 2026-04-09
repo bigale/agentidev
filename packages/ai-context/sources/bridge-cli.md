@@ -54,7 +54,7 @@ bcli session:destroy '{"sessionId":"ID"}'
 ## Scripts (automation scripts with checkpoints)
 
 ```
-bcli script:launch '{"path":"~/.contextual-recall/scripts/my-script.mjs"}'
+bcli script:launch '{"path":"~/.agentidev/scripts/my-script.mjs"}'
 bcli script:launch '{"path":"...","breakpoints":["before_navigate","results_loaded"]}'
 bcli script:cancel '{"scriptId":"ID"}'
 bcli script:cancel '{"scriptId":"ID","force":true}'
@@ -96,6 +96,6 @@ Snapshots are the "eyes" -- structured accessibility tree, not screenshots.
 
 - The bridge server (`packages/bridge/server.mjs`) is a persistent Node.js process. It does NOT hot-reload -- run `npm run bridge:restart` after code changes.
 - Always use Playwright bundled Chromium (not system Chrome) for extension support.
-- Scripts in `~/.contextual-recall/scripts/` use `packages/bridge/playwright-shim.mjs` for bridge integration.
+- Scripts in `~/.agentidev/scripts/` use `packages/bridge/playwright-shim.mjs` for bridge integration.
 - All data is local. No external API calls.
 - JSON payloads on Windows may need double-quote escaping in the shell. Use single quotes when possible.

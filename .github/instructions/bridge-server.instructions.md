@@ -44,11 +44,11 @@ Scripts launched with `--inspect-brk=0`. Server connects via `inspector-client.m
 
 ## File Watcher
 
-Watches `~/.contextual-recall/scripts/` with `fs.watch`, 300ms debounce, echo suppression via `fileWatcherIgnore` Set.
+Watches `~/.agentidev/scripts/` with `fs.watch`, 300ms debounce, echo suppression via `fileWatcherIgnore` Set.
 
 ## Scheduling
 
-Persisted to `~/.contextual-recall/schedules.json`. Server-side cron with overlap prevention.
+Persisted to `~/.agentidev/schedules.json`. Server-side cron with overlap prevention.
 
 ## Script Launch CWD
 

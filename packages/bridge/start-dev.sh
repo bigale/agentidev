@@ -10,8 +10,8 @@
 set -e
 cd "$(dirname "$0")/../.."
 
-BRIDGE_PID_FILE="/tmp/contextual-recall-bridge.pid"
-BROWSER_PID_FILE="/tmp/contextual-recall-browser.pid"
+BRIDGE_PID_FILE="/tmp/agentidev-bridge.pid"
+BROWSER_PID_FILE="/tmp/agentidev-browser.pid"
 
 stop_all() {
   echo "[dev] Stopping..."
@@ -40,7 +40,7 @@ fi
 stop_all 2>/dev/null
 
 echo "[dev] Starting bridge server..."
-node packages/bridge/server.mjs > /tmp/contextual-recall-bridge.log 2>&1 &
+node packages/bridge/server.mjs > /tmp/agentidev-bridge.log 2>&1 &
 echo $! > "$BRIDGE_PID_FILE"
 echo "[dev] Bridge PID: $(cat $BRIDGE_PID_FILE)"
 
@@ -54,7 +54,7 @@ for i in $(seq 1 10); do
 done
 
 echo "[dev] Launching Chromium with extension..."
-DISPLAY="${DISPLAY:-localhost:10.0}" node packages/bridge/launch-browser.mjs > /tmp/contextual-recall-browser.log 2>&1 &
+DISPLAY="${DISPLAY:-localhost:10.0}" node packages/bridge/launch-browser.mjs > /tmp/agentidev-browser.log 2>&1 &
 echo $! > "$BROWSER_PID_FILE"
 echo "[dev] Browser PID: $(cat $BROWSER_PID_FILE)"
 
@@ -62,10 +62,10 @@ echo "[dev] Browser PID: $(cat $BROWSER_PID_FILE)"
 sleep 3
 if kill -0 "$(cat $BROWSER_PID_FILE)" 2>/dev/null; then
   echo "[dev] Ready!"
-  echo "[dev] Dashboard: check /tmp/contextual-recall-browser.log for URL"
+  echo "[dev] Dashboard: check /tmp/agentidev-browser.log for URL"
   echo "[dev] Stop with: ./packages/bridge/start-dev.sh --stop"
-  cat /tmp/contextual-recall-browser.log 2>/dev/null | grep -E '^\{' | head -1
+  cat /tmp/agentidev-browser.log 2>/dev/null | grep -E '^\{' | head -1
 else
-  echo "[dev] Browser failed to start. Check /tmp/contextual-recall-browser.log"
-  cat /tmp/contextual-recall-browser.log
+  echo "[dev] Browser failed to start. Check /tmp/agentidev-browser.log"
+  cat /tmp/agentidev-browser.log
 fi

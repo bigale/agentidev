@@ -30,7 +30,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 
 const DEFAULT_PORT = 9876;
-const STATE_DIR = join(homedir(), '.contextual-recall', 'state');
+const STATE_DIR = join(homedir(), '.agentidev', 'state');
 
 let _msgCounter = 0;
 
@@ -441,7 +441,7 @@ export class ScriptClient {
 
   /**
    * Read a value from this script's persistent state file.
-   * State is stored at ~/.contextual-recall/state/{scriptName}.json
+   * State is stored at ~/.agentidev/state/{scriptName}.json
    *
    * @param {string} [key] - Key to read. If omitted, returns the full state object.
    * @returns {Promise<any>} Value for key, full state object, or undefined if not set.
@@ -453,7 +453,7 @@ export class ScriptClient {
 
   /**
    * Write a value to this script's persistent state file.
-   * Creates ~/.contextual-recall/state/ if it doesn't exist.
+   * Creates ~/.agentidev/state/ if it doesn't exist.
    * API is async for future Phase 2 bridge-mediated compatibility.
    *
    * @param {string} key - Key to set

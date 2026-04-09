@@ -41,10 +41,10 @@ WebSocket hub on port 9876 that coordinates all automation.
 - **Session management** -- create, navigate, snapshot, click, fill, evaluate, destroy Playwright browser pages
 - **Script orchestration** -- launch scripts as child processes with lifecycle tracking (registered -> running -> checkpoint -> complete/cancelled)
 - **V8 line-level debugging** -- `--inspect-brk` on scripts, breakpoints, step/continue via Inspector Protocol
-- **Cron scheduling** -- persistent schedules in `~/.contextual-recall/schedules.json` with overlap prevention
+- **Cron scheduling** -- persistent schedules in `~/.agentidev/schedules.json` with overlap prevention
 - **LanceDB vector search** -- 384-dim embeddings indexed by source partition (showcase, reference, browsing)
 - **Auth capture** -- save and replay browser authentication state across sessions
-- **File watcher** -- monitors `~/.contextual-recall/scripts/` with debounced sync to extension
+- **File watcher** -- monitors `~/.agentidev/scripts/` with debounced sync to extension
 
 ---
 
@@ -220,7 +220,7 @@ node packages/bridge/claude-client.mjs status                    # Bridge health
 node packages/bridge/claude-client.mjs session:list              # List browser sessions
 node packages/bridge/claude-client.mjs session:create '{"name":"my-session"}'
 node packages/bridge/claude-client.mjs session:snapshot '{"sessionId":"ID"}'
-node packages/bridge/claude-client.mjs script:launch '{"path":"~/.contextual-recall/scripts/my-script.mjs"}'
+node packages/bridge/claude-client.mjs script:launch '{"path":"~/.agentidev/scripts/my-script.mjs"}'
 node packages/bridge/claude-client.mjs schedule:list             # List cron schedules
 ```
 

@@ -1,5 +1,5 @@
 {
-  "name": "@bigale/contextual-recall-ai-context",
+  "name": "@bigale/agentidev-ai-context",
   "version": "0.1.1",
   "type": "module",
   "description": "AI context sync — generates tool-native configs for Claude Code, Cursor, and Copilot",

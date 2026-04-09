@@ -33,6 +33,10 @@ var _editorBreakpoints = [];     // active breakpoint names (strings) or line nu
 var _currentCheckpoint = null;   // name of checkpoint we're paused at
 var _loadedScriptName = null;
 
+// ---- Auth capture state ----
+var _authCaptureSessionId = null;
+var _authCaptureScriptName = null;
+
 // ---- Async dispatch tracking ----
 var _pendingDispatches = {};
 
@@ -44,6 +48,12 @@ function toRecipeId(val) {
   if (val == null || val === '' || val === 'undefined' || val === 'null') return null;
   var n = parseInt(val, 10);
   return isNaN(n) ? null : n;
+}
+
+// Extract first page.goto('...') URL from script source
+function findFirstGotoUrl(source) {
+  var m = source.match(/page\.goto\(\s*['"]([^'"]+)['"]\s*[,)]/);
+  return m ? m[1] : null;
 }
 
 // ---- Layout persistence debounce ----
@@ -147,6 +157,23 @@ function loadDashboard() {
           setTimeout(function () { btn.setTitle('Sync'); btn.setDisabled(false); }, 2500);
           console.warn('[Dashboard] IDB sync failed:', err.message);
         });
+    };
+  }
+
+  // Wire Auth button
+  var tbAuth = resolveRef('tbAuth');
+  if (tbAuth) {
+    tbAuth.click = function () {
+      if (!_loadedScriptName || !_dashState.connected) return;
+      var source = _monacoEditor ? _monacoEditor.getValue() : '';
+      var url = findFirstGotoUrl(source);
+      if (url) {
+        startAuthCapture(_loadedScriptName, url);
+      } else {
+        isc.askForValue('Login URL for ' + _loadedScriptName, function (url) {
+          if (url) startAuthCapture(_loadedScriptName, url);
+        }, { defaultValue: '', width: 400 });
+      }
     };
   }
 
@@ -1581,6 +1608,63 @@ function updateConnectionUI() {
   }
 }
 
+// ---- Auth capture ----
+
+function startAuthCapture(scriptName, url) {
+  _authCaptureScriptName = scriptName;
+  dispatchActionAsync('AUTH_CAPTURE_START', { scriptName: scriptName, url: url })
+    .then(function (response) {
+      if (response && (response.success || response.sessionId)) {
+        _authCaptureSessionId = response.sessionId;
+        refreshToolbar();
+        showAuthCaptureDialog(scriptName, url);
+      } else {
+        _authCaptureScriptName = null;
+        isc.warn('Auth capture failed: ' + (response && response.error || 'Unknown error'));
+      }
+    });
+}
+
+function showAuthCaptureDialog(scriptName, url) {
+  isc.Window.create({
+    ID: 'authCaptureWindow',
+    title: 'Auth Capture - ' + scriptName,
+    width: 420, height: 130,
+    isModal: true, showModalMask: true,
+    canDragReposition: true, autoCenter: true,
+    items: [
+      isc.Label.create({ contents: 'Log in at <b>' + url + '</b>, then click Save.', padding: 10 }),
+      isc.HLayout.create({ height: 40, membersMargin: 8, align: 'right', layoutRightMargin: 10, members: [
+        isc.Button.create({ title: 'Save & Close', click: function () { saveAuthCapture(); } }),
+        isc.Button.create({ title: 'Cancel', click: function () { cancelAuthCapture(); } }),
+      ]}),
+    ],
+  });
+}
+
+function saveAuthCapture() {
+  if (!_authCaptureSessionId || !_authCaptureScriptName) return;
+  dispatchActionAsync('AUTH_CAPTURE_SAVE', {
+    sessionId: _authCaptureSessionId,
+    scriptName: _authCaptureScriptName,
+  }).then(function () {
+    if (typeof authCaptureWindow !== 'undefined' && authCaptureWindow) authCaptureWindow.destroy();
+    _authCaptureSessionId = null;
+    _authCaptureScriptName = null;
+    refreshToolbar();
+  });
+}
+
+function cancelAuthCapture() {
+  if (_authCaptureSessionId) {
+    dispatchAction('BRIDGE_DESTROY_SESSION', { sessionId: _authCaptureSessionId });
+  }
+  if (typeof authCaptureWindow !== 'undefined' && authCaptureWindow) authCaptureWindow.destroy();
+  _authCaptureSessionId = null;
+  _authCaptureScriptName = null;
+  refreshToolbar();
+}
+
 // ---- Toolbar state management ----
 
 function refreshToolbar() {
@@ -1623,6 +1707,17 @@ function refreshToolbar() {
 
   // Kill
   setButtonDisabled('tbKill', !isActive);
+
+  // Auth: enabled when script loaded, connected, not running, not already capturing
+  setButtonDisabled('tbAuth', !_loadedScriptName || !connected || isActive || !!_authCaptureSessionId);
+
+  // Update Auth button title based on saved auth state
+  if (_loadedScriptName && connected) {
+    dispatchActionAsync('AUTH_CHECK', { scriptName: _loadedScriptName }).then(function (r) {
+      var btn = resolveRef('tbAuth');
+      if (btn && btn.setTitle) btn.setTitle(r && r.exists ? 'Auth \u2713' : 'Auth');
+    });
+  }
 
   // Debug panel buttons
   setButtonDisabled('dbgStep', !isCheckpoint && !v8Paused);

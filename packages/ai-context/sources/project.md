@@ -4,7 +4,7 @@ globs:
 alwaysApply: true
 ---
 
-# Contextual Recall
+# Agentidev
 
 Browser extension for semantic memory and automation. Local-first (IndexedDB), privacy-preserving, Chrome MV3.
 

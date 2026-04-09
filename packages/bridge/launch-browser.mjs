@@ -2,7 +2,7 @@
 /**
  * Launch Browser with Extension
  *
- * Uses Playwright Node.js API to launch Chromium with the Contextual Recall
+ * Uses Playwright Node.js API to launch Chromium with the Agentidev
  * extension loaded. Must use Playwright bundled Chromium — Google Chrome
  * blocks --load-extension in automation mode since ~Chrome 130.
  *
@@ -31,7 +31,7 @@ import { mkdirSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const EXTENSION_PATH = resolve(__dirname, '..', 'extension');
-const DEFAULT_PROFILE = resolve(process.env.HOME ?? process.env.USERPROFILE, '.contextual-recall', 'browser-profile');
+const DEFAULT_PROFILE = resolve(process.env.HOME ?? process.env.USERPROFILE, '.agentidev', 'browser-profile');
 
 // Parse args
 const args = process.argv.slice(2);

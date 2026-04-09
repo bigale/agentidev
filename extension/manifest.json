@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Contextual Recall",
+  "name": "Agentidev",
   "version": "0.1.0",
   "description": "Semantic memory for your browser activity. Query your history in natural language.",
   "permissions": [

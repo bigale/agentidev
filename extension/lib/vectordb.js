@@ -8,7 +8,7 @@
  * v3: Added source partitioning index for scoped queries.
  */
 
-const DB_NAME = 'contextual-recall-db';
+const DB_NAME = 'agentidev-db';
 const DB_VERSION = 3;
 const STORE_NAME = 'pages';
 

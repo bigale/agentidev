@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide explains how to integrate linearized text parsing into the Contextual Recall extension. The key insight: parse the **visible, rendered text** that users see, not the HTML markup.
+This guide explains how to integrate linearized text parsing into the Agentidev extension. The key insight: parse the **visible, rendered text** that users see, not the HTML markup.
 
 ## Core Concept
 

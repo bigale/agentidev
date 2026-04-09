@@ -8,7 +8,7 @@ Use it to control Playwright Chromium browsers, run automation scripts, take acc
 - **Bridge CLI**: `node packages/bridge/claude-client.mjs`
 - **Bridge server**: `packages/bridge/server.mjs`
 - **Browser launcher**: `packages/bridge/launch-browser.mjs`
-- **Scripts directory**: `~/.contextual-recall/scripts/`
+- **Scripts directory**: `~/.agentidev/scripts/`
 - **npm commands** (run from the repo root):
   - `npm run bridge` — start bridge server (port 9876)
   - `npm run bridge:stop` — stop bridge server
@@ -41,7 +41,7 @@ bridge-cli session:destroy '{"sessionId":"ID"}'
 
 ### Scripts (automation scripts with checkpoints)
 ```
-bridge-cli script:launch '{"path":"/home/bigale/.contextual-recall/scripts/my-script.mjs"}'
+bridge-cli script:launch '{"path":"/home/bigale/.agentidev/scripts/my-script.mjs"}'
 bridge-cli script:launch '{"path":"...", "breakpoints":["before_navigate","results_loaded"]}'
 bridge-cli script:cancel '{"scriptId":"ID"}'
 bridge-cli script:cancel '{"scriptId":"ID","force":true}'   # SIGKILL
@@ -77,7 +77,7 @@ Snapshots are the "eyes" — they show what's on the page as a structured access
 
 - The bridge server is a persistent Node.js process on ws://localhost:9876. It does NOT hot-reload — restart after code changes.
 - Always use Playwright bundled Chromium (not system Chrome) for extension support.
-- Scripts in `~/.contextual-recall/scripts/` use the playwright-shim for bridge integration.
+- Scripts in `~/.agentidev/scripts/` use the playwright-shim for bridge integration.
 - All data is local. No external API calls.
 
 ## User Request

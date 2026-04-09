@@ -74,7 +74,7 @@ function readSources() {
 // ---------------------------------------------------------------------------
 function generateAgents(sources) {
   let out = HEADER;
-  out += '# Contextual Recall — AI Context\n\n';
+  out += '# Agentidev — AI Context\n\n';
   for (const s of sources) {
     out += s.body.trimEnd() + '\n\n';
   }

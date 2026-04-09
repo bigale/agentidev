@@ -1,5 +1,5 @@
 /**
- * Sidebar UI coordinator for Contextual Recall.
+ * Sidebar UI coordinator for Agentidev.
  * Delegates to mode modules for Search, Q&A, Extract, Agent, and Auto.
  */
 

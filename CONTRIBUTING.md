@@ -1,4 +1,4 @@
-# Contributing to Contextual Recall
+# Contributing to Agentidev
 
 Thank you for your interest in contributing! This document provides guidelines for contributing to the project.
 
@@ -10,7 +10,7 @@ Be respectful, inclusive, and constructive. We're building a tool to help people
 
 ### Reporting Bugs
 
-1. Check if the issue already exists in [Issues](https://github.com/bigale/contextual-recall/issues)
+1. Check if the issue already exists in [Issues](https://github.com/bigale/agentidev/issues)
 2. If not, create a new issue with:
    - Clear description of the problem
    - Steps to reproduce
@@ -20,7 +20,7 @@ Be respectful, inclusive, and constructive. We're building a tool to help people
 
 ### Suggesting Features
 
-1. Check [Discussions](https://github.com/bigale/contextual-recall/discussions) for similar ideas
+1. Check [Discussions](https://github.com/bigale/agentidev/discussions) for similar ideas
 2. Create a new discussion explaining:
    - The use case
    - How it would work
@@ -61,8 +61,8 @@ test: Add unit tests for classifier
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/contextual-recall.git
-cd contextual-recall
+git clone https://github.com/YOUR_USERNAME/agentidev.git
+cd agentidev
 
 # Install dependencies
 npm install
@@ -80,7 +80,7 @@ npm run dev
 ## Project Structure
 
 ```
-contextual-recall/
+agentidev/
 ├── extension/          # Chrome extension code
 │   ├── background.js   # Service worker
 │   ├── content.js      # Content script
@@ -146,8 +146,8 @@ When adding features:
 
 ## Questions?
 
-- **General questions**: [GitHub Discussions](https://github.com/bigale/contextual-recall/discussions)
-- **Bug reports**: [GitHub Issues](https://github.com/bigale/contextual-recall/issues)
+- **General questions**: [GitHub Discussions](https://github.com/bigale/agentidev/discussions)
+- **Bug reports**: [GitHub Issues](https://github.com/bigale/agentidev/issues)
 - **Security issues**: Email [your email] (don't open public issue)
 
 ## License
@@ -156,4 +156,4 @@ By contributing, you agree that your contributions will be licensed under the MI
 
 ---
 
-**Thank you for contributing to Contextual Recall!** 🧠✨
+**Thank you for contributing to Agentidev!** 🧠✨
