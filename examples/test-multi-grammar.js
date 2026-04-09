@@ -9,7 +9,7 @@
  */
 
 import { readFileSync } from 'fs';
-import { parse_ixml } from '/home/bigale/repos/rustixml/pkg-nodejs/rustixml.js';
+import { parse_ixml } from 'rustixml';
 
 // Preprocessing
 function stripScriptTags(html) {
@@ -39,7 +39,7 @@ function extractForm(html) {
 console.log('🔬 Multi-Grammar Pipeline Test\n');
 
 // Load HTML and preprocess
-const fullHtml = readFileSync('/home/bigale/repos/contextual-recall/examples/roboform.html', 'utf8');
+const fullHtml = readFileSync(new URL('./', import.meta.url).pathname + 'roboform.html', 'utf8');
 const formHtml = extractForm(fullHtml);
 const preprocessed = preprocess(formHtml);
 

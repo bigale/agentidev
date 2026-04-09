@@ -2,10 +2,11 @@
 # IXML Test Harness
 # Automatically test preprocessing + grammar combinations
 
-MARKUP_BLITZ="/home/bigale/repos/markup-blitz/build/libs/markup-blitz.jar"
-TEST_DIR="/home/bigale/repos/contextual-recall/examples/test-cases"
-GRAMMAR_DIR="/home/bigale/repos/contextual-recall/examples/grammars"
-PREPROCESS_DIR="/home/bigale/repos/contextual-recall/examples/preprocessors"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+MARKUP_BLITZ="${MARKUP_BLITZ:-/home/bigale/repos/markup-blitz/build/libs/markup-blitz.jar}"
+TEST_DIR="$SCRIPT_DIR/test-cases"
+GRAMMAR_DIR="$SCRIPT_DIR/grammars"
+PREPROCESS_DIR="$SCRIPT_DIR/preprocessors"
 
 # Colors
 GREEN='\033[0;32m'

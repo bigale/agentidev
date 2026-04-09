@@ -4,7 +4,7 @@
  */
 
 import { readFileSync } from 'fs';
-import { parse_ixml } from '/home/bigale/repos/rustixml/pkg-nodejs/rustixml.js';
+import { parse_ixml } from 'rustixml';
 
 const TEST_CASES = {
   simple_form: '<form action="/submit"><label>Name:</label><input type="text" name="name"></form>',

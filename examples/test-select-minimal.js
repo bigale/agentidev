@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { parse_ixml } from '/home/bigale/repos/rustixml/pkg-nodejs/rustixml.js';
+import { parse_ixml } from 'rustixml';
 import { readFileSync } from 'fs';
 
 // Minimal SELECT test

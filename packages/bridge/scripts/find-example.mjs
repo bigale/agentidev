@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 
-const treePath = 'C:/Users/everiale/source/repos/smartclient/smartclientSDK/isomorphic/system/reference/exampleTree.js';
+const sdkBase = process.env.SMARTCLIENT_SDK || 'smartclientSDK';
+const treePath = `${sdkBase}/isomorphic/system/reference/exampleTree.js`;
 const src = readFileSync(treePath, 'utf8');
 
 // Find all id/jsURL pairs near "savedSearch" or "SavedSearch"

@@ -4,7 +4,7 @@
  */
 
 import { readFileSync } from 'fs';
-import { parse_ixml } from '/home/bigale/repos/rustixml/pkg-nodejs/rustixml.js';
+import { parse_ixml } from 'rustixml';
 
 // Preprocessing functions
 function stripScriptTags(html) {
@@ -35,7 +35,7 @@ function extractForm(html) {
 // Read the form HTML
 console.log('🔬 Debugging Roboform Grammar\n');
 
-const fullHtml = readFileSync('/home/bigale/repos/contextual-recall/examples/roboform.html', 'utf8');
+const fullHtml = readFileSync(new URL('./', import.meta.url).pathname + 'roboform.html', 'utf8');
 const formHtml = extractForm(fullHtml);
 
 if (!formHtml) {

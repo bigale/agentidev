@@ -13,7 +13,7 @@ Tests use the `SmartClientCommands` helper from `smartclientSDK/tools/playwright
 Add to Playwright test file:
 
 ```javascript
-const { extendPage } = require('C:/Users/everiale/source/repos/smartclient/smartclientSDK/tools/playwright/commands.js');
+const { extendPage } = require(process.env.SMARTCLIENT_SDK + '/tools/playwright/commands.js');
 
 test.beforeEach(async ({ page }) => {
   extendPage(page);
@@ -158,7 +158,7 @@ Explicit waits needed for:
 
 ```javascript
 const { test, expect } = require('@playwright/test');
-const { extendPage } = require('C:/Users/everiale/source/repos/smartclient/smartclientSDK/tools/playwright/commands.js');
+const { extendPage } = require(process.env.SMARTCLIENT_SDK + '/tools/playwright/commands.js');
 
 test.describe('Dashboard', () => {
   test.beforeEach(async ({ page }) => {

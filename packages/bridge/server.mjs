@@ -8,8 +8,8 @@
  * Serializes commands per session (queue-based).
  * Broadcasts state changes to all connected clients.
  *
- * Start: node bridge/server.mjs [--port=9876]
- * Stop:  Ctrl+C or node bridge/server.mjs --stop
+ * Start: node packages/bridge/server.mjs [--port=9876]
+ * Stop:  Ctrl+C or node packages/bridge/server.mjs --stop
  */
 
 import { WebSocketServer, WebSocket } from 'ws';
@@ -32,7 +32,7 @@ import { initVectorDB, addPage as vectorAddPage, search as vectorSearch, getStat
 const DEFAULT_PORT = 9876;
 const HEALTH_INTERVAL = 30000; // 30s ping/pong
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT  = pathResolve(__dirname, '..');
+const REPO_ROOT  = pathResolve(__dirname, '..', '..');
 const SHIM_PATH = pathResolve(__dirname, 'playwright-shim.mjs');
 const SCRIPTS_DIR = pathResolve(homedir(), '.contextual-recall', 'scripts');
 const AUTH_DIR = pathResolve(homedir(), '.contextual-recall', 'auth');

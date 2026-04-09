@@ -7,11 +7,11 @@
  * and stores in the bridge-side LanceDB (source: 'showcase').
  *
  * Usage:
- *   node bridge/scripts/index-showcase.mjs                      # index all examples
- *   node bridge/scripts/index-showcase.mjs --dry-run            # parse only, print stats
- *   node bridge/scripts/index-showcase.mjs --limit=10           # index first 10
- *   node bridge/scripts/index-showcase.mjs --category=AI        # only AI category
- *   node bridge/scripts/index-showcase.mjs --wait-for-neural    # wait for neural model before indexing
+ *   node packages/bridge/scripts/index-showcase.mjs                      # index all examples
+ *   node packages/bridge/scripts/index-showcase.mjs --dry-run            # parse only, print stats
+ *   node packages/bridge/scripts/index-showcase.mjs --limit=10           # index first 10
+ *   node packages/bridge/scripts/index-showcase.mjs --category=AI        # only AI category
+ *   node packages/bridge/scripts/index-showcase.mjs --wait-for-neural    # wait for neural model before indexing
  */
 
 import { ScriptClient } from '../script-client.mjs';
@@ -27,7 +27,7 @@ const args = process.argv.slice(2);
 const sdkPathArg = args.find(a => a.startsWith('--sdk-path='));
 const SDK_BASE = sdkPathArg
   ? sdkPathArg.split('=').slice(1).join('=')
-  : 'C:/Users/everiale/source/repos/smartclient/smartclientSDK';
+  : process.env.SMARTCLIENT_SDK || 'smartclientSDK';
 const EXAMPLE_TREE_PATH = join(SDK_BASE, 'isomorphic/system/reference/exampleTree.js');
 const INLINE_EXAMPLES_DIR = join(SDK_BASE, 'isomorphic/system/reference/inlineExamples');
 const SHARED_DS_DIR = join(SDK_BASE, 'examples/shared/ds');
