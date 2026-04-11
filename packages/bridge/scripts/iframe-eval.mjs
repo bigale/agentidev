@@ -1,16 +1,12 @@
-// Direct CDP eval on a page matched by URL substring, bypassing Playwright's page cache
-// Usage: direct-eval.mjs '<expr>' [url-substring]
 import http from 'http';
 import WebSocket from 'ws';
 function httpGet(url) { return new Promise((res,rej)=>{http.get(url,r=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>res(JSON.parse(d)))}).on('error',rej);}); }
-const URL_HINT = process.argv[3] || 'cheerpj-app/cheerpj';
 const ts = await httpGet('http://localhost:9222/json');
-const page = ts.find(t => t.type === 'page' && t.url.includes(URL_HINT));
-if (!page) { console.error('no page matching', URL_HINT); process.exit(1); }
-console.log('Target:', page.id);
-const ws = new WebSocket(page.webSocketDebuggerUrl);
+const iframe = ts.find(t => t.type === 'iframe' && t.url.includes('cheerpj-runtime'));
+if (!iframe) { console.error('no iframe'); process.exit(1); }
+const ws = new WebSocket(iframe.webSocketDebuggerUrl);
 await new Promise(r => ws.once('open', r));
-const expr = process.argv[2];
+const expr = process.argv[2] || 'document.getElementById("log").innerText';
 const result = await new Promise((resolve, reject) => {
   ws.once('message', raw => {
     const msg = JSON.parse(raw.toString());

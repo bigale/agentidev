@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>CheerpJ Runtime Host</title>
+  <style>
+    html, body { margin: 0; padding: 0; font-family: monospace; background: #111; color: #eee; font-size: 11px; }
+    #log { padding: 8px; white-space: pre-wrap; height: 180px; overflow: auto; border-bottom: 1px solid #333; }
+    #runtimeFrame { width: 100%; height: calc(100vh - 180px); border: none; }
+    h1 { padding: 6px 12px; margin: 0; background: #222; font-size: 12px; }
+    .ok  { color: #8f8; }
+    .err { color: #f88; }
+    .info { color: #8cf; }
+  </style>
+</head>
+<body>
+<h1>CheerpJ Runtime Host — extension page → localhost iframe</h1>
+<div id="log">Loading...</div>
+
+<iframe id="runtimeFrame" sandbox="allow-scripts allow-same-origin"></iframe>
+
+<script src="cheerpj-cachebust.js"></script>
+<script src="cheerpj-host.js"></script>
+</body>
+</html>

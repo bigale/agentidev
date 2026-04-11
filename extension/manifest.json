@@ -20,7 +20,7 @@
     "type": "module"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; object-src 'self'"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; object-src 'self'; frame-src 'self' http://localhost:9877 http://127.0.0.1:9877"
   },
   "content_scripts": [
     {
@@ -46,8 +46,7 @@
   },
   "sandbox": {
     "pages": [
-      "smartclient-app/app.html",
-      "cheerpj-app/spike.html"
+      "smartclient-app/app.html"
     ]
   },
   "web_accessible_resources": [

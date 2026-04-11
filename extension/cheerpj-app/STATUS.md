@@ -1,6 +1,10 @@
 # Phase 1.5 — CheerpJ Spike Status
 
-**Status**: partial. CheerpJ boots cleanly inside an extension sandbox iframe (in 60–90ms), all APIs are available, test JAR builds and injects. Blocked on the `cheerpjRunLibrary` resolution step — on a fresh init it does not resolve within 30 seconds with a custom JAR. Needs a dedicated debugging session.
+**Status**: **DONE ✅** — Phase 1.6 (localhost-iframe architecture) unblocked everything. CheerpJ executes Java JARs end-to-end inside an extension page in **1.3 seconds** on subsequent calls. See bottom of this doc for the Phase 1.6 resolution.
+
+---
+
+## Original Phase 1.5 writeup (sandbox approach — abandoned)
 
 ## What works
 
@@ -231,6 +235,158 @@ page with full chrome.* access), we may actually work WITHOUT the c.js
 patch because the package-directory-entry API might need... let me check
 MV3 docs for whether `getPackageDirectoryEntry` was removed or just
 changed.
+
+---
+
+## Phase 1.6 — RESOLUTION (2026-04)
+
+The sandbox-based approach was the wrong path. Key facts:
+
+- `'unsafe-eval'` in `extension_pages` CSP: **forbidden by MV3**. Adding
+  it causes silent extension load failure, no service worker starts.
+  Confirmed by direct test.
+- Sandbox pages allow `unsafe-eval` but break MessagePort transfer across
+  the sandbox boundary, so CheerpJ's c.html iframe never receives the
+  port handshake.
+- `chrome.runtime.getPackageDirectoryEntry` is a deprecated MV2 API that
+  never fires its callback in MV3.
+
+### The fix: localhost iframe inside a regular extension page
+
+Architecture:
+
+```
+chrome-extension://<id>/cheerpj-app/cheerpj.html   (regular extension page,
+                                                    non-sandboxed, has
+                                                    chrome.runtime access)
+  │
+  │  postMessage with cache-busted src
+  │
+  └── iframe src="http://localhost:9877/cheerpj-runtime.html?t=<ts>"
+                                                    (real http:// origin,
+                                                    served by agentidev
+                                                    asset-server.mjs)
+        │
+        │  CheerpJ loads normally from its public CDN
+        │  (external scripts allowed in http:// pages)
+        │
+        └── <script src="https://cjrtnc.leaningtech.com/4.0/loader.js">
+              │
+              └── Creates its own c.html iframe at the CDN origin.
+                  MessagePort handshake works because both iframes are
+                  in normal web origins. c.js takes the DirectDownloader
+                  path because location.protocol is "https:" (from CDN).
+                  JRE fetches work normally.
+```
+
+**Why it works:**
+
+1. The extension page is regular (not sandboxed) — inline script
+   restriction applies (fixed by moving cache-buster to external file)
+   but no other weirdness.
+2. `frame-src http://localhost:9877` in `content_security_policy.extension_pages`
+   allows embedding the localhost iframe.
+3. The localhost iframe has a normal `http://` origin — CheerpJ's own
+   code paths treat it as a standard web page. No MV3 constraints apply
+   inside it. CheerpJ uses `'unsafe-eval'` freely.
+4. The nested CDN c.html iframe is at `https://cjrtnc.leaningtech.com/` —
+   also normal, same-origin as loader.js, port handshake works.
+5. JARs are fetched by the extension host page (which has
+   `host_permissions: ["<all_urls>"]`) and shipped as bytes via
+   postMessage to the localhost iframe, which injects them via
+   `cheerpOSAddStringFile`.
+
+**Critical workaround: use `cheerpjRunMain`, not `cheerpjRunLibrary`.**
+The Proxy-walk pattern documented in the AAV CheerpJ integration
+(`await lib.java.lang.System.currentTimeMillis()`) hangs indefinitely in
+this nested-iframe context. The first proxy access (`await lib.com`)
+never resolves. Not sure why — it works in AAV's React SPA context but
+not here. Workaround: compile a Java class with a `public static void
+main` that prints results to stdout, run via `cheerpjRunMain`, capture
+the intercepted `console.log` output. This is a different CheerpJ code
+path that does not rely on the class-walking Proxy.
+
+### Files delivered
+
+New platform files:
+
+- `extension/cheerpj-app/cheerpj.html` — non-sandboxed extension host page
+- `extension/cheerpj-app/cheerpj-cachebust.js` — sets iframe src with
+  cache-busting query string (inline scripts blocked by MV3)
+- `extension/cheerpj-app/cheerpj-host.js` — `window.CheerpJHost` with
+  `ping()`, `init()`, `runMain({ jarUrl, className, args, cacheKey })`
+- `extension/cheerpj-app/jars/hello-main.jar` — test JAR with
+  `public static void main` (1033 bytes)
+- `extension/lib/host/runtimes/cheerpj.js` — `CheerpJRuntime` class
+  implementing the Runtime interface from `host-interface.js`. Library-
+  type runtime with a `runMain()` method. (Host registration is Phase
+  1.7; for now the runtime class exists and can be called from inside
+  cheerpj-app via `window.CheerpJHost.runMain(...)`.)
+
+New asset-server files:
+
+- `~/.agentidev/cheerpx-assets/cheerpj-runtime.html` — the actual
+  CheerpJ host page, served at `http://localhost:9877/cheerpj-runtime.html`.
+  Loads CheerpJ from the public CDN, handles postMessage commands
+  (`ping`, `init`, `runMain`), intercepts `console.log` to capture
+  stdout during `cheerpjRunMain` execution.
+- `~/.agentidev/cheerpx-assets/hello-main.jar` — copy of the test JAR
+  (unused since the extension host fetches from its own resource path;
+  kept for standalone testing).
+
+Manifest changes:
+
+- Removed `cheerpj-app/spike.html` from `sandbox.pages` (no longer
+  needed — not a sandbox anymore).
+- Added `frame-src 'self' http://localhost:9877 http://127.0.0.1:9877`
+  to `content_security_policy.extension_pages` to allow the iframe.
+
+### End-to-end demonstration
+
+```js
+// From the extension host page console (or any caller with
+// access to window.CheerpJHost):
+const r = await window.CheerpJHost.runMain({
+  jarUrl: "jars/hello-main.jar",
+  className: "com.agentidev.Hello",
+  args: ["agentidev"],
+  cacheKey: "hello-main"
+});
+// {
+//   success: true,
+//   exitCode: 0,
+//   stdout: "CheerpJ runtime ready\n
+//            Class is loaded, main is starting\n
+//            AGENTIDEV_HELLO_VERSION=hello-0.1.0\n\n\n
+//            AGENTIDEV_HELLO_GREET=Hello, agentidev!\n\n"
+// }
+// Elapsed: 1.3 seconds on subsequent calls (CheerpJ already warm)
+```
+
+### What Phase 1.6 does NOT fix
+
+- **Proxy-walk loadLibrary + callStatic pattern** is still blocked.
+  We go through `runMain` for now. When/if we need library mode (e.g.
+  to call a method repeatedly without re-running main), this needs
+  dedicated debugging. AAV makes it work in a React SPA — the nested
+  iframe context is the difference, and we don't fully understand why.
+
+### Phase 1.7 — next increment
+
+1. **Wire the cheerpj runtime into `host.runtimes.register('cheerpj', ...)`
+   at boot.** Requires the wrapper/service-worker message relay to route
+   `cheerpj-*` messages to the cheerpj-app page. Or use
+   `chrome.offscreen.createDocument` to spawn `cheerpj-app/cheerpj.html`
+   as a managed offscreen doc automatically when first used.
+2. **Try `cheerpjRunMain` + stdin/stdout-piped JARs** for horsebread's
+   use cases. Most of horsebread's Python isn't Java, so this runtime
+   is primarily for the HL7/FHIR validator and SmartClient server JARs.
+3. **Tackle Phase 2 CheerpX** with the same lesson — host it via the
+   asset server in a localhost iframe instead of fighting extension
+   sandbox restrictions. The CheerpX bundle is already in place.
+4. **Eventually**: resolve the Proxy-walk hang so `loadLibrary()` +
+   `call()` work for libraries that don't expose a main method (the
+   NIST/FHIR validator pattern from AAV).
 
 ## Relation to Phase 1 CheerpX
 
