@@ -37,6 +37,7 @@ import { register as registerSmartClient } from './lib/handlers/smartclient-hand
 import { register as registerAppPersistence } from './lib/handlers/app-persistence.js';
 import { register as registerProjectPersistence } from './lib/handlers/project-persistence.js';
 import { register as registerSync } from './lib/handlers/sync-handlers.js';
+import { register as registerCheerpJ } from './lib/handlers/cheerpj-handlers.js';
 
 console.log('Agentidev: Background service worker started');
 console.log('[Background] Note: Extension reload = re-initialize (models are cached, not re-downloaded)');
@@ -197,6 +198,7 @@ registerSmartClient(handlers);
 registerAppPersistence(handlers);
 registerProjectPersistence(handlers);
 registerSync(handlers);
+registerCheerpJ(handlers);
 
 chrome.runtime.onMessage.addListener(createMessageRouter(handlers));
 

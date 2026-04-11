@@ -122,4 +122,63 @@
   };
 
   logLine('info', 'extension host page loaded; waiting for runtime iframe');
+
+  // ---- Service worker message routing ----
+  //
+  // When this page runs as an offscreen document, the service worker routes
+  // CHEERPJ_INVOKE messages here. We dispatch each to the corresponding
+  // CheerpJHost method and return the result via the sendResponse callback.
+  //
+  // Must return `true` from the onMessage listener to keep sendResponse
+  // alive for the async reply (standard MV3 pattern).
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+      if (!msg || msg.type !== 'CHEERPJ_INVOKE') return;
+      var command = msg.command;
+      var payload = msg.payload || {};
+
+      var handler = window.CheerpJHost[command];
+      if (typeof handler !== 'function') {
+        sendResponse({ success: false, error: 'unknown command: ' + command });
+        return true;
+      }
+
+      // For init/ping, pass options directly. For runMain, the payload is
+      // the opts object already.
+      var promise;
+      if (command === 'init') {
+        promise = handler.call(window.CheerpJHost, payload.options || {});
+      } else if (command === 'ping') {
+        promise = handler.call(window.CheerpJHost);
+      } else if (command === 'runMain') {
+        promise = handler.call(window.CheerpJHost, payload);
+      } else {
+        promise = handler.call(window.CheerpJHost, payload);
+      }
+
+      promise.then(function (result) {
+        sendResponse({ success: true, ...result });
+      }).catch(function (err) {
+        sendResponse({ success: false, error: (err && err.message) || String(err) });
+      });
+
+      return true; // async response
+    });
+    logLine('info', 'chrome.runtime.onMessage listener installed (offscreen mode)');
+
+    // Tell the service worker we're ready to receive CHEERPJ_INVOKE. This
+    // solves the race where the service worker calls chrome.runtime.sendMessage
+    // before the listener is installed and gets "port closed before response".
+    try {
+      chrome.runtime.sendMessage({ type: 'CHEERPJ_OFFSCREEN_READY' }, function () {
+        if (chrome.runtime.lastError) {
+          logLine('err', 'ready signal error: ' + chrome.runtime.lastError.message);
+        } else {
+          logLine('ok', 'ready signal acknowledged by service worker');
+        }
+      });
+    } catch (e) {
+      logLine('err', 'failed to signal ready: ' + e.message);
+    }
+  }
 })();

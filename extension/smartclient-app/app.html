@@ -92,6 +92,9 @@
 
 <!-- Host Capability Interface (must load before anything that calls window.Host) -->
 <script src="../lib/host/host-interface.js"></script>
+<!-- Runtime implementations must load before host-chrome-extension.js so the
+     factory can auto-register them. Each runtime attaches to window. -->
+<script src="../lib/host/runtimes/cheerpj.js"></script>
 <script src="../lib/host/host-chrome-extension.js"></script>
 
 <!-- Dashboard mode (SC-4) -->

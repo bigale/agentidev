@@ -15,5 +15,21 @@
     embedding generation requests from the service worker.
   -->
   <script src="offscreen.js" type="module"></script>
+
+  <!--
+    CheerpJ runtime host (Phase 1.7)
+
+    MV3 only permits ONE offscreen document per extension, and this one is
+    already claimed for embeddings. So the CheerpJ runtime is hosted as an
+    iframe inside this same offscreen document. The iframe is a regular
+    non-sandboxed extension page that embeds another iframe pointing at
+    the asset-server's cheerpj-runtime.html (localhost) where CheerpJ
+    actually runs.
+
+    The cheerpj-app/cheerpj.html page sets up its own chrome.runtime.onMessage
+    listener so CHEERPJ_INVOKE messages dispatched via chrome.runtime.sendMessage
+    from the service worker land here without offscreen.js needing to forward.
+  -->
+  <iframe src="cheerpj-app/cheerpj.html" style="display:none" id="cheerpj-host-iframe"></iframe>
 </body>
 </html>

@@ -1,6 +1,6 @@
 # Phase 1.5 — CheerpJ Spike Status
 
-**Status**: **DONE ✅** — Phase 1.6 (localhost-iframe architecture) unblocked everything. CheerpJ executes Java JARs end-to-end inside an extension page in **1.3 seconds** on subsequent calls. See bottom of this doc for the Phase 1.6 resolution.
+**Status**: **DONE ✅** — Phases 1.6 and 1.7 both landed. CheerpJ is now a first-class runtime on the `host.runtimes` registry. Any extension page can call `host.runtimes.get('cheerpj').runMain(...)` and get Java output back in ~1 second. See the Phase 1.7 section at the bottom for the final architecture.
 
 ---
 
@@ -393,3 +393,87 @@ const r = await window.CheerpJHost.runMain({
 This is the same category of problem. Both runtimes work fine in their normal hosting context (regular web pages) but hit an opaque hang inside an extension sandbox iframe during a resource-loading phase that happens in a worker we can't observe. The CheerpX fix might be exactly the same as the CheerpJ fix once we find it.
 
 The Phase 2 CheerpX unlock (via `CheerpX.DataDevice.create(Uint8Array)`) bypasses the HTTP transport layer entirely. There may be a CheerpJ equivalent — maybe `cheerpOSAddStringFile` with the entire JRE as bytes, if we can extract a JRE blob from somewhere.
+
+---
+
+## Phase 1.7 — host.runtimes registration (2026-04)
+
+**Status: done.** CheerpJ is now reachable from any extension page via the
+`host.runtimes` registry. Verified end-to-end from the SC dashboard sandbox
+iframe: `host.runtimes.get('cheerpj').runMain({...})` returns Java stdout in
+**968 ms** on a warm runtime.
+
+### What landed
+
+1. **`host.runtimes` capability surface** added to `host-chrome-extension.js`
+   with `list()`, `get()`, `has()`, `register()`. The host factory auto-registers
+   any runtime class that attached itself to `window` by the time the host is
+   constructed (e.g., `window.HostRuntimeCheerpJ` → registered as `cheerpj`).
+
+2. **SC sandbox loads `runtimes/cheerpj.js` before `host-chrome-extension.js`**
+   in `smartclient-app/app.html`, so the runtime class is available for
+   auto-registration.
+
+3. **Service worker routing via `lib/handlers/cheerpj-handlers.js`.** Registers
+   three handlers: `cheerpj-ping`, `cheerpj-init`, `cheerpj-runMain`. Each
+   forwards to the offscreen document via an internal `CHEERPJ_INVOKE`
+   envelope sent with `chrome.runtime.sendMessage`.
+
+4. **Offscreen document hosts CheerpJ as an embedded iframe.**
+   MV3 appears to allow multiple offscreen documents in current Chrome
+   versions, but to stay compatible and reuse the existing infrastructure,
+   we extended the shared `offscreen.html` (already used for transformers.js
+   embeddings + LLM workers) to also contain a hidden iframe pointing at
+   `cheerpj-app/cheerpj.html`. The cheerpj iframe loads `cheerpj-host.js`
+   which sets up its own `chrome.runtime.onMessage` listener for
+   `CHEERPJ_INVOKE` and relays commands to its localhost iframe child.
+
+5. **Ready handshake.** When `cheerpj-host.js` installs its `onMessage`
+   listener, it immediately sends `{ type: 'CHEERPJ_OFFSCREEN_READY' }` to
+   the service worker so the handler knows it's safe to dispatch real work.
+   Without this, the first `CHEERPJ_INVOKE` raced the listener install and
+   failed with "The message port closed before a response was received".
+
+### Call chain (seven hops)
+
+```
+SC sandbox iframe (app.html)
+  └─[1]─> postMessage 'smartclient-action' to wrapper.html
+              └─[2]─> chrome.runtime.sendMessage(cheerpj-runMain) to service worker
+                          └─[3]─> cheerpj-handlers invokeOffscreen('runMain', ...)
+                                      └─[4]─> chrome.runtime.sendMessage(CHEERPJ_INVOKE) to offscreen
+                                                  └─[5]─> offscreen.html's iframe cheerpj-app/cheerpj.html
+                                                              └─[6]─> postMessage to localhost iframe
+                                                                          └─[7]─> CheerpJ cheerpjRunMain(...)
+                                                                                    └──> Java main() runs,
+                                                                                         System.out captured
+Return flows back the same seven hops. Total elapsed: ~968 ms warm.
+```
+
+### Gotchas resolved
+
+- **MV3 allows multiple offscreen docs (or at least Chrome 147 does).**
+  Earlier writeup assumed strict single-offscreen constraint. Confirmed
+  both `offscreen.html` AND `cheerpj-app/cheerpj.html` can exist as
+  offscreen contexts simultaneously. But keeping the CheerpJ iframe
+  inside the shared `offscreen.html` is still cleaner — one lifecycle,
+  less manifest churn.
+- **Ready handshake is essential.** The first `CHEERPJ_INVOKE` arriving
+  before the offscreen doc installed its listener closed the port
+  immediately. Fix: offscreen signals ready, service worker's
+  `ensureOffscreen()` blocks until the ready signal arrives.
+- **Fresh profiles help.** Stale browser profile state caused the
+  registry to show duplicate offscreen contexts from prior runs.
+  Wiping `~/.agentidev/browser-profile` clears the confusion.
+
+### Exit criteria met
+
+- `host.runtimes.list()` returns `['cheerpj']` inside the SC sandbox
+- `host.runtimes.get('cheerpj').runMain(...)` returns `{ success: true,
+  exitCode: 0, stdout: ... }` with Java stdout in under 1 second on warm
+  runtime
+- `npm test` stays green (145 Jest tests)
+- No regressions in existing dashboard features
+- Same architecture ready to port to CheerpX (Phase 2) with minimal
+  changes — just add a `cheerpx-app/cheerpx.html` iframe to
+  `offscreen.html` and a `cheerpx-handlers.js` alongside `cheerpj-handlers.js`.

@@ -88,12 +88,35 @@
   // does not claim to be a real install identifier.
   var _installId = 'sandbox-' + Math.random().toString(36).slice(2, 10);
 
+  // ---- Runtimes registry ----
+
+  var _runtimes = {};
+
+  function createRuntimesSurface(hostRef) {
+    return {
+      list: function () { return Object.keys(_runtimes); },
+      get: function (name) {
+        var r = _runtimes[name];
+        if (!r) throw new Error('Runtime not registered: ' + name);
+        return r;
+      },
+      has: function (name) { return _runtimes.hasOwnProperty(name); },
+      register: function (name, impl) {
+        if (!impl || typeof impl !== 'object') {
+          throw new Error('runtimes.register: impl must be an object');
+        }
+        _runtimes[name] = impl;
+        return impl;
+      },
+    };
+  }
+
   // ---- Factory ----
 
   var _host = null;
 
   function createHost() {
-    return {
+    var host = {
       identity: {
         hostType: 'chrome-extension-sandbox',
         installId: _installId,
@@ -128,6 +151,21 @@
         },
       },
     };
+
+    host.runtimes = createRuntimesSurface(host);
+
+    // Auto-register runtimes whose implementations have been loaded by
+    // script tags before us. Each runtime class attaches itself to window
+    // (HostRuntimeCheerpJ, HostRuntimeCheerpX, ...) and we instantiate here.
+    if (typeof window.HostRuntimeCheerpJ === 'function') {
+      try {
+        host.runtimes.register('cheerpj', new window.HostRuntimeCheerpJ({ host: host }));
+      } catch (e) {
+        console.warn('[Host] cheerpj runtime registration failed:', e.message);
+      }
+    }
+
+    return host;
   }
 
   window.Host = {
