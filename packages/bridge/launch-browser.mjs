@@ -30,7 +30,7 @@ import { fileURLToPath } from 'url';
 import { mkdirSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const EXTENSION_PATH = resolve(__dirname, '..', 'extension');
+const EXTENSION_PATH = resolve(__dirname, '..', '..', 'extension');
 const DEFAULT_PROFILE = resolve(process.env.HOME ?? process.env.USERPROFILE, '.agentidev', 'browser-profile');
 
 // Parse args
