@@ -52,6 +52,11 @@ temp/
 # SmartClient runtime (external symlink, ~260MB)
 extension/smartclient
 
+# Plugin assembly outputs — assembled from private repos at build time.
+# Keep PLAN.md (the public placeholder) visible for discovery.
+extension/apps/horsebread/
+!extension/apps/horsebread/PLAN.md
+
 # Screenshots & data files
 Capture.PNG
 twinspires-races.txt
