@@ -93,10 +93,12 @@
      * Run a Java main() method and capture its stdout.
      *
      * @param {object} opts
-     * @param {string} opts.jarUrl       URL to fetch the JAR bytes from
-     * @param {string} opts.className    Fully-qualified class with main, e.g. 'com.agentidev.Hello'
+     * @param {string} opts.jarUrl       Primary JAR URL (contains the main class)
+     * @param {string[]} [opts.extraJars] Additional JAR URLs joined onto classpath
+     *                                    (wrappers, dependencies, etc.)
+     * @param {string} opts.className    Fully-qualified class with main
      * @param {string[]} [opts.args]     String args passed to main(String[] args)
-     * @param {string} [opts.cacheKey]   Virtual JAR filename (defaults to "jar-<size>")
+     * @param {string} [opts.cacheKey]   Virtual JAR filename for the primary JAR
      * @param {object} [opts.options]    cheerpjInit options
      * @returns {Promise<{success: boolean, exitCode: number, stdout: string}>}
      */
@@ -104,19 +106,33 @@
       if (!opts || !opts.jarUrl || !opts.className) {
         return Promise.reject(new Error('runMain: jarUrl and className required'));
       }
-      return fetch(opts.jarUrl).then(function (r) {
-        if (!r.ok) throw new Error('fetch failed: ' + r.status);
-        return r.arrayBuffer();
-      }).then(function (buf) {
-        var bytes = new Uint8Array(buf);
+      function fetchBytes(url) {
+        return fetch(url).then(function (r) {
+          if (!r.ok) throw new Error('fetch failed: ' + url + ' ' + r.status);
+          return r.arrayBuffer();
+        }).then(function (buf) { return new Uint8Array(buf); });
+      }
+      var primaryP = fetchBytes(opts.jarUrl);
+      var extraUrls = Array.isArray(opts.extraJars) ? opts.extraJars : [];
+      var extraP = Promise.all(extraUrls.map(function (url) {
+        return fetchBytes(url).then(function (bytes) {
+          // Derive a cacheKey from the URL filename
+          var name = url.split('/').pop().replace(/\.jar$/, '').replace(/[^A-Za-z0-9_-]/g, '_');
+          return { bytes: bytes, cacheKey: name + '-' + bytes.length };
+        });
+      }));
+      return Promise.all([primaryP, extraP]).then(function (parts) {
+        var bytes = parts[0];
+        var extraJars = parts[1];
         return sendCommand('runMain', {
           bytes: bytes,
           cacheKey: opts.cacheKey || ('jar-' + bytes.length),
           sourceUrl: opts.jarUrl,
+          extraJars: extraJars,
           className: opts.className,
           args: opts.args || [],
           options: opts.options || {},
-        }, 120000);
+        }, opts.timeoutMs || 600000); // 10 min — Jython cold init can hit several minutes
       });
     },
   };

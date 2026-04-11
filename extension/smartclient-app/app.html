@@ -93,8 +93,12 @@
 <!-- Host Capability Interface (must load before anything that calls window.Host) -->
 <script src="../lib/host/host-interface.js"></script>
 <!-- Runtime implementations must load before host-chrome-extension.js so the
-     factory can auto-register them. Each runtime attaches to window. -->
+     factory can auto-register them. Each runtime attaches to window.
+     Composed runtimes (bsh on cheerpj, etc.) must load AFTER their deps
+     so dependsOn lookups succeed at register time. -->
 <script src="../lib/host/runtimes/cheerpj.js"></script>
+<script src="../lib/host/runtimes/cheerpx.js"></script>
+<script src="../lib/host/runtimes/bsh.js"></script>
 <script src="../lib/host/host-chrome-extension.js"></script>
 
 <!-- Dashboard mode (SC-4) -->
