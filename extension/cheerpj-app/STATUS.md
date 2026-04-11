@@ -75,6 +75,163 @@ The only difference between AAV's working code and our hanging code is the hosti
 5. **Try hosting CheerpJ from the asset server** (`localhost:9877`) instead of `chrome-extension://`. If it works there, we've proven the issue is specifically about extension origin handling inside CheerpJ, and we can work around it via a relay layer.
 6. **If all else fails**: open an issue with Leaning Technologies (they're generally responsive on their Discord) describing the CheerpJ-in-MV3-sandbox state.
 
+---
+
+## Update 2026-04 — deep network capture session
+
+After the Phase 1.5 commit, I ran a focused debugging session using
+`Target.setAutoAttach(flatten: true)` with `waitForDebuggerOnStart: true`
+to capture worker-level network events across the CheerpJ iframe. What we
+found:
+
+### CDN test (known-good baseline)
+
+Loaded `http://localhost:9877/cheerpj-test.html` (hosted by asset-server,
+**NOT** inside the extension) which uses the public CheerpJ CDN loader.
+`cheerpjRunLibrary` **resolved in ~4.8 seconds** to a real object.
+
+Observed network fetches — 25 unique URLs including:
+
+```
+https://cjrtnc.leaningtech.com/4.0/loader.js
+https://cjrtnc.leaningtech.com/4.0/cj3.js
+https://cjrtnc.leaningtech.com/4.0/cj3.wasm
+https://cjrtnc.leaningtech.com/4.0/cj3n8.wasm     ← note: 8, not 11
+https://cjrtnc.leaningtech.com/4.0/cheerpOS.js
+https://cjrtnc.leaningtech.com/4.0/cheerpj.css
+https://cjrtnc.leaningtech.com/4.0/c.html
+https://cjrtnc.leaningtech.com/4.0/c.js           ← critical support file
+https://cjrtnc.leaningtech.com/4.0/8/jre/lib/rt.jar          (26.8 MB)
+https://cjrtnc.leaningtech.com/4.0/8/jre/lib/charsets.jar    (1.8 MB)
+https://cjrtnc.leaningtech.com/4.0/8/jre/lib/jce.jar
+https://cjrtnc.leaningtech.com/4.0/8/jre/lib/jsse.jar
+https://cjrtnc.leaningtech.com/4.0/8/jre/lib/resources.jar
+https://cjrtnc.leaningtech.com/4.0/8/jre/lib/javaws.jar
+https://cjrtnc.leaningtech.com/4.0/8/jre/lib/cheerpj-awt.jar
+https://cjrtnc.leaningtech.com/4.0/8/lib/ext/localedata.jar
+https://cjrtnc.leaningtech.com/4.0/8/lib/ext/sunjce_provider.jar
+https://cjrtnc.leaningtech.com/4.0/8/lib/ext/meta-index
+https://cjrtnc.leaningtech.com/4.0/8/lib/ext/index.list
+https://cjrtnc.leaningtech.com/4.0/etc/users
+https://cjrtnc.leaningtech.com/4.0/etc/localtime
+```
+
+**Key discovery**: the JRE lives at paths like `/4.0/8/jre/lib/rt.jar` —
+with a **`/8/` version prefix** inside the path. Earlier probes of
+`/4.0/jre/lib/rt.jar` (without `/8/`) returned 204 because that path
+doesn't exist. I've since mirrored the full set into
+`extension/lib/cheerpj/4.0/` preserving the nested structure (~39 MB
+total for the Java 8 runtime).
+
+### Extension test (still hanging)
+
+Even with the full JRE bundled locally AND the correct path structure,
+`cheerpjRunLibrary` inside the extension sandbox iframe still hangs
+indefinitely. The iframe session shows only these network events after
+our trigger runs:
+
+```
+GET cheerpOS.js   200
+GET c.js          200
+```
+
+And **nothing else**. No JRE fetches, no further requests.
+
+### Root cause discovery: c.js
+
+`c.js` (4KB) contains explicit handling for `chrome-extension:` origin
+that was designed for MV2 content scripts:
+
+```js
+if (location.protocol == "chrome-extension:") {
+  packagePromise = new Promise(s => chrome.runtime.getPackageDirectoryEntry(s));
+  extensionUrlPrefix = "chrome-extension://" + chrome.runtime.id + "/";
+}
+```
+
+`chrome.runtime.getPackageDirectoryEntry` is a **deprecated MV2-only
+API** that **never fires its callback in MV3**. Inside the iframe (which
+actually does have access to `chrome.runtime` because c.html is an
+extension page), the packagePromise hangs forever, and every file-load
+message from the main cj3.js worker waits on it.
+
+### Patch attempted
+
+Modified our local `extension/lib/cheerpj/4.0/c.js` to force the
+fall-through DirectDownloader (XHR) path regardless of protocol:
+
+```js
+console.log('[cj-c.js] loaded at', location.href, '- forcing DirectDownloader path');
+var controlPort = null;
+var packagePromise = null;
+var extensionUrlPrefix = null;
+// (chrome.runtime block removed entirely)
+```
+
+### Patch revealed a second problem
+
+With the c.js patch in place, the extension still hangs. Added debug
+logging inside `handleMessage` to trace incoming postMessages. **The
+iframe c.js log shows it loads correctly but never receives ANY
+postMessage from its parent** — not even the initial `{t:'port'}`
+handshake. `controlPort` stays `null`, no "load" messages ever arrive,
+no JRE fetches ever happen.
+
+**This suggests a MessagePort transfer issue across the sandbox → extension-iframe boundary.** cj3.js in the sandboxed spike.html tries
+to do `iframe.contentWindow.postMessage({t:'port', port: port2}, '*', [port2])` but either:
+
+- The targetOrigin mismatch (sandbox `null` origin → child iframe
+  which may or may not also be null origin) silently drops the message
+- OR the MessagePort transfer fails across the boundary
+- OR cj3.js is waiting for the iframe `load` event and that event
+  never fires the way cj3 expects under sandbox semantics
+
+### Files modified (committed)
+
+- `extension/lib/cheerpj/4.0/` — full bundle including:
+  - loader.js, cj3.js, cj3.wasm, cj3n8.wasm, cj3n11.wasm, cheerpOS.js,
+    x11.wasm, c.html, c.js (patched), cheerpj.css
+  - `8/jre/lib/*.jar` — Java 8 runtime (rt, charsets, jce, jsse,
+    resources, javaws, cheerpj-awt) — 39 MB
+  - `8/lib/ext/*` — extensions (localedata, sunjce_provider, meta-index)
+  - `etc/users` — auxiliary config file
+
+### Real next step (Phase 1.6)
+
+The problem is **not** "CheerpJ missing resources" anymore. We now have
+the full runtime + JRE bundled locally. The problem is specifically
+**postMessage MessagePort transfer across the chrome-extension sandbox
+boundary**. Investigation paths:
+
+1. **Run CheerpJ in a non-sandboxed extension page** with
+   `'unsafe-eval'` explicitly in `content_security_policy.extension_pages`.
+   MV3 allows `'unsafe-eval'` in extension_pages — verify by adding it.
+   If this works, we sidestep the sandbox iframe issue entirely.
+
+2. **Add instrumentation to cj3.js** (via a monkey-patch in spike-init.js)
+   to log every `postMessage` call it makes. Confirm the parent is
+   sending the port handshake.
+
+3. **Use `window.open()` instead of an iframe** for c.html. If cj3 has
+   a mode where the helper is in a popup rather than an iframe, the
+   sandbox rules don't apply.
+
+4. **Investigate `cheerpjRunMain`** — it might take a different
+   communication path that doesn't need the MessageChannel bridge.
+
+5. **Test CheerpJ in an offscreen document** (MV3 offscreen API) —
+   offscreen docs have relaxed CSP that allows `unsafe-eval` AND are
+   not sandboxed, so both requirements are satisfied.
+
+**Recommended first attempt**: option 1. Add `'unsafe-eval'` to
+`extension_pages` CSP, remove cheerpj-app/spike.html from sandbox.pages,
+retry. If the CheerpJ main-page check for `chrome.runtime.getPackageDirectoryEntry`
+passes (because chrome.runtime IS available in a non-sandboxed extension
+page with full chrome.* access), we may actually work WITHOUT the c.js
+patch because the package-directory-entry API might need... let me check
+MV3 docs for whether `getPackageDirectoryEntry` was removed or just
+changed.
+
 ## Relation to Phase 1 CheerpX
 
 This is the same category of problem. Both runtimes work fine in their normal hosting context (regular web pages) but hit an opaque hang inside an extension sandbox iframe during a resource-loading phase that happens in a worker we can't observe. The CheerpX fix might be exactly the same as the CheerpJ fix once we find it.
