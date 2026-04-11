@@ -64,30 +64,74 @@ interface HostCapabilities {
     hostType: 'chrome-extension' | 'web-app' | 'tauri' | 'electron' | 'ios' | 'android';
     installId: string;  // stable per install
   };
+
+  // Pluggable compute runtimes (CheerpJ, CheerpX, Pyodide, Jython, ...)
+  // See the "Runtimes" section below for the full protocol.
+  runtimes: {
+    list(): string[];
+    get(name: string): Runtime;
+    register(name: string, impl: Runtime): void;
+    has(name: string): boolean;
+  };
+}
+
+// Each runtime exposes only the methods appropriate to its type.
+// Runtimes may compose — one runtime can declare it depends on another
+// (e.g., Jython is implemented on top of CheerpJ).
+interface Runtime {
+  type: 'vm' | 'library' | 'interpreter';
+  name: string;
+  dependsOn?: string[];                 // other runtime names that must init first
+  init(opts?: any): Promise<void>;
+  isReady(): boolean;
+  getError(): string | null;
+
+  // VM-style (CheerpX, BrowserPod Linux, Tauri shell)
+  spawn?(cmd: string, args: string[], opts?: ExecOpts): ExecHandle;
+
+  // Library-style (CheerpJ, .NET Blazor WASM)
+  loadLibrary?(config: LibraryConfig): Promise<Library>;
+
+  // Interpreter-style (Pyodide eval, Jython eval, raw Function)
+  eval?(code: string, ctx?: any): Promise<any>;
+}
+
+interface LibraryConfig {
+  sourceUrl: string;          // '/jars/fhir.jar', '/wasm/pyodide.whl', etc.
+  entryPoint: string;         // 'com.aav.fhir.FhirValidator' or equivalent
+  cacheKey: string;           // dedup key for concurrent loads
+  initTimeoutMs?: number;
+}
+
+interface Library {
+  call(method: string, ...args: string[]): Promise<string>;
+  isReady(): boolean;
+  getError(): string | null;
 }
 ```
 
 **Extension implementation** (baseline, everything works):
 - `storage` → `chrome.storage.local` + IndexedDB
 - `fs` → OPFS via offscreen doc or sandbox iframe indirection (sandbox can't call OPFS directly)
-- `exec` → routes to the CheerpX sandbox iframe via `postMessage`
+- `exec` → thin wrapper that routes to `runtimes.get(defaultRuntime).spawn(...)`
 - `network.fetch` → extension-level `fetch()` bypassing CORS for declared `host_permissions`
 - `message` → `chrome.runtime.sendMessage` in-extension; WebSocket out-of-extension
 - `identity.hostType` → `'chrome-extension'`
+- `runtimes` → in-memory registry populated at boot with each runtime's sandbox iframe and postMessage bridge
 
 **Web app port** (degraded, documented):
 - `network.fetch` restricted to CORS-allowing endpoints or requires a server proxy
-- `exec` still works (CheerpX runs in any page)
+- `runtimes` — same shape; CheerpJ/CheerpX/Pyodide all run equally well in a regular web page
 - `message` uses `BroadcastChannel` / `postMessage` instead of `chrome.runtime`
 - `storage.blob` backed by OPFS directly
 
 **Tauri port** (upgraded, different tradeoffs):
-- `exec` can optionally call real OS binaries via Tauri commands instead of CheerpX
+- `runtimes.get('native-shell').spawn(...)` can call real OS binaries via Tauri commands as an alternative to WASM-backed runtimes
 - `fs` backed by real filesystem (with permission prompts)
 - `network` unrestricted
 
 **iOS/Android** (most constrained):
-- `exec` likely only WASM runtimes, no spawn
+- `runtimes` limited to WASM-backed implementations; no spawn
 - `fs` app-sandboxed
 - `network` has platform quirks
 
@@ -164,69 +208,141 @@ Chrome extension CSP forbids loading code from arbitrary URLs. "Runtime install"
 
 ---
 
-## Runtime Options for In-Browser Compute
+## Runtimes
 
-### Option A: CheerpX (WebVM) — recommended for POC
+The `runtimes` capability is a registry of pluggable compute substrates. Each runtime is one of three shapes:
 
-Full x86 Linux in browser via x86-to-WASM virtualization. Ships a rootfs image, boots like a VM, runs unmodified binaries (Python, Node, pip, apt).
+- **`vm`** — process-oriented. `spawn(cmd, args)` launches a binary inside the substrate and streams stdout/stderr. CheerpX, BrowserPod, Tauri shell.
+- **`library`** — load-and-call-methods oriented. `loadLibrary({ sourceUrl, entryPoint })` returns a handle whose `call(method, ...args)` invokes static methods with string in/out. CheerpJ, .NET Blazor WASM.
+- **`interpreter`** — evaluate code. `eval(code)` runs an expression and returns the result. Pyodide, Jython, raw JS Function, xeus kernels.
 
-**Pros**: unmodified binaries run as-is; `spawnSync` works; full package ecosystem (`pip install`); real sqlite3, real file paths, real subprocess.
+A runtime implementation only needs to provide the methods matching its `type`. `spawn` on a library-style runtime is undefined; calling it throws.
 
-**Cons**: image is 100–400MB on first load (cached after); slower boot than native WASM runtimes; no GPU/workers inside the VM.
+### Registration and lookup
 
-**Maturity**: production-ready; used in WebVM public demos.
+Runtimes register themselves with the host at boot:
 
-### Option B: BrowserPod (WASM-native) — graduation target
+```js
+host.runtimes.register('cheerpj', new CheerpJRuntime({ sandboxIframe: cheerpjFrame }));
+host.runtimes.register('cheerpx', new CheerpXRuntime({ sandboxIframe: cheerpxFrame }));
+host.runtimes.register('jython',  new JythonRuntime({ cheerpjRuntime: host.runtimes.get('cheerpj') }));
+```
 
-Leaning Technologies' newer WASM-native sandbox. Currently Node.js is supported; Python and Ruby are "coming soon" per the [beta announcement](https://labs.leaningtech.com/blog/browserpod-beta-announcement).
+Apps look them up by name:
 
-**Pros (when Python lands)**: smaller footprint, faster startup, explicitly targeted at AI code sandboxes.
+```js
+// Library-style: load a JAR, call a method
+const fhir = await host.runtimes.get('cheerpj').loadLibrary({
+  sourceUrl: '/jars/fhir-validator.jar',
+  entryPoint: 'com.aav.fhir.FhirValidator',
+  cacheKey: 'fhir-validator',
+});
+const report = JSON.parse(await fhir.call('validate', fhirJson, profileUrl));
 
-**Cons (today)**: Python runtime not yet available; native extensions uncertain; Python + Node orchestration across two pods requires message bus.
+// VM-style: run a process
+const handle = host.runtimes.get('cheerpx').spawn('python3', ['-c', 'print(1+1)']);
+for await (const line of handle.stdout) console.log(line);
 
-### Option C: Pyodide — eliminated for this POC
+// Interpreter-style: evaluate code
+const result = await host.runtimes.get('jython').eval('1 + 1');
+```
 
-Runs Python today but no Node, no subprocess, many native deps unpackaged. Not worth porting the orchestration model when CheerpX runs everything unchanged.
+### Runtime composition
 
-### Decision
+Runtimes may depend on other runtimes. **Jython-on-CheerpJ** is the canonical example: Jython is a Python interpreter packaged as a JAR that runs on the JVM, so the `jython` runtime is implemented as a thin wrapper over the `cheerpj` runtime:
 
-- **Phase 1**: CheerpX. Works today, runs anything.
-- **Phase N (future)**: migrate pure-compute modules to BrowserPod when Python lands. The SmartClient orchestration layer and the HostCapabilities contract stay identical — only the "runner" behind `host.exec.spawn` changes.
+```js
+class JythonRuntime {
+  type = 'interpreter';
+  name = 'jython';
+  dependsOn = ['cheerpj'];
+
+  constructor({ cheerpjRuntime }) {
+    this._cheerpj = cheerpjRuntime;
+    this._lib = null;
+  }
+
+  async init() {
+    await this._cheerpj.init();
+    this._lib = await this._cheerpj.loadLibrary({
+      sourceUrl: '/jars/jython-standalone-2.7.3.jar',
+      entryPoint: 'org.python.util.PythonInterpreter',
+      cacheKey: 'jython-interp',
+    });
+  }
+
+  async eval(code) {
+    return this._lib.call('exec', code);
+  }
+}
+```
+
+App code that calls `host.runtimes.get('jython').eval(...)` never knows Jython sits on CheerpJ. Swapping Jython for Pyodide-backed Python later requires changing only the runtime registration, not any app code. The host boot sequence respects `dependsOn` by initializing runtimes in topological order.
+
+### Runtime landscape (Python subset)
+
+| Runtime | Python version | C extensions | Size | COI needed? | Best for |
+|---|---|---|---|---|---|
+| **CheerpX + CPython** | 3.11+ | All of them | ~600MB rootfs | Likely yes | horsebread as-is (pymupdf, numpy, pytesseract) |
+| **Pyodide** | 3.11+ | Some (numpy ✓, pymupdf ✗) | ~10MB + wheels | No | Clean interface demos, pure-Python workloads |
+| **Jython on CheerpJ** | 2.7 | None, but has JVM interop | ~15MB JAR + CheerpJ runtime | No (if CheerpJ works in ext) | Scripting over Java libraries, SmartClient server control |
+
+For horsebread specifically, CheerpX is the best fit — its requirements track closest to horsebread's actual needs. Jython doesn't replace CheerpX for horsebread; it opens a different product: **Python as a scripting layer over any JVM library** running in the browser with no servers. Agentauthvault's HL7/FHIR validators become scriptable from Python in a chrome extension.
+
+### Phase 1 proof-of-life: CheerpJ, not CheerpX
+
+An earlier draft of this plan picked CheerpX for Phase 1. That's wrong for two reasons:
+
+1. **Agentauthvault has already battle-tested CheerpJ in production** (NIST HL7 v2 + HAPI FHIR R4 validators, 4 documented gotchas, 39 unit tests). The loader is a single script, the pattern is "pre-fetch JAR bytes → inject via `cheerpOSAddStringFile` → `cheerpjRunLibrary` → walk class path". No cross-origin isolation gymnastics required — AAV runs it in a normal React page.
+2. **CheerpX hits a cross-origin isolation wall** in extension pages that will take a dedicated session to resolve (see `extension/cheerpx-app/STATUS.md`). Its unlock probably involves `CheerpX.DataDevice.create(Uint8Array)` — bypass HTTP entirely, same pattern AAV uses for JARs — but verifying that is Phase 2 work.
+
+So Phase 1 proves the `runtimes` abstraction with **CheerpJ as runtime #1**. Phase 2 tackles CheerpX as runtime #2 with the abstraction already in place. Phase 3 adds Jython on top of CheerpJ to validate runtime composition. Pyodide is evaluated based on demand.
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│ chrome-extension://<id>/smartclient-app/wrapper.html?mode=<plugin-mode>  │
-│  ┌──────────────────────────────┐  ┌──────────────────────────────┐     │
-│  │ SmartClient sandbox iframe    │  │ CheerpX sandbox iframe        │     │
-│  │  (existing app.html)          │  │  (new cheerpx-app/cheerpx.html)│    │
-│  │  - Plugin template            │  │  - x86 Linux VM                │     │
-│  │  - Grids, Monaco, toolbar     │  │  - Rootfs from OPFS            │     │
-│  │  - HTMLFlow for output        │  │  - stdout via postMessage      │     │
-│  └──────────────┬───────────────┘  └──────────────┬─────────────────┘     │
-│                 │                                  │                       │
-│                 ▼                                  ▼                       │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │ Host bridge (wrapper.html — has chrome.runtime)                     │  │
-│  │   Implements HostCapabilities.* by routing to:                      │  │
-│  │     - chrome.runtime.sendMessage → service worker                    │  │
-│  │     - postMessage → SmartClient sandbox                              │  │
-│  │     - postMessage → CheerpX sandbox                                  │  │
-│  └─────────────────────────────┬──────────────────────────────────────┘  │
-│                                │                                          │
-│                                ▼                                          │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │ Service worker (background.js) + handlers                           │  │
-│  │   - existing: datasource, script, bridge-client, smartclient        │  │
-│  │   - new: plugin-registered handlers (assembled at build time)       │  │
-│  │   - network.fetch via host_permissions                              │  │
-│  │   - storage → chrome.storage.local + IndexedDB + OPFS               │  │
-│  │   - message → WebSocket to bridge server on localhost:9876          │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ chrome-extension://<id>/smartclient-app/wrapper.html?mode=<plugin-mode>      │
+│                                                                              │
+│  ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐             │
+│  │ SmartClient      │ │ CheerpJ sandbox  │ │ CheerpX sandbox  │             │
+│  │ sandbox iframe   │ │ iframe           │ │ iframe           │             │
+│  │ (existing        │ │ (new cheerpj-app/│ │ (new cheerpx-app/│             │
+│  │  app.html)       │ │  cheerpj.html)   │ │  cheerpx.html)   │             │
+│  │                  │ │                  │ │                  │             │
+│  │ Plugin template  │ │ JVM in WASM      │ │ x86 Linux VM     │             │
+│  │ Grids, Monaco    │ │ JAR loader       │ │ Rootfs from OPFS │             │
+│  │ HTMLFlow output  │ │ lib.call() API   │ │ spawn() stdout   │             │
+│  │                  │ │ Jython runs here │ │                  │             │
+│  └────────┬─────────┘ └────────┬─────────┘ └────────┬─────────┘             │
+│           │                    │                    │                       │
+│           └────────────────────┼────────────────────┘                       │
+│                                ▼                                             │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │ Host bridge (wrapper.html — has chrome.runtime)                         │ │
+│  │   Implements HostCapabilities.* by routing to:                          │ │
+│  │     - chrome.runtime.sendMessage → service worker                        │ │
+│  │     - postMessage → SmartClient sandbox                                  │ │
+│  │     - postMessage → runtime sandbox (cheerpj / cheerpx / ...)            │ │
+│  │                                                                          │ │
+│  │   host.runtimes registry populated at boot:                              │ │
+│  │     runtimes.register('cheerpj', CheerpJRuntime)                         │ │
+│  │     runtimes.register('cheerpx', CheerpXRuntime)                         │ │
+│  │     runtimes.register('jython',  JythonRuntime) // composes on cheerpj   │ │
+│  └──────────────────────────────┬─────────────────────────────────────────┘ │
+│                                 │                                            │
+│                                 ▼                                            │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │ Service worker (background.js) + handlers                               │ │
+│  │   - existing: datasource, script, bridge-client, smartclient            │ │
+│  │   - new: plugin-registered handlers (assembled at build time)           │ │
+│  │   - network.fetch via host_permissions                                  │ │
+│  │   - storage → chrome.storage.local + IndexedDB + OPFS                   │ │
+│  │   - message → WebSocket to bridge server on localhost:9876              │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Where the CheerpX rootfs lives
@@ -258,31 +374,47 @@ The extension's manifest gets a `host_permissions` entry for whichever origin we
 
 ```
 extension/
-  manifest.json                             # + cheerpx-app/cheerpx.html in sandbox.pages
+  manifest.json                             # + cheerpj-app/cheerpj.html and
+                                            # cheerpx-app/cheerpx.html in sandbox.pages
   lib/
-    host/                                   # NEW: host capability interface
-      host-interface.js                     # JSDoc typedef + factory
-      host-chrome-extension.js              # extension implementation
-    cheerpx/                                # NEW: bundled CheerpX loader + glue
-      loader.js
-      fs-bridge.js                          # OPFS <-> CheerpX virtual FS shim
+    host/                                   # host capability interface
+      host-interface.js                     # JSDoc typedef + factory (done Phase 0)
+      host-chrome-extension.js              # extension impl (done Phase 0)
+      runtimes/                             # NEW: runtime implementations
+        cheerpj.js                          # library-style runtime
+        cheerpx.js                          # vm-style runtime
+        jython.js                           # interpreter-style, composes on cheerpj
+    cheerpj/                                # NEW: bundled CheerpJ 4.0 loader + glue
+      loader.js                             # cx.js equivalent
+      4.0/                                  # version-scoped binaries
+    cheerpx/                                # NEW: bundled CheerpX 1.0.7 loader + glue (done Phase 1.5 partial)
+      1.0.7/
     plugin-api/                             # NEW: plugin registration + assembly hooks
       registry.js                           # reads extension/apps/*/manifest.json
       mode-dispatcher.js                    # extends wrapper.html mode routing
   smartclient-app/
-    wrapper.html                            # existing; gains plugin-mode registration
+    wrapper.html                            # existing; gains plugin-mode registration +
+                                            # runtime iframe hosting
     app.html                                # existing SmartClient sandbox (unchanged)
+  cheerpj-app/                              # NEW: CheerpJ sandbox iframe
+    cheerpj.html                            # sandboxed page that owns the JVM
+    cheerpj-sandbox.js                      # in-sandbox glue: loadLibrary, call
   cheerpx-app/                              # NEW: CheerpX sandbox iframe
-    cheerpx.html
-    cheerpx-sandbox.js                      # in-sandbox glue: receive exec/fs, talk to CheerpX
-  apps/                                     # NEW: assembled plugins (gitignored except hello-python)
-    hello-python/                           # demo plugin — lives in the repo as a reference
+    cheerpx.html                            # sandboxed page that owns the x86 VM
+    cheerpx-sandbox.js                      # in-sandbox glue: spawn, stdout relay
+  apps/                                     # NEW: assembled plugins (gitignored except hello-*)
+    hello-java/                             # demo plugin — exercises cheerpj runtime
+      manifest.json
+      templates/main.json
+      handlers.js
+      jars/hello.jar                        # tiny demo JAR with static version() method
+    hello-python/                           # demo plugin — exercises cheerpx runtime
       manifest.json
       templates/main.json
       handlers.js
 scripts/
   assemble-plugin.sh                        # NEW: plugin-path → copy into extension/apps/<id>/
-.gitignore                                  # + extension/apps/* (except hello-python/)
+.gitignore                                  # + extension/apps/* (except hello-*/)
 ```
 
 **Why this layout**:
@@ -297,40 +429,77 @@ scripts/
 
 ## Phase Breakdown
 
-### Phase 0 — Host capability interface stub (1 session)
-**Goal**: Introduce `HostCapabilities` and the chrome-extension implementation, *without* CheerpX. Prove the shape works against the existing SC dashboard.
+### Phase 0 — Host capability interface stub ✅ DONE
+**Goal**: Introduce `HostCapabilities` and the chrome-extension implementation. Prove the shape works against the existing SC dashboard.
 
-**Deliverable**: `extension/lib/host/host-interface.js` (JSDoc typedef) + `host-chrome-extension.js` (impl). Route one existing feature (e.g., dashboard `IDB_EXPORT`) through `host.storage` instead of calling `chrome.runtime.sendMessage` directly.
+**Delivered**: `extension/lib/host/host-interface.js` (JSDoc typedef) + `host-chrome-extension.js` (sandbox-scoped impl with `identity`, `message.send`, `storage.export`). Dashboard Sync button routes through `host.storage.export()`. 145 Jest tests green. Commit `09f26be`.
 
-**Exit criteria**: existing dashboard still works, one feature routes via the host interface, `npm test` green.
+### Phase 1 (partial, pivoted) — CheerpX spike hit COI wall
+**Status**: partial. Locally bundled CheerpX 1.0.7 runtime works, CheerpX global loads, factory methods probe. `HttpBytesDevice.create()` succeeds but `Linux.create()` fails inside a worker with "TypeError: Failed to fetch" — cross-origin isolation wall. Full writeup in `extension/cheerpx-app/STATUS.md`. Commit `33c322f`.
 
-### Phase 1 — CheerpX spike inside the extension
-**Goal**: `extension/cheerpx-app/cheerpx.html` loads CheerpX (locally bundled loader, base image fetched on demand), runs `python3 -c "print(1+1)"`, output returned via postMessage.
+**Pivoted to**: Phase 1.5 leads with CheerpJ, not CheerpX. CheerpX becomes Phase 2 with the DataDevice(bytes) unlock informed by the AAV CheerpJ pattern.
 
-**Deliverable**: new sandbox page + `manifest.sandbox.pages` entry. Host route `host.exec.spawn('python3', ['-c', 'print(1+1)'])` returns `{ stdout: '2\n', exit: 0 }`.
+### Phase 1.5 — CheerpJ runtime (NEXT)
+**Goal**: Introduce the `runtimes` registry as a first-class HostCapabilities surface. Register CheerpJ as runtime #1. Prove `host.runtimes.get('cheerpj').loadLibrary(...).call('method', ...)` works end-to-end inside an extension sandbox iframe.
 
-**Exit criteria**: open the extension, see "2" from Python in a WASM x86 Linux VM inside a sandbox iframe.
+**Why CheerpJ first, not CheerpX**: agentauthvault has already battle-tested CheerpJ 4.0 in a production React SPA (see `agentauthvault/docs/CHEERPJ-ANALYSIS.md`) with 4 documented gotchas. No cross-origin isolation requirement. Loader is a single script. JAR bundles are 24MB–102MB. The `fetch → arrayBuffer → cheerpOSAddStringFile` pattern bypasses HTTP transport entirely inside workers — the exact thing that bit us on Phase 1 CheerpX.
 
-### Phase 2 — Plugin architecture + hello-python demo
-**Goal**: Plugin manifest format, assembly script, mode dispatcher extension, and a reference plugin in `extension/apps/hello-python/` that registers a `?mode=hello-python` with one button ("Run Python") that calls `host.exec.spawn('python3', ['-c', ...])` and renders output in a SmartClient HTMLFlow.
+**Deliverables**:
+- `extension/lib/cheerpj/4.0/` — bundled CheerpJ 4.0 loader (MV3 forbids remote code)
+- `extension/cheerpj-app/cheerpj.html` — new sandbox page, listed in `manifest.sandbox.pages`
+- `extension/cheerpj-app/cheerpj-sandbox.js` — in-sandbox glue (init, loadLibrary, call, exception unwrapping per AAV Gotcha #4)
+- `extension/lib/host/runtimes/cheerpj.js` — Runtime implementation wrapping the sandbox via postMessage
+- `extension/lib/host/host-interface.js` — extend typedef with `runtimes`, `Runtime`, `Library`, `LibraryConfig`
+- `extension/lib/host/host-chrome-extension.js` — register the cheerpj runtime at boot
+- A trivial demo JAR or a call into a JDK stdlib class (`java.lang.System.currentTimeMillis` → string) for the smoke test — no Maven/shading work needed in this phase
 
-**Deliverable**: `lib/plugin-api/`, `scripts/assemble-plugin.sh`, `extension/apps/hello-python/` (manifest, template, handler).
+**Exit criteria**: from any extension page, `await host.runtimes.get('cheerpj').init(); const lib = await host.runtimes.get('cheerpj').loadLibrary({...}); await lib.call('version')` returns a string. `npm test` green. Dashboard Sync button still works.
 
-**Exit criteria**: open `?mode=hello-python`, click Run, see Python output in the UI. The demo plugin is fully contained in `extension/apps/hello-python/` with no platform code scattered elsewhere.
+### Phase 2 — CheerpX runtime
+**Goal**: CheerpX as runtime #2. Sidestep the worker CORS/COI issue that blocked Phase 1 by adopting the CheerpJ bytes-injection pattern.
 
-### Phase 3 — Rootfs bootstrap + OPFS persistence
-**Goal**: First-run rootfs fetch → OPFS → mounted into CheerpX. Plugin can declare `rootfs.pip: ['numpy']` and those packages are available at runtime.
+**Delivered (partial)**: `extension/lib/cheerpx/1.0.7/` bundle, `packages/bridge/asset-server.mjs` with CORS + Range + Last-Modified + ETag. See `extension/cheerpx-app/STATUS.md`.
 
-**Deliverable**: `extension/lib/cheerpx/fs-bridge.js`, `BRIDGE_GET_ASSET` handler server-side, rootfs spec in plugin manifest.
+**Remaining**:
+- Try `CheerpX.DataDevice.create(Uint8Array)` as replacement for `HttpBytesDevice.create(url)`. Fetch the image via extension-context `fetch()`, pass bytes to DataDevice. No worker fetches → no CORS/COI issue.
+- Fallback diagnostic: `Target.setAutoAttach` on worker targets to capture the real failing URL if DataDevice doesn't exist or doesn't work.
+- Implement `extension/lib/host/runtimes/cheerpx.js` Runtime with `spawn()` streaming stdout.
+- Register alongside CheerpJ.
 
-**Exit criteria**: hello-python plugin can run `python3 -c "import numpy; print(numpy.zeros(3))"` on second load without refetching the image.
+**Exit criteria**: `host.runtimes.get('cheerpx').spawn('python3', ['-c', 'print(1+1)'])` streams back `"2\n"` and exit code 0 inside an extension sandbox iframe.
 
-### Phase 4 — Port proof (web app)
-**Goal**: Implement `host-web-app.js` in a minimal vite-served localhost page that runs the same hello-python plugin with identical UI. Document which capabilities degrade.
+### Phase 3 — Jython runtime (composition proof)
+**Goal**: Register Jython as runtime #3, composed on top of CheerpJ via `dependsOn`. Validate runtime composition.
 
-**Deliverable**: `apps/hello-python-web/` (outside extension), 100% shared plugin code, only the host binding differs.
+**Deliverables**:
+- `extension/lib/host/runtimes/jython.js` — thin wrapper loading `jython-standalone-2.7.x.jar` via the cheerpj runtime, exposing an `eval` interface
+- Bundled `jython-standalone-2.7.x.jar` (~15MB)
 
-**Exit criteria**: hello-python runs in both extension and web app with identical UI. Documented degradations (CORS for `network.fetch`, absent `chrome.runtime`, etc.).
+**Exit criteria**: `await host.runtimes.get('jython').init(); await host.runtimes.get('jython').eval('1 + 1')` returns `2`. Boot order respects `dependsOn` — CheerpJ init completes before Jython init starts.
+
+### Phase 4 — Plugin architecture + hello-java + hello-python demos
+**Goal**: Plugin manifest format, assembly script, mode dispatcher. Two reference plugins that exercise two different runtimes.
+
+**Deliverables**:
+- `lib/plugin-api/`, `scripts/assemble-plugin.sh`
+- `extension/apps/hello-java/` — `?mode=hello-java`, one button loads a JAR, calls a method, renders result. Exercises the `cheerpj` runtime.
+- `extension/apps/hello-python/` — `?mode=hello-python`, one button runs `python3 -c "print(1+1)"`, renders stdout. Exercises the `cheerpx` runtime.
+
+**Exit criteria**: both demos render and work. Each plugin's code is fully contained in `apps/hello-*/`. Platform code has no hard-coded knowledge of either plugin.
+
+### Phase 5 — Rootfs bootstrap + OPFS persistence
+**Goal**: For CheerpX plugins, first-run rootfs fetch → OPFS → mounted into CheerpX. Plugin manifest can declare `rootfs.pip: ['numpy']`.
+
+**Deliverables**: `extension/lib/cheerpx/fs-bridge.js`, `BRIDGE_GET_ASSET` handler server-side, rootfs spec in plugin manifest.
+
+**Exit criteria**: hello-python plugin runs `python3 -c "import numpy; print(numpy.zeros(3))"` on second load without refetching the image.
+
+### Phase 6 — Port proof (web app)
+**Goal**: Implement `host-web-app.js` as a second HostCapabilities implementation in a minimal vite-served localhost page. Same plugin code, different host binding. Document which capabilities degrade.
+
+**Deliverable**: `apps/hello-web/` (outside extension), 100% shared plugin code, only the host binding differs.
+
+**Exit criteria**: both hello-java and hello-python run in extension AND web app with identical UI. Documented degradations (`network.fetch` CORS restrictions, absent `chrome.runtime`, etc.).
 
 ---
 
@@ -361,26 +530,49 @@ When picking this up at a clean session, paste this:
 ```
 Read plans/host-capability-interface.md. Key constraints:
 
-1. The chrome extension is the primary host. Do NOT build this as a
+1. Chrome extension is the primary host. Do NOT build anything as a
    regular web page. Everything lives inside extension/.
 2. Every host-dependent call goes through extension/lib/host/host-interface.js.
    Do not call chrome.runtime.* directly from plugin or feature code.
 3. The SmartClient sandbox pattern (extension/smartclient-app/) is reused.
    New plugins are new modes (?mode=<plugin-id>).
-4. CheerpX runs in a new sandbox iframe entry in manifest.sandbox.pages,
-   sibling to smartclient-app/app.html.
+4. Each compute runtime (CheerpJ, CheerpX, ...) lives in its own sandbox
+   iframe declared in manifest.sandbox.pages. Runtimes are registered
+   with host.runtimes at boot and accessed via runtimes.get(name).
 
-Start with Phase 0: introduce the Host Capability Interface and route ONE
-existing dashboard feature through it. No CheerpX yet.
+Current state:
+- Phase 0 DONE (commit 09f26be): HostCapabilities with identity, message,
+  storage. Dashboard Sync button routes through host.storage.export().
+- Phase 1 partial (commit 33c322f): CheerpX bundled, cx.js loads, but
+  Linux.create fails at cross-origin isolation wall. Asset server ready.
+  Full status in extension/cheerpx-app/STATUS.md.
+- Phase 1.5 NEXT: CheerpJ as runtime #1 using the AAV pattern (no COI
+  required, loads JARs via cheerpOSAddStringFile bytes injection).
+
+Start Phase 1.5:
+1. Bundle CheerpJ 4.0 locally into extension/lib/cheerpj/4.0/ (MV3
+   forbids remote script loading).
+2. Create extension/cheerpj-app/cheerpj.html as a sandbox page and
+   add it to manifest.sandbox.pages.
+3. Extend extension/lib/host/host-interface.js typedef with the
+   runtimes surface + Runtime/Library/LibraryConfig shapes.
+4. Implement extension/lib/host/runtimes/cheerpj.js as the first
+   Runtime implementation wrapping the sandbox via postMessage.
+5. Register at boot in host-chrome-extension.js.
+6. Smoke test: load a trivial demo JAR OR just call into java.lang stdlib
+   via cheerpjRunLibrary (no Maven/shading needed for Phase 1.5 itself).
 
 Verify progress with:
-- `npm test &` (must stay green)
-- `node packages/bridge/launch-browser.mjs` to launch Chromium with extension
-- `node packages/bridge/scripts/sc-driver.mjs open/status/console/screenshot`
-  to verify the SC dashboard still loads after the refactor
+- `npm test &` (must stay green — 145 tests)
+- `node packages/bridge/launch-browser.mjs` to launch Chromium
+- `node packages/bridge/scripts/sc-driver.mjs screenshot` for visual check
+- `node packages/bridge/scripts/page-eval.mjs` for runtime calls
 
-Exit criteria for Phase 0: host interface stubbed, one feature routed through
-it, `npm test` green, SC dashboard still loads and the routed feature works.
+Reference docs:
+- agentauthvault/docs/CHEERPJ-ANALYSIS.md — 4 documented gotchas from
+  AAV's battle-tested CheerpJ integration in production React SPA
+- extension/cheerpx-app/STATUS.md — what we learned from the Phase 1
+  CheerpX partial attempt; informs the DataDevice(bytes) path for Phase 2
 ```
 
 ---
@@ -389,7 +581,7 @@ it, `npm test` green, SC dashboard still loads and the routed feature works.
 
 - **BrowserPod announcement**: https://labs.leaningtech.com/blog/browserpod-beta-announcement
 - **CheerpX (WebVM) demo**: https://webvm.io/
-- **Pyodide (eliminated)**: https://github.com/pyodide/pyodide
-- **Agentauthvault CheerpJ integration**: `/home/bigale/repos/agentauthvault/src/frontend/services/CheerpJLibraryService.ts`
+- **CheerpJ docs**: https://cheerpx.io/docs (and sibling cheerpj.io)
+- **Agentauthvault CheerpJ production usage**: `/home/bigale/repos/agentauthvault/docs/CHEERPJ-ANALYSIS.md` — 4 gotchas battle-tested in production, including the pre-fetch-and-inject-bytes pattern that unlocks CheerpX too
 - **Agentidev SmartClient sandbox**: `extension/smartclient-app/` in this repo
 - **Prior theoretical foundation** (not publicly committed): `/home/bigale/repos/icpxmldb/docs/ADVANCED-UNIVERSAL-AI-RESEARCH-V2.md` — Pemberton's representation neutrality extended to software logic; the HostCapabilities interface is a specialization of the USIR concept applied to host/runtime axis
