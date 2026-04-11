@@ -90,6 +90,10 @@
 <!-- App logic -->
 <script src="app.js"></script>
 
+<!-- Host Capability Interface (must load before anything that calls window.Host) -->
+<script src="../lib/host/host-interface.js"></script>
+<script src="../lib/host/host-chrome-extension.js"></script>
+
 <!-- Dashboard mode (SC-4) -->
 <script src="dashboard-config.js"></script>
 <script src="dashboard-app.js"></script>

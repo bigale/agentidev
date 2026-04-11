@@ -138,24 +138,36 @@ function loadDashboard() {
     });
   }, 500);
 
-  // Wire Sync (IDB export) button
+  // Wire Sync (IDB export) button.
+  // Routes through the Host Capability Interface (Phase 0 proof-of-concept).
+  // Previously: dispatchActionAsync('IDB_EXPORT', {}, 30000)
+  // Now: host.storage.export({ timeoutMs: 30000 })
+  // The underlying postMessage → wrapper → service worker → sync-handlers
+  // path is unchanged; only the caller-facing API is abstracted.
   var tbSync = resolveRef('tbSync');
   if (tbSync) {
     tbSync.click = function () {
       var btn = this;
       btn.setTitle('Syncing…');
       btn.setDisabled(true);
-      dispatchActionAsync('IDB_EXPORT', {}, 30000)
+      var host = window.Host && window.Host.get && window.Host.get();
+      if (!host || !host.storage || !host.storage.export) {
+        btn.setTitle('Sync ✗');
+        setTimeout(function () { btn.setTitle('Sync'); btn.setDisabled(false); }, 2500);
+        console.error('[Dashboard] Host capability interface not loaded');
+        return;
+      }
+      host.storage.export({ timeoutMs: 30000 })
         .then(function (result) {
           var label = result && result.success ? 'Sync ✓' : 'Sync ✗';
           btn.setTitle(label);
           setTimeout(function () { btn.setTitle('Sync'); btn.setDisabled(false); }, 2500);
-          console.log('[Dashboard] IDB sync result:', result);
+          console.log('[Dashboard] IDB sync result (via host):', result);
         })
         .catch(function (err) {
           btn.setTitle('Sync ✗');
           setTimeout(function () { btn.setTitle('Sync'); btn.setDisabled(false); }, 2500);
-          console.warn('[Dashboard] IDB sync failed:', err.message);
+          console.warn('[Dashboard] IDB sync failed (via host):', err.message);
         });
     };
   }
