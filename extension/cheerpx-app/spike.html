@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>CheerpX Spike — Phase 1</title>
+  <style>
+    html, body { margin: 0; padding: 0; font-family: monospace; background: #111; color: #eee; }
+    #log { padding: 12px; white-space: pre-wrap; font-size: 12px; }
+    h1 { padding: 8px 12px; margin: 0; background: #222; font-size: 14px; }
+    .ok  { color: #8f8; }
+    .err { color: #f88; }
+    .info { color: #8cf; }
+  </style>
+</head>
+<body>
+<h1>CheerpX Spike — Phase 1</h1>
+<div id="log">Loading...</div>
+
+<!-- Env checks + logger setup (must run before cx.js) -->
+<script src="spike.js"></script>
+
+<!-- CheerpX loader (locally bundled from cxrtnc.leaningtech.com/1.0.7/) -->
+<script src="../lib/cheerpx/1.0.7/cx.js"></script>
+
+<!-- CheerpX probe (runs after cx.js) -->
+<script src="spike-check.js"></script>
+
+<!-- Boot + run commands -->
+<script src="spike-boot.js"></script>
+</body>
+</html>
