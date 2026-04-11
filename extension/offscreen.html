@@ -31,5 +31,17 @@
     from the service worker land here without offscreen.js needing to forward.
   -->
   <iframe src="cheerpj-app/cheerpj.html" style="display:none" id="cheerpj-host-iframe"></iframe>
+
+  <!--
+    CheerpX runtime is NOT hosted as an iframe inside this offscreen
+    document. It needs cross-origin isolation (SharedArrayBuffer + COI
+    semantics for worker coordination), and an extension iframe inside a
+    non-COEP parent can't claim COI even with credentialless +
+    allow="cross-origin-isolated". Instead, the service worker opens a
+    hidden background tab pointed at http://localhost:9877/cheerpx-runtime.html
+    via chrome.tabs.create({active:false}). The tab is a top-level browsing
+    context, so it becomes COI naturally from asset-server's COOP/COEP
+    headers. See lib/handlers/cheerpx-handlers.js for the lifecycle.
+  -->
 </body>
 </html>

@@ -59,6 +59,20 @@ export function markOffscreenReady() {
  * is installed. Creates lazily on first call.
  */
 async function ensureOffscreen() {
+  // Self-heal: if the cached promise is resolved but the actual offscreen
+  // doc has been torn down (closeDocument from another flow, crash, etc.),
+  // reset so we re-create rather than sending to a ghost.
+  if (_ensureInFlight && chrome.offscreen && chrome.offscreen.hasDocument) {
+    try {
+      const stillThere = await chrome.offscreen.hasDocument();
+      if (!stillThere) {
+        console.log('[CheerpJ] cached ensure is stale (doc gone), resetting');
+        _ensureInFlight = null;
+        _offscreenReady = false;
+        resetReadyPromise();
+      }
+    } catch {}
+  }
   if (_ensureInFlight) return _ensureInFlight;
   _ensureInFlight = (async () => {
     if (!chrome.offscreen || !chrome.offscreen.hasDocument) {
@@ -154,9 +168,11 @@ export function register(handlers) {
   handlers['cheerpj-runMain'] = async (msg) => {
     return invokeOffscreen('runMain', {
       jarUrl: msg.jarUrl,
+      extraJars: msg.extraJars || [],
       className: msg.className,
       args: msg.args || [],
       cacheKey: msg.cacheKey,
+      timeoutMs: msg.timeoutMs,
     });
   };
 }

@@ -38,6 +38,7 @@ import { register as registerAppPersistence } from './lib/handlers/app-persisten
 import { register as registerProjectPersistence } from './lib/handlers/project-persistence.js';
 import { register as registerSync } from './lib/handlers/sync-handlers.js';
 import { register as registerCheerpJ } from './lib/handlers/cheerpj-handlers.js';
+import { register as registerCheerpX } from './lib/handlers/cheerpx-handlers.js';
 
 console.log('Agentidev: Background service worker started');
 console.log('[Background] Note: Extension reload = re-initialize (models are cached, not re-downloaded)');
@@ -199,8 +200,15 @@ registerAppPersistence(handlers);
 registerProjectPersistence(handlers);
 registerSync(handlers);
 registerCheerpJ(handlers);
+registerCheerpX(handlers);
 
 chrome.runtime.onMessage.addListener(createMessageRouter(handlers));
+
+// Expose handlers on globalThis for CDP Runtime.evaluate debugging. This
+// lets `sw-eval.mjs` call internal handler functions directly — useful for
+// end-to-end tests of the cheerpj runtime chain and similar flows where
+// chrome.runtime.sendMessage-to-self is filtered out by MV3.
+globalThis.__handlers = handlers;
 
 // ============================================================
 // Snapshot store initialization & bridge event callbacks

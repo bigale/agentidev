@@ -48,10 +48,32 @@ const CORS_HEADERS = {
 function contentType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.ext2' || ext === '.wasm' || ext === '.data') return 'application/octet-stream';
-  if (ext === '.js') return 'application/javascript';
+  if (ext === '.js' || ext === '.mjs') return 'application/javascript';
   if (ext === '.json') return 'application/json';
   if (ext === '.html') return 'text/html; charset=utf-8';
   return 'application/octet-stream';
+}
+
+// Cross-origin isolation headers — required by CheerpX (which needs
+// SharedArrayBuffer + COI semantics for its workers).
+//
+// HTML pages get COOP+COEP so the document is itself cross-origin isolated.
+// Non-HTML resources get CORP: cross-origin so they can be loaded by a COEP
+// document (otherwise the iframe would refuse to fetch JS, wasm, or the
+// disk image).
+// Only the cheerpx-runtime.html page needs COOP/COEP. CheerpJ runs fine
+// without COI (it doesn't need SharedArrayBuffer), and slapping COOP/COEP
+// on the cheerpj-runtime.html breaks something inside CheerpJ's worker
+// dispatch — first-run cheerpjRunMain hangs indefinitely.
+function coiHeadersFor(ext, relPath) {
+  if (ext === '.html' && relPath === 'cheerpx-runtime.html') {
+    return {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+    };
+  }
+  return { 'Cross-Origin-Resource-Policy': 'cross-origin' };
 }
 
 const server = http.createServer((req, res) => {
@@ -93,18 +115,23 @@ const server = http.createServer((req, res) => {
     }
 
     const size = stat.size;
+    const ext = path.extname(absPath).toLowerCase();
     const ctype = contentType(absPath);
     // CheerpX HttpBytesDevice requires Last-Modified or ETag so it can
     // validate that the file didn't change between range requests.
     const lastModified = stat.mtime.toUTCString();
     const etag = `"${stat.size.toString(16)}-${stat.mtimeMs.toString(16)}"`;
+    // .jar files: send no-cache for the dev profile so JAR updates are
+    // picked up without requiring ?v=<ts> cache busting from callers.
+    const cacheControl = ext === '.jar' ? 'no-cache' : 'public, max-age=3600';
     const baseHeaders = {
       'Content-Type': ctype,
       'Accept-Ranges': 'bytes',
-      'Cache-Control': 'public, max-age=3600',
+      'Cache-Control': cacheControl,
       'Last-Modified': lastModified,
       'ETag': etag,
       ...CORS_HEADERS,
+      ...coiHeadersFor(ext, relPath),
     };
 
     const range = req.headers.range;

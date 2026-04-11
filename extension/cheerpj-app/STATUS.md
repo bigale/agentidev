@@ -477,3 +477,314 @@ Return flows back the same seven hops. Total elapsed: ~968 ms warm.
 - Same architecture ready to port to CheerpX (Phase 2) with minimal
   changes — just add a `cheerpx-app/cheerpx.html` iframe to
   `offscreen.html` and a `cheerpx-handlers.js` alongside `cheerpj-handlers.js`.
+
+---
+
+## Phase 1.8 — real-world JAR proof: NIST HL7 v2 validator (2026-04)
+
+**Status: done.** A 24 MB shaded fat JAR (NIST IGAMT HL7 v2 conformance
+validator from `/home/bigale/repos/agentauthvault`) runs end-to-end through
+the full seven-hop chain. The validator parses an XML profile, validates an
+HL7 v2 VXU^V04 message against it, and returns a JSON report — all in
+**~2.9 s wall-clock** on a warm CheerpJ runtime.
+
+### Result
+
+```text
+{
+  "valid": false,
+  "engine": "nist-cheerpj",
+  "duration": 651,
+  "summary": { "totalErrors": 1, "totalWarnings": 0, "totalInfos": 0 },
+  "errors": [ { "classification": "ERROR", "description": "...schema..." } ]
+}
+```
+
+The `valid: false` is content-driven (a real schema validation finding from
+the NIST profile XML), not a runtime failure. The validator's full Kotlin +
+Java + HAPI + javax.xml stack executed inside CheerpJ.
+
+### What this proves
+
+- **Scale**: 24 MB JAR with ~16 000 classes (vs the prior 1 KB hello-main
+  test) loads, mounts, and runs without code changes to the runtime
+  abstraction.
+- **Real Java APIs**: javax.xml.parsers, java.util.logging, javax.xml.bind,
+  HAPI HL7, gson — all work.
+- **Multi-JAR classpath**: a wrapper JAR + the main JAR are joined with
+  `:` and passed to `cheerpjRunMain` as a single classpath. New
+  `extraJars: string[]` option on the runtime API.
+- **Large args**: HL7 message (1.6 KB) and profile XML (12.8 KB) round-trip
+  through every hop unchanged.
+
+### Workarounds discovered
+
+These are the rough edges of running real-world JARs on CheerpJ 4.0; each
+has a clean fix that lives in `~/.agentidev/cheerpx-assets/` and the runtime
+host page (no changes to caller code):
+
+1. **`StackStreamFactory_checkStackWalkModes` JNI is missing in CheerpJ
+   Java 11.** The moment any code calls `Logger.info(...)`, the default
+   `SimpleFormatter` walks the stack to infer the caller class and dies.
+   **Fix**: a one-class wrapper JAR (`nolog-wrap.jar`, 874 bytes) that
+   calls `LogManager.getLogManager().reset()` and forwards to the real
+   `main()`. Wrapper class: `NoLogValidator`. The runtime accepts it via
+   `extraJars: ['http://localhost:9877/nolog-wrap.jar']` and invokes
+   `className: 'NoLogValidator'`.
+
+2. **Mixed bytecode versions in shaded JARs.** AAV's NIST validator is
+   built `--release 11`, but the shaded `lib-hl7v2-nist-validator` from
+   the NIST nexus contains 5 Kotlin classes compiled to Java 17 (major 61)
+   and even 2 Kotlin classes at major 65 (Java 21). CheerpJ 4.0 caps at
+   Java 11 (major 55). **Fix**: byte-flip the version field in those 7
+   classes from 61/65 → 55. The Kotlin classes don't actually use Java
+   12+ bytecode features — just the toolchain default. Script:
+
+   ```python
+   import os, struct
+   for root, _, files in os.walk('.'):
+       for f in files:
+           if not f.endswith('.class'): continue
+           p = os.path.join(root, f)
+           data = bytearray(open(p, 'rb').read())
+           if data[:4] != b'\xca\xfe\xba\xbe': continue
+           major = struct.unpack('>H', data[6:8])[0]
+           if major > 55:
+               data[4:6] = b'\x00\x00'
+               data[6:8] = struct.pack('>H', 55)
+               open(p, 'wb').write(bytes(data))
+   ```
+
+   Re-jar and serve. **Caveat**: this only works if the downgraded classes
+   don't depend on Java 12+ APIs at runtime. For the NIST Kotlin classes
+   (companion objects, exception classes) it works. For arbitrary Java 17
+   code that uses records, sealed classes, pattern matching, etc., this
+   would fail with `VerifyError`. A real solution would be a proper ASM
+   transform or an upstream rebuild against Java 11.
+
+3. **Browser HTTP cache hides JAR updates.** asset-server sends
+   `Cache-Control: max-age=3600`. After re-uploading a JAR, append
+   `?v=<timestamp>` to bust. Eventually we should switch the asset-server
+   default for `.jar` to `no-cache` for the dev profile.
+
+4. **`cheerpjRunMain` is variadic.** Initial wiring passed `args` as a
+   single positional array argument; CheerpJ expects each arg as a separate
+   parameter. Fixed in `cheerpj-runtime.html` with
+   `cheerpjRunMain.apply(null, [className, classpath].concat(args))`.
+
+5. **`ensureOffscreen()` cached a stale promise** if the offscreen doc
+   was torn down out-of-band (closeDocument from another flow, crash).
+   Fixed by re-checking `chrome.offscreen.hasDocument()` on entry and
+   resetting if the doc is gone.
+
+### New extraJars API
+
+`runMain` now accepts an `extraJars: string[]` option — additional JAR
+URLs that the runtime fetches in parallel and joins onto the classpath.
+Wrapper classes, runtime patches, and dependencies can all live in
+separate JARs without rebuilding the primary application.
+
+```js
+const result = await window.Host.get().runtimes.get('cheerpj').runMain({
+  jarUrl: 'http://localhost:9877/nist-validator.jar',
+  extraJars: ['http://localhost:9877/nolog-wrap.jar'],
+  className: 'NoLogValidator',
+  args: [hl7Message, profileXml],
+  cacheKey: 'nist-validator'
+});
+```
+
+### Files added/modified for Phase 1.8
+
+- `~/.agentidev/cheerpx-assets/nist-validator.jar` (24 MB, downgraded)
+- `~/.agentidev/cheerpx-assets/nolog-wrap.jar` (874 B)
+- `~/.agentidev/cheerpx-assets/vxu-v04-nist-conformance.hl7` (1.6 KB)
+- `~/.agentidev/cheerpx-assets/nist-vxu-profile.xml` (12.8 KB)
+- `~/.agentidev/cheerpx-assets/cheerpj-runtime.html` — version: 11 default,
+  variadic args fix, extraJars classpath joining
+- `extension/lib/handlers/cheerpj-handlers.js` — extraJars passthrough,
+  self-healing `ensureOffscreen()`
+- `extension/lib/host/runtimes/cheerpj.js` — extraJars on `runMain` opts
+- `extension/cheerpj-app/cheerpj-host.js` — parallel fetch of primary +
+  extra JARs, derives cacheKey from URL filename
+- `extension/background.js` — exposes `globalThis.__handlers` for CDP
+  Runtime.evaluate testing of internal handler chains
+
+### How to repro
+
+```bash
+node packages/bridge/scripts/sw-eval.mjs "(async () => {
+  const hl7 = await (await fetch('http://localhost:9877/vxu-v04-nist-conformance.hl7')).text();
+  const profile = await (await fetch('http://localhost:9877/nist-vxu-profile.xml')).text();
+  const res = await globalThis.__handlers['cheerpj-runMain']({
+    jarUrl: 'http://localhost:9877/nist-validator.jar',
+    extraJars: ['http://localhost:9877/nolog-wrap.jar'],
+    className: 'NoLogValidator',
+    args: [hl7, profile],
+    cacheKey: 'nist-validator'
+  });
+  return res;
+})()"
+```
+
+### What Phase 1.8 does NOT prove
+
+- **Library-mode (`cheerpjRunLibrary` + Proxy walk + repeated `call`).**
+  Still blocked by the nested-iframe Proxy hang. For high-throughput
+  validation we'd want to load the JAR once and call validate() many
+  times without re-running main. Today every call goes through `runMain`,
+  which re-imports class table state. Cold runs are ~5 s, warm runs are
+  ~3 s — fine for interactive use, expensive for batch.
+- **CheerpJ Java 17.** No path until Leaning Technologies ships it.
+  Bytecode flipping is a hack that only works for trivial cases.
+
+---
+
+## Phase 3 — Runtime composition: BeanShell on CheerpJ (2026-04)
+
+**Status: done.** A third runtime — `bsh` — is registered alongside
+`cheerpj` and `cheerpx`, with `dependsOn: ['cheerpj']`. It demonstrates
+the runtime composition pattern from the host capability interface plan:
+an `interpreter`-type runtime that runs *inside* a `library`-type
+runtime. Exit-criteria test from the SC dashboard sandbox iframe:
+
+```js
+const host = window.Host.get();
+host.runtimes.list();
+// → ['cheerpj', 'cheerpx', 'bsh']
+
+const bsh = host.runtimes.get('bsh');
+bsh.type;        // → 'interpreter'
+bsh.dependsOn;   // → ['cheerpj']
+
+await bsh.eval('1 + 1');                            // → "2"   (~2.7 s cold, ~1.3 s warm)
+await bsh.eval('40 * 2 + 2');                       // → "82"
+await bsh.eval('Math.sqrt(2025)');                  // → "45.0"
+await bsh.eval('String s = "hello"; s.toUpperCase()'); // → "HELLO"
+```
+
+### Architecture
+
+The BSH runtime is ~150 lines and contains no CheerpJ-specific glue. It
+calls the cheerpj runtime for everything:
+
+```
+app code
+  └─ host.runtimes.get('bsh').eval(code)
+      └─ this runtime's init() — calls host.runtimes.get('cheerpj').init() first
+      └─ this runtime's eval(code)
+          └─ host.runtimes.get('cheerpj').runMain({
+                jarUrl: '...bsh-2.0b5.jar',
+                extraJars: ['...bsh-eval.jar'],   // wrapper class
+                className: 'BshEval',
+                args: [code],
+              })
+              └─ cheerpj iframe: cheerpjRunMain('BshEval', classpath, code)
+                  └─ BshEval.main(args):
+                       new bsh.Interpreter().eval(args[0])
+                       System.out.println(result)
+              └─ stdout flows back through cheerpj
+          └─ this runtime parses stdout, returns the trailing value
+```
+
+`dependsOn: ['cheerpj']` is checked explicitly in `init()`: if `cheerpj`
+isn't registered, `bsh.init()` rejects with a clear error. This proves
+boot-order resolution works — though for true topological dependency
+ordering across many runtimes, the host factory should walk the deps
+graph at registration time. Today the SC dashboard's app.html script tag
+order does the ordering implicitly (cheerpj.js → cheerpx.js → bsh.js).
+
+### Files added
+
+- `~/.agentidev/cheerpx-assets/bsh-2.0b5.jar` (375 KB) — BeanShell from
+  Maven Central (`org.beanshell:bsh:2.0b5`)
+- `~/.agentidev/cheerpx-assets/bsh-eval.jar` (924 B) — wrapper class
+  `BshEval` that takes code as `args[0]`, calls
+  `bsh.Interpreter().eval(...)`, prints the result. Source in this repo
+  at `/tmp/bsh-eval/BshEval.java` for now (should be checked in alongside
+  the runtime so it's reproducible — TODO).
+- `extension/lib/host/runtimes/bsh.js` — `HostRuntimeBsh` class with
+  `type: 'interpreter'`, `dependsOn: ['cheerpj']`, `init()`, `eval(code)`
+
+### Why BeanShell, not Jython
+
+The Phase 3 plan called for Jython (`jython-standalone-2.7.4.jar`, 50 MB)
+as the canonical composition demo. We tried it; the result is documented
+here so we don't try it again:
+
+1. **Jython 2.7.4 fails on CheerpJ during PyType registry init**:
+   ```
+   java.lang.ExceptionInInitializerError
+     at org.python.core.PySystemState.<clinit>
+   Caused by: java.lang.ArrayIndexOutOfBoundsException
+     at org.python.core.PyJavaType.type___setattr__
+     at org.python.core.PyType.addMethod
+     at org.python.core.PyJavaType.addMethodsForObject
+     at org.python.core.PyJavaType.init
+   ```
+   Jython's PyJavaType walks `Class.getDeclaredMethods()` and indexes by
+   parameter count via array math; it makes assumptions about Java's
+   reflection layout that CheerpJ's reimplementation of reflection doesn't
+   satisfy. Hits before any user code runs. Not fixable from our side.
+
+2. **The composition pattern is the value, not Python-on-Java**.
+   BeanShell proves the pattern in a 375 KB JAR with a 5-second cold
+   start. Same `interpreter`/`dependsOn` design, ~99% smaller, works.
+
+### Boot-order nicety
+
+The plan called out: "CheerpJ init completes before Jython init starts."
+Implemented two ways for safety:
+
+1. **Static**: app.html loads `cheerpj.js` before `bsh.js` so the
+   factory's auto-registration runs in dependency order.
+2. **Dynamic**: `BshRuntime.init()` calls
+   `host.runtimes.get('cheerpj').init()` and awaits before considering
+   itself initialized. CheerpJ init is idempotent so calling it from
+   both BSH init and any direct caller is safe.
+
+If we ever add a runtime with multi-level transitive deps, we should
+move dependency resolution into the host's `runtimes.register()` so
+init order is automatic at the topological-sort level. Not needed yet.
+
+### Regression also fixed in this phase
+
+While debugging the Jython hang we found a real regression introduced in
+Phase 2: applying `Cross-Origin-Opener-Policy: same-origin` +
+`Cross-Origin-Embedder-Policy: require-corp` to *all* HTML files served
+by `asset-server.mjs` broke the cheerpj-runtime page. Even with `coi:
+false` reported by the iframe (it's not a top-level context, so it
+doesn't actually become COI), the COEP header changes how blob: workers
+inherit headers, which broke CheerpJ's worker dispatch — `cheerpjRunMain`
+hung indefinitely on any JAR after a fresh init.
+
+Fix: the COI headers in `coiHeadersFor()` are now scoped to
+`cheerpx-runtime.html` only. The cheerpj-runtime.html (and any other
+HTML in `~/.agentidev/cheerpx-assets/`) gets only `Cross-Origin-Resource-Policy:
+cross-origin`, which is enough for it to be loaded into a COEP parent
+without breaking its own worker dispatch.
+
+```js
+function coiHeadersFor(ext, relPath) {
+  if (ext === '.html' && relPath === 'cheerpx-runtime.html') {
+    return {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+    };
+  }
+  return { 'Cross-Origin-Resource-Policy': 'cross-origin' };
+}
+```
+
+### Exit criteria met
+
+- `host.runtimes.list()` returns `['cheerpj', 'cheerpx', 'bsh']`
+- `host.runtimes.get('bsh').dependsOn` is `['cheerpj']`
+- `host.runtimes.get('bsh').type` is `'interpreter'`
+- `await host.runtimes.get('bsh').eval('1 + 1')` returns `'2'`
+- Cheerpj boot order respected (init() resolves deps first)
+- 145 / 145 Jest tests pass
+- No regressions in cheerpj or cheerpx
+- BeanShell + composition pattern reachable from the SC dashboard
+  sandbox iframe (the user-facing path)

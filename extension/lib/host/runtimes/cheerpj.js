@@ -70,7 +70,8 @@
    * Run a Java main method from a JAR and capture stdout.
    *
    * @param {object} opts
-   * @param {string} opts.jarUrl       URL to fetch the JAR bytes from
+   * @param {string} opts.jarUrl       Primary JAR URL (contains the main class)
+   * @param {string[]} [opts.extraJars] Additional JAR URLs joined onto classpath
    * @param {string} opts.className    Fully-qualified class name with a main method
    * @param {string[]} [opts.args]     String args for main(String[] args)
    * @param {string} [opts.cacheKey]   Virtual JAR filename
@@ -81,6 +82,7 @@
     return this.init().then(function () {
       return self._send('runMain', {
         jarUrl: opts.jarUrl,
+        extraJars: opts.extraJars || [],
         className: opts.className,
         args: opts.args || [],
         cacheKey: opts.cacheKey,

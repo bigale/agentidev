@@ -164,6 +164,20 @@
         console.warn('[Host] cheerpj runtime registration failed:', e.message);
       }
     }
+    if (typeof window.HostRuntimeCheerpX === 'function') {
+      try {
+        host.runtimes.register('cheerpx', new window.HostRuntimeCheerpX({ host: host }));
+      } catch (e) {
+        console.warn('[Host] cheerpx runtime registration failed:', e.message);
+      }
+    }
+    if (typeof window.HostRuntimeBsh === 'function') {
+      try {
+        host.runtimes.register('bsh', new window.HostRuntimeBsh({ host: host }));
+      } catch (e) {
+        console.warn('[Host] bsh runtime registration failed:', e.message);
+      }
+    }
 
     return host;
   }
