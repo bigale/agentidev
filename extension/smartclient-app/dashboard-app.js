@@ -867,11 +867,15 @@ function showOpenScriptDialog() {
         width: 65,
         startRow: false,
         click: function () {
-          statusLabel.setContents('<span style="color:#888;">Opening file dialog...</span>');
+          var browseBtn = this;
+          browseBtn.setDisabled && browseBtn.setDisabled(true);
+          statusLabel.setContents('<span style="color:#888;">Opening file dialog... (if you do not see it, check behind the browser window)</span>');
           dispatchActionAsync('FILE_PICKER', {
             title: 'Open Script',
             filter: 'JavaScript files (*.mjs;*.js)|*.mjs;*.js|All files (*.*)|*.*',
           }).then(function (result) {
+            if (dlg.destroyed) return;
+            browseBtn.setDisabled && browseBtn.setDisabled(false);
             if (result && result.success && result.path) {
               pathForm.setValue('path', result.path);
               statusLabel.setContents('');
@@ -880,8 +884,10 @@ function showOpenScriptDialog() {
             } else {
               statusLabel.setContents('<span style="color:#FF9800;">File browser not available — type path manually</span>');
             }
-          }).catch(function () {
-            statusLabel.setContents('<span style="color:#FF9800;">File browser not available — type path manually</span>');
+          }).catch(function (err) {
+            if (dlg.destroyed) return;
+            browseBtn.setDisabled && browseBtn.setDisabled(false);
+            statusLabel.setContents('<span style="color:#FF9800;">File browser failed: ' + escapeHtmlDash(err && err.message || String(err)) + ' — type path manually</span>');
           });
         },
       },

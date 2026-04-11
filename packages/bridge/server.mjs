@@ -2325,7 +2325,14 @@ function startServer() {
           // Save by script name (backward compat)
           const authFilePath = pathResolve(AUTH_DIR, `${scriptName}.json`);
           await session.sendCommand('state-save', [authFilePath]);
-          console.log(`[Bridge] Auth state saved: ${authFilePath}`);
+
+          // Verify state-save actually wrote the file (playwright-cli exits 0
+          // even when the daemon isn't running, producing no output)
+          const authStat = await stat(authFilePath).catch(() => null);
+          if (!authStat || authStat.size === 0) {
+            throw new Error('state-save exited 0 but wrote no file — is the playwright-cli daemon running?');
+          }
+          console.log(`[Bridge] Auth state saved: ${authFilePath} (${authStat.size} bytes)`);
 
           // Also save by domain name so any script accessing this domain gets auth
           let domainPath = null;
@@ -2335,7 +2342,13 @@ function startServer() {
               const domain = new URL(currentUrl).hostname;
               domainPath = pathResolve(AUTH_DIR, `${domain}.json`);
               await session.sendCommand('state-save', [domainPath]);
-              console.log(`[Bridge] Auth state saved by domain: ${domainPath}`);
+              const domainStat = await stat(domainPath).catch(() => null);
+              if (domainStat && domainStat.size > 0) {
+                console.log(`[Bridge] Auth state saved by domain: ${domainPath} (${domainStat.size} bytes)`);
+              } else {
+                console.warn(`[Bridge] Auth domain save produced no file: ${domainPath}`);
+                domainPath = null;
+              }
             }
           } catch {}
 
@@ -2399,25 +2412,35 @@ function startServer() {
         const { filter, title } = msg.payload || {};
         const dlgTitle = title || 'Open Script';
         const dlgFilter = filter || 'JavaScript files (*.mjs;*.js)|*.mjs;*.js|All files (*.*)|*.*';
+        // Requires -STA (WinForms OpenFileDialog crashes/hangs in MTA mode).
+        // Keep owner visible offscreen — hiding it before ShowDialog strips the
+        // dialog's topmost binding and the dialog becomes invisible behind the
+        // browser (root cause of the "dashboard lockup" on File -> Browse).
         const psScript = [
           'Add-Type -AssemblyName System.Windows.Forms;',
-          '$f = New-Object System.Windows.Forms.OpenFileDialog;',
-          `$f.Filter = '${dlgFilter.replace(/'/g, "''")}';`,
-          `$f.Title = '${dlgTitle.replace(/'/g, "''")}';`,
-          // Create a topmost owner form so the dialog appears in front of the browser
           '$owner = New-Object System.Windows.Forms.Form;',
           '$owner.TopMost = $true;',
           '$owner.ShowInTaskbar = $false;',
-          '$owner.Width = 0; $owner.Height = 0;',
+          '$owner.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None;',
+          '$owner.Size = New-Object System.Drawing.Size(1,1);',
           '$owner.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual;',
-          '$owner.Location = New-Object System.Drawing.Point(-1000,-1000);',
-          '$owner.Show(); $owner.Hide();',
+          '$owner.Location = New-Object System.Drawing.Point(-2000,-2000);',
+          '$owner.Opacity = 0;',
+          '$owner.Show();',
+          '[System.Windows.Forms.Application]::DoEvents();',
+          '$f = New-Object System.Windows.Forms.OpenFileDialog;',
+          `$f.Filter = '${dlgFilter.replace(/'/g, "''")}';`,
+          `$f.Title = '${dlgTitle.replace(/'/g, "''")}';`,
           "if ($f.ShowDialog($owner) -eq 'OK') { Write-Output $f.FileName } else { Write-Output '' }",
+          '$owner.Close();',
           '$owner.Dispose();',
         ].join(' ');
+        let psChild = null;
         try {
           const selected = await new Promise((resolve, reject) => {
-            execFile('powershell.exe', ['-NoProfile', '-Command', psScript], { timeout: 120000 }, (err, stdout) => {
+            // 60s is long enough for a user to browse and short enough to
+            // recover from a stuck invisible dialog.
+            psChild = execFile('powershell.exe', ['-Sta', '-NoProfile', '-Command', psScript], { timeout: 60000 }, (err, stdout) => {
               if (err) return reject(err);
               resolve(stdout.trim());
             });
