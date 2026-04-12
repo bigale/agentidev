@@ -98,25 +98,35 @@ else if (urlParams.get('mode') === 'dashboard') {
   }, { once: true });
 }
 
-// --- Mode 4: Playground (sidepanel-controlled) ---
+// --- Mode 4: Playground (DEPRECATED — redirects to plugin mode) ---
+// + New now creates plugins directly. Legacy playground URLs redirect to
+// the most recently edited plugin, or create a blank one if none exist.
 else if (urlParams.get('mode') === 'playground') {
-  // Restore playground session state (config + skin) when tab first opens.
-  // The sidepanel may have already loaded a project before opening this tab,
-  // so we pull the current session from background.js rather than relying on
-  // broadcasts (which fire before this tab exists).
-  const templateId = urlParams.get('template');
-
-  chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_STATE' }, (state) => {
-    if (!state) return;
-    if (state.skin && state.skin !== 'Tahoe') {
-      _beginIframeNavigation();
-      iframe.src = 'app.html?skin=' + encodeURIComponent(state.skin);
-    }
-    if (state.config) {
-      sendConfigToIframe(state.config, state.capabilities);
-    } else if (templateId) {
-      // Apply bundled template config when starting a fresh project from a template
-      applyTemplate(templateId, state.capabilities);
+  chrome.runtime.sendMessage({ type: 'PLUGIN_LIST' }, (plugins) => {
+    const list = Array.isArray(plugins) ? plugins : [];
+    // Find the most recently created storage-backed plugin
+    const storagePlugins = list.filter(p => p.description && p.description.includes('Published from Agentiface') || p.id && p.id.startsWith('proj_'));
+    if (storagePlugins.length > 0) {
+      // Redirect to the most recent one
+      const latest = storagePlugins[storagePlugins.length - 1];
+      const mode = (latest.modes && latest.modes[0]) || latest.id;
+      window.location.replace('wrapper.html?mode=' + encodeURIComponent(mode));
+    } else {
+      // No plugins — fall back to the old playground behavior so
+      // existing workflows don't break. This path will be removed in D4.
+      const templateId = urlParams.get('template');
+      chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_STATE' }, (state) => {
+        if (!state) return;
+        if (state.skin && state.skin !== 'Tahoe') {
+          _beginIframeNavigation();
+          iframe.src = 'app.html?skin=' + encodeURIComponent(state.skin);
+        }
+        if (state.config) {
+          sendConfigToIframe(state.config, state.capabilities);
+        } else if (templateId) {
+          applyTemplate(templateId, state.capabilities);
+        }
+      });
     }
   });
 }
