@@ -398,34 +398,60 @@ function handleCreateProject() {
   }
 
   const templateId = els.templateSelect ? els.templateSelect.value : '';
+  const description = els.newProjectDesc.value.trim();
 
   els.createProjectBtn.disabled = true;
-  chrome.runtime.sendMessage({
-    type: 'SC_PLAYGROUND_CREATE_PROJECT',
-    name,
-    description: els.newProjectDesc.value.trim(),
-    skin: els.newProjectSkin.value,
-    capabilities: { skinPicker: els.capSkin.checked },
-    templateId: templateId || undefined,
-  }, (response) => {
+
+  // If a template is selected, we need to get its config first
+  if (templateId) {
+    // Create the project (for undo/history) then publish as a plugin
+    chrome.runtime.sendMessage({
+      type: 'SC_PLAYGROUND_CREATE_PROJECT',
+      name,
+      description,
+      skin: els.newProjectSkin.value,
+      capabilities: { skinPicker: els.capSkin.checked },
+      templateId,
+    }, (response) => {
+      els.createProjectBtn.disabled = false;
+      if (response?.success) {
+        els.createForm.style.display = 'none';
+        // Get the config that was generated from the template
+        chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_STATE' }, (state) => {
+          const config = state?.config || { layout: { _type: 'VLayout', width: '100%', height: '100%', members: [] } };
+          _publishAndOpen(name, description, config, state?.projectId);
+        });
+      } else {
+        showError(response?.error || 'Failed to create project');
+      }
+    });
+  } else {
+    // No template — create a blank plugin directly
     els.createProjectBtn.disabled = false;
+    els.createForm.style.display = 'none';
+    const blankConfig = { layout: { _type: 'VLayout', width: '100%', height: '100%', members: [] } };
+    _publishAndOpen(name, description, blankConfig, null);
+  }
+}
+
+function _publishAndOpen(name, description, config, projectId) {
+  chrome.runtime.sendMessage({
+    type: 'SC_PUBLISH_PLUGIN',
+    name,
+    description: description || name,
+    projectId,
+    config,
+  }, (response) => {
     if (response?.success) {
-      els.createForm.style.display = 'none';
-
-      // Also publish as a plugin so it appears in the Plugins list immediately
-      // We'll get the config after the playground renders and publish then.
-      // For now, just open the playground — the user can publish from there.
       loadProjectLibrary();
-
-      openPlayground(templateId || undefined);
+      openPluginMode(response.id);
     } else {
-      showError(response?.error || 'Failed to create project');
+      showError(response?.error || 'Failed to create plugin');
     }
   });
 }
 
-
-// ---- Playground tab ----
+// ---- Open a plugin or playground tab ----
 
 function openPlayground(templateId) {
   let url = chrome.runtime.getURL('smartclient-app/wrapper.html?mode=playground');
