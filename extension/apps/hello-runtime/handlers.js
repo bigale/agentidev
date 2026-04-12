@@ -95,4 +95,52 @@ export function register(handlers /*, { manifest } */) {
       stdout: res.stdout,
     };
   };
+
+  /**
+   * host.storage round-trip — set then get a key. Demonstrates the
+   * generic key/value surface backed by chrome.storage.local.
+   */
+  handlers['HELLO_RUNTIME_STORAGE'] = async (msg) => {
+    const key = 'hello-runtime:demo';
+    const value = { ts: new Date().toISOString(), counter: (msg && msg.counter) || 1 };
+    await handlers['HOST_STORAGE_SET']({ key, value });
+    const got = await handlers['HOST_STORAGE_GET']({ key });
+    return { success: true, set: value, got: got.value };
+  };
+
+  /**
+   * host.network.fetch — pulls a small file via the SW (which has full
+   * host_permissions). Uses the local asset-server to keep the demo
+   * deterministic.
+   */
+  handlers['HELLO_RUNTIME_NETWORK'] = async (msg) => {
+    const url = (msg && msg.url) || 'http://localhost:9877/cheerpx-runtime.html';
+    const r = await handlers['HOST_NETWORK_FETCH']({ url, init: {}, as: 'text' });
+    return {
+      success: r.ok,
+      status: r.status,
+      url: r.url,
+      bytes: r.text ? r.text.length : 0,
+      head: r.text ? r.text.slice(0, 80) : '',
+    };
+  };
+
+  /**
+   * host.fs round-trip — write a small file in /tmp inside the CheerpX VM,
+   * list /tmp, read the file back. Exercises all three fs operations in
+   * one call.
+   */
+  handlers['HELLO_RUNTIME_FS'] = async (msg) => {
+    const path = '/tmp/hello-runtime-demo.txt';
+    const content = 'hello-runtime fs demo\nwritten at ' + new Date().toISOString() + '\n';
+    const writeRes = await handlers['HOST_FS_WRITE']({ path, content });
+    const listRes  = await handlers['HOST_FS_LIST']({ path: '/tmp' });
+    const readRes  = await handlers['HOST_FS_READ']({ path });
+    return {
+      success: writeRes.success && readRes.success,
+      write: { exitCode: writeRes.exitCode, bytesWritten: writeRes.bytesWritten },
+      listCount: listRes.entries.length,
+      read: readRes.content,
+    };
+  };
 }

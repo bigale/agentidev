@@ -140,3 +140,153 @@ Return flows back the same path. ~1300 ms warm.
 - `host.runtimes.get('cheerpx').spawn('/usr/bin/python3', ['-c', 'print(1+1)'])` returns `{exitCode: 0, stdout: '2'}`
 - `npm test` stays green (145 Jest tests)
 - No regressions in existing dashboard or CheerpJ runtime
+
+---
+
+## Phase 4.5 — host capability surfaces (host.fs / host.exec / host.network / host.storage)
+
+**Status: done.** The HostCapabilities interface (Phase 0) had `runtimes`,
+`message`, `identity`, and `storage.export` fleshed out by earlier phases.
+Phase 4.5 fills in the remaining surfaces — `host.storage.get/set/del/blob`,
+`host.network.fetch`, `host.exec.spawn`, and `host.fs.read/write/list` —
+so plugins can do the things horsebread's plan calls for without going
+back through the runtime registry directly.
+
+### What landed
+
+**SW-side handlers** in `extension/lib/handlers/host-handlers.js` —
+13 new dispatch entries:
+
+- `HOST_STORAGE_GET / SET / DEL` — `chrome.storage.local` wrappers
+- `HOST_STORAGE_BLOB_PUT / GET` — base64-wrapped binary in storage.local
+  (fine for small blobs; Phase 4.6 will switch to OPFS without changing
+  the API)
+- `HOST_NETWORK_FETCH` — extension-origin fetch with full
+  `host_permissions`. Returns a serializable subset of `Response`:
+  `{ok, status, statusText, url, headers, text|json|bytes}` selected by
+  `as: 'text'|'json'|'bytes'`
+- `HOST_EXEC_SPAWN` — thin wrapper that delegates to the cheerpx
+  runtime's `cheerpx-spawn` handler. Picks the default exec runtime;
+  callers wanting a non-default should call `host.runtimes.get(...)`
+  directly.
+- `HOST_FS_READ / WRITE / LIST` — operate on the cheerpx VM filesystem
+  via new `cheerpx-fs-*` commands. Backed by `cx.run('/bin/cat')`,
+  `cx.run('/bin/sh', ['-c', 'echo b64 | base64 -d > path'])`, and
+  `cx.run('/bin/ls -la --time-style=long-iso')` under the hood. The
+  fs-list response is parsed into structured `{name, type, size, mode,
+  mtime}` records by a small in-runtime parser.
+
+**`host-chrome-extension.js`** now exposes the matching JS surfaces on
+`window.Host.get()`:
+
+```js
+host.storage.get(key) / set(key,value) / del(key)
+host.storage.blob.put(key, bytes) / get(key)
+host.network.fetch(url, init?, { as: 'text'|'json'|'bytes' })
+host.exec.spawn(cmd, args?, opts?)
+host.fs.read(path) / write(path, content) / list(path)
+```
+
+All return Promises and route through the existing `host.message.send`
+postMessage transport — plugin code stays free of `chrome.runtime.*`.
+
+**Newline preservation in cheerpx stdout** — the biggest practical
+improvement of this phase. CheerpX 1.0.7's `cx.setConsole(<element>)`
+appends each terminal line as a `<p>` child, but reading back via
+`textContent.slice()` concatenates them without separators (because
+`textContent` doesn't insert newlines for block elements). The result:
+`print('a'); print('b')` → `'ab'` instead of `'a\nb'`. Until Phase 4.5
+this was fine for the simple proofs but immediately bit `host.fs.read`,
+`host.fs.list`, and any multi-line output.
+
+Fix: instead of `consoleEl.textContent.slice(startLen)`, the runtime
+now records `consoleEl.childNodes.length` before each `cx.run()` and,
+after it resolves, walks the new child nodes joining each one's
+`textContent` with `\n`. CheerpX writes one `<p>` per line, so this
+recovers the line structure exactly.
+
+```js
+var startChildCount = consoleEl.childNodes.length;
+// ... await cx.run(...) ...
+var lines = [];
+for (var k = startChildCount; k < consoleEl.childNodes.length; k++) {
+  lines.push(consoleEl.childNodes[k].textContent || '');
+}
+stdout = lines.join('\n');
+if (lines.length > 0) stdout += '\n';
+```
+
+Tried `cx.setCustomConsole(callback)` first for raw byte capture, but
+none of the candidate names (`setCustomConsole`, `setCustomConsoleHandler`,
+`setOutputHandler`) exist on the CheerpX 1.0.7 instance — only the legacy
+`setConsole(element)`. The runtime page now tries the custom-console
+methods at init and falls back to the childNode-walking path, so the
+upgrade is automatic when CheerpX adds the API.
+
+**Cache busting on tab creation** — `cheerpx-handlers.js` now creates
+the cheerpx tab with `?t=<Date.now()>` so updates to
+`cheerpx-runtime.html` are picked up after asset-server changes without
+the 1-hour `Cache-Control: max-age=3600` getting in the way. Existing
+tabs found via `tabs.query` are still reused as-is.
+
+### Verification
+
+End-to-end from the SC dashboard sandbox iframe (`?mode=hello-runtime`):
+
+```js
+const host = window.Host.get();
+
+await host.storage.set('key', { from: 'sandbox', n: 99 });
+await host.storage.get('key');
+// → { from: 'sandbox', n: 99 }
+
+await host.storage.blob.put('b', new Uint8Array([10,20,30]));
+await host.storage.blob.get('b');
+// → Uint8Array(3) [10, 20, 30]
+
+await host.network.fetch('http://localhost:9877/cheerpx-runtime.html');
+// → { ok: true, status: 200, text: '<!DOCTYPE html>...' }
+
+await host.exec.spawn('/usr/bin/python3', ['-c', 'print("a"); print("b")']);
+// → { exitCode: 0, stdout: 'a\nb\n' }    ← newlines preserved!
+
+await host.fs.write('/tmp/sb.txt', 'hello\nworld\n');
+await host.fs.list('/tmp');
+// → { entries: [{name:'sb.txt', type:'file', size:12, mode:'-rw-r--r--', ...}] }
+await host.fs.read('/tmp/sb.txt');
+// → { content: 'hello\nworld\n' }
+```
+
+The `hello-runtime` reference plugin gets three new dashboard buttons
+(`host.storage`, `host.network.fetch`, `host.fs round-trip`) backed by
+three new plugin handlers (`HELLO_RUNTIME_STORAGE/NETWORK/FS`) that
+exercise each surface end-to-end. They render JSON output via the
+existing `dispatchAndDisplay` action.
+
+### What Phase 4.5 does NOT include (deferred to 4.6)
+
+- **Streaming stdout/stderr** — `host.exec.spawn` is still
+  collect-and-return. The runtime page now has the right architecture
+  (per-spawn stdout buffer) to support streaming, but the SW transport
+  is still single-response `chrome.tabs.sendMessage`. Streaming requires
+  switching to a long-lived `chrome.runtime.connect` Port so the
+  runtime page can post stdout chunks down it as they arrive.
+- **`host.fs.watch`** — needs the same long-lived port plumbing as
+  streaming exec.
+- **Binary `host.fs.read`** — current implementation runs `cat` and
+  decodes as UTF-8; binary files get mangled. Phase 4.6 should add an
+  `as: 'bytes'` option that hex-encodes via `xxd` or pipes through
+  `base64`.
+- **Big-file `host.fs.write`** — bounded by argv length (~64 KB after
+  base64 expansion). Stdin pipe on `cx.run` would lift this.
+- **OPFS-backed `host.storage.blob`** — current impl base64s into
+  `chrome.storage.local`, which is fine for small things but will OOM
+  on big blobs.
+- **Real `host.identity.installId`** — still `'sandbox-' + random()`.
+  Should surface `chrome.runtime.id` and a per-install nonce.
+
+### Tests
+145 / 145 Jest pass. No regressions in cheerpj, cheerpx, bsh, or the SC
+dashboard. Newline preservation fix is also validated by the existing
+Phase 2 sanity test (which previously only passed because `print(1+1)`
+has no newlines to lose).

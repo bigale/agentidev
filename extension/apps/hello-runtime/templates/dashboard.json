@@ -98,6 +98,88 @@
       "height": 100,
       "padding": 4,
       "contents": "<em style='color:#888;'>Click \"Run Java main\" to invoke a Java class.</em>"
+    },
+    {
+      "_type": "Label",
+      "height": 26,
+      "contents": "<div style='font-size:14px;font-weight:600;color:#a8b4ff;margin-top:8px;'>Host capability surfaces (Phase 4.5)</div>"
+    },
+    {
+      "_type": "HLayout",
+      "height": 36,
+      "membersMargin": 8,
+      "members": [
+        {
+          "_type": "Button",
+          "ID": "btnRunStorage",
+          "title": "host.storage",
+          "width": 200,
+          "_action": "dispatchAndDisplay",
+          "_messageType": "HELLO_RUNTIME_STORAGE",
+          "_messagePayload": { "counter": 7 },
+          "_targetCanvas": "outputStorageFlow",
+          "_resultFormatter": "json"
+        },
+        {
+          "_type": "Button",
+          "ID": "btnRunNetwork",
+          "title": "host.network.fetch",
+          "width": 200,
+          "_action": "dispatchAndDisplay",
+          "_messageType": "HELLO_RUNTIME_NETWORK",
+          "_messagePayload": {},
+          "_targetCanvas": "outputNetworkFlow",
+          "_resultFormatter": "json"
+        },
+        {
+          "_type": "Button",
+          "ID": "btnRunFs",
+          "title": "host.fs round-trip",
+          "width": 200,
+          "_action": "dispatchAndDisplay",
+          "_messageType": "HELLO_RUNTIME_FS",
+          "_messagePayload": {},
+          "_targetCanvas": "outputFsFlow",
+          "_resultFormatter": "json",
+          "_timeoutMs": 60000
+        }
+      ]
+    },
+    {
+      "_type": "Label",
+      "height": 18,
+      "contents": "<div style='font-size:11px;color:#666;'>host.storage.set/get round-trip</div>"
+    },
+    {
+      "_type": "HTMLFlow",
+      "ID": "outputStorageFlow",
+      "height": 80,
+      "padding": 4,
+      "contents": "<em style='color:#888;'>Click \"host.storage\" to set + get a value.</em>"
+    },
+    {
+      "_type": "Label",
+      "height": 18,
+      "contents": "<div style='font-size:11px;color:#666;'>host.network.fetch (SW context, full host_permissions)</div>"
+    },
+    {
+      "_type": "HTMLFlow",
+      "ID": "outputNetworkFlow",
+      "height": 80,
+      "padding": 4,
+      "contents": "<em style='color:#888;'>Click \"host.network.fetch\" to fetch a URL via the SW.</em>"
+    },
+    {
+      "_type": "Label",
+      "height": 18,
+      "contents": "<div style='font-size:11px;color:#666;'>host.fs.write/list/read round-trip in the CheerpX VM</div>"
+    },
+    {
+      "_type": "HTMLFlow",
+      "ID": "outputFsFlow",
+      "height": 120,
+      "padding": 4,
+      "contents": "<em style='color:#888;'>Click \"host.fs round-trip\" to write a file, list /tmp, and read it back.</em>"
     }
     ]
   }

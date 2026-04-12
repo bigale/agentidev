@@ -39,6 +39,7 @@ import { register as registerProjectPersistence } from './lib/handlers/project-p
 import { register as registerSync } from './lib/handlers/sync-handlers.js';
 import { register as registerCheerpJ } from './lib/handlers/cheerpj-handlers.js';
 import { register as registerCheerpX } from './lib/handlers/cheerpx-handlers.js';
+import { register as registerHost } from './lib/handlers/host-handlers.js';
 import { loadPlugins } from './lib/plugin-loader.js';
 
 console.log('Agentidev: Background service worker started');
@@ -202,6 +203,7 @@ registerProjectPersistence(handlers);
 registerSync(handlers);
 registerCheerpJ(handlers);
 registerCheerpX(handlers);
+registerHost(handlers); // host.storage / host.network / host.exec / host.fs surfaces
 
 // Discover and load plugins from extension/apps/. Each plugin's handlers.js
 // is dynamic-imported and registered on the same dispatch table as the
