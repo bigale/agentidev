@@ -22,6 +22,8 @@ graph TD
     style CheerpJ fill:#F2A65A,color:black
     style CheerpX fill:#F2A65A,color:black
     style Bsh fill:#F2A65A,color:black
+    style Plugins fill:#E07A5F,color:black
+    style Hello fill:#E07A5F,color:black
 
     CLI[CLI Client] -->|WebSocket| Bridge[Bridge Server :9876]
     Ext[Chrome Extension] -->|WebSocket| Bridge
@@ -33,7 +35,9 @@ graph TD
     Bridge --> Assets[Asset Server :9877]
     Ext --> SM[Semantic Memory]
     Ext --> SC[Agentiface Sandbox]
-    Ext --> Runtimes[Host Runtimes]
+    Ext --> Plugins[Plugins — extension/apps]
+    Plugins --> Hello[hello-runtime — reference plugin]
+    Plugins --> Runtimes[Host Runtimes]
     Runtimes --> CheerpJ[CheerpJ — Java in WASM]
     Runtimes --> CheerpX[CheerpX — x86 Linux VM]
     Runtimes --> Bsh[BeanShell on CheerpJ]
@@ -187,6 +191,72 @@ Full writeups: [`extension/cheerpj-app/STATUS.md`](extension/cheerpj-app/STATUS.
 
 ---
 
+## Plugins
+
+Self-contained extensions that target the host capability interface and ship a SmartClient UI mode. Each plugin lives in `extension/apps/<plugin-id>/` and bundles a manifest, message handlers, templates, and optional assets. Private plugins (e.g., domain-specific apps) are assembled in from outside repos at build time and never enter public history. The reference plugin `hello-runtime` is checked in.
+
+```
+extension/apps/hello-runtime/
+├── manifest.json
+├── handlers.js
+└── templates/
+    └── dashboard.json
+```
+
+```jsonc
+// manifest.json — minimum
+{
+  "id": "hello-runtime",
+  "name": "Hello Runtime",
+  "version": "0.1.0",
+  "modes": ["hello-runtime"],
+  "templates": { "dashboard": "templates/dashboard.json" },
+  "handlers": "handlers.js",
+  "requires": {
+    "hostCapabilities": ["message"],
+    "runtimes": ["cheerpj", "cheerpx", "bsh"]
+  }
+}
+```
+
+### Discovery + loader
+
+`extension/lib/plugin-loader.js` runs at service-worker boot, reads `extension/apps/index.json` for the active-plugin list, validates each manifest, and registers each plugin's handlers on the same dispatch table the platform uses. Plugin handlers are first-class peers of platform handlers — they receive the same `handlers` object and can call any other handler in the table.
+
+MV3 service workers cannot use dynamic `import()` ([W3C spec restriction](https://github.com/w3c/ServiceWorker/issues/1356)), so the loader resolves handler modules through a static registry at `extension/apps/_loaded.js`. Plugin assemble scripts edit this file when installing a new plugin.
+
+### Mode dispatch
+
+Opening `chrome-extension://<id>/smartclient-app/wrapper.html?mode=<plugin-id>` triggers `bridge.js` to look up the plugin via `PLUGIN_LIST`, fetch its dashboard template via `PLUGIN_GET_TEMPLATE`, and render it through the existing SmartClient renderer. No special template wiring is required — the same code path the AI generation uses.
+
+### `hello-runtime` — the in-tree reference plugin
+
+A live demo of every platform layer end-to-end. The dashboard has three buttons; each fires a plugin handler that wraps a different host runtime and writes the result into an HTMLFlow output pane via the renderer's generic `dispatchAndDisplay` action.
+
+| Button | Handler | Runtime | Output |
+|---|---|---|---|
+| Run BeanShell (1 + 1) | `HELLO_RUNTIME_BSH` | `bsh` (composed on cheerpj) | `2` |
+| Run Python (CheerpX) | `HELLO_RUNTIME_CHEERPX` | `cheerpx` | `4.15.0-54-cheerpx` + `42` |
+| Run Java main (CheerpJ) | `HELLO_RUNTIME_CHEERPJ` | `cheerpj` | hello-main JAR stdout |
+
+Plugin handlers contain **zero direct `chrome.runtime.*` calls** — they reach the runtimes through the dispatch table, the same way platform-internal modules do. `hello-runtime/handlers.js` is ~80 lines.
+
+To open the demo:
+
+```
+chrome-extension://<extension-id>/smartclient-app/wrapper.html?mode=hello-runtime
+```
+
+`hello-runtime` is the regression target for any new host capability work — when adding `host.fs`, `host.exec` streaming, or `host.network`, extending this plugin's dashboard is the cheapest way to prove the addition end-to-end.
+
+### Private plugins
+
+Plugins that should never enter public history (e.g., proprietary domain apps) live in their own private repos and are assembled into `extension/apps/<id>/` at build time via a small `assemble.sh` script that `rsync`s sources into place and edits `apps/_loaded.js` to register the handler. `extension/apps/*` is gitignored with explicit exceptions for the README, the index, `_loaded.js`, and `hello-runtime/`.
+
+Full convention writeup: [`extension/apps/README.md`](extension/apps/README.md).
+
+---
+
 ## Agentiface
 
 AI UI generation that turns natural language prompts into full SmartClient applications.
@@ -291,6 +361,7 @@ node packages/bridge/claude-client.mjs schedule:list             # List cron sch
 |-----------|-----------|
 | **Bridge Server** | Node.js, WebSocket (`ws`), Playwright |
 | **Asset Server** | Node.js HTTP, range requests, scoped COOP/COEP/CORP headers |
+| **Plugin System** | Manifest-based, static handler registry (MV3 SW dynamic-import limitation), in-tree reference plugin `hello-runtime` |
 | **Vector Search** | LanceDB WASM, all-MiniLM-L6-v2 (transformers.js) |
 | **Scheduling** | Croner (cron expressions) |
 | **Extension** | Chrome MV3, Service Worker, Offscreen Document, Web Workers |
