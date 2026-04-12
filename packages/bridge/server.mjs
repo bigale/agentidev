@@ -2408,6 +2408,50 @@ function startServer() {
         break;
       }
 
+      // ---- File serving for plugins (Phase H5) ----
+
+      case MSG.BRIDGE_READ_FILE: {
+        const filePath = (msg.payload || {}).path;
+        const encoding = (msg.payload || {}).encoding || 'text';
+        const MAX_SIZE = 50 * 1024 * 1024;
+        try {
+          if (!filePath) throw new Error('path is required');
+          const fstat = await stat(filePath);
+          if (!fstat.isFile()) throw new Error('not a file: ' + filePath);
+          if (fstat.size > MAX_SIZE) throw new Error('file too large (' + fstat.size + ' bytes, max ' + MAX_SIZE + ')');
+          if (encoding === 'base64') {
+            const buf = await readFile(filePath);
+            sendTo(ws, buildReply(msg, { success: true, base64: buf.toString('base64'), size: fstat.size }));
+          } else {
+            const text = await readFile(filePath, 'utf-8');
+            sendTo(ws, buildReply(msg, { success: true, text, size: fstat.size }));
+          }
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_COPY_TO_ASSETS: {
+        const nodefs = await import('fs');
+        const { join: pathJoin } = await import('path');
+        const srcPath = (msg.payload || {}).src;
+        const destName = (msg.payload || {}).dest;
+        const ASSET_ROOT = pathJoin(homedir(), '.agentidev', 'cheerpx-assets');
+        try {
+          if (!srcPath || !destName) throw new Error('src and dest are required');
+          if (destName.includes('..') || destName.includes('/')) throw new Error('dest must be a plain filename');
+          if (!nodefs.existsSync(srcPath)) throw new Error('source not found: ' + srcPath);
+          const destPath = pathJoin(ASSET_ROOT, destName);
+          nodefs.copyFileSync(srcPath, destPath);
+          const fstat2 = nodefs.statSync(destPath);
+          sendTo(ws, buildReply(msg, { success: true, path: destPath, size: fstat2.size, url: 'http://localhost:9877/' + destName }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
       case MSG.BRIDGE_FILE_PICKER: {
         const { filter, title } = msg.payload || {};
         const dlgTitle = title || 'Open Script';

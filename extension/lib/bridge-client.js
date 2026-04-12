@@ -578,6 +578,12 @@ export function killProcess(pid) {
 export function filePicker(options = {}) {
   return _sendRequest('BRIDGE_FILE_PICKER', options, 120000);
 }
+export function readFile(filePath, encoding = 'text') {
+  return _sendRequest('BRIDGE_READ_FILE', { path: filePath, encoding }, 60000);
+}
+export function copyToAssets(src, dest) {
+  return _sendRequest('BRIDGE_COPY_TO_ASSETS', { src, dest }, 60000);
+}
 
 /**
  * Get the shim path provided by the bridge server at connect time.

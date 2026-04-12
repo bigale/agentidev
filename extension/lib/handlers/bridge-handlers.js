@@ -172,6 +172,22 @@ export function register(handlers) {
     return { success: true, ...result };
   };
 
+  // Read a local file from the host filesystem via the bridge server
+  handlers['BRIDGE_READ_FILE'] = async (msg) => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge' };
+    }
+    return bridgeClient.readFile(msg.path, msg.encoding || 'text');
+  };
+
+  // Copy a local file to the asset-server root
+  handlers['BRIDGE_COPY_TO_ASSETS'] = async (msg) => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge' };
+    }
+    return bridgeClient.copyToAssets(msg.src, msg.dest);
+  };
+
   // Bridge info (scripts dir, shim path)
   handlers['BRIDGE_GET_INFO'] = async () => {
     return {
