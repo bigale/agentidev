@@ -410,6 +410,20 @@
         },
 
         /**
+         * Upload a URL's contents into the VM filesystem. Bypasses the 64 KB
+         * host.fs.write limit by chunking inside the runtime page (no
+         * postMessage transport for raw bytes). The URL must be reachable
+         * from the runtime page's origin (http://localhost:9877).
+         *
+         * @param {string} vmPath   Target path inside the VM, e.g. '/tmp/repo.tar.gz'
+         * @param {string} url      URL to fetch (must be same-origin to asset-server)
+         * @returns {Promise<{success, bytesWritten, chunks, elapsedMs}>}
+         */
+        upload: function (vmPath, url) {
+          return dispatch('HOST_FS_UPLOAD', { path: vmPath, url: url }, 300000);
+        },
+
+        /**
          * Watch a file or directory for changes. The callback fires whenever
          * the path's mtime changes (file modified, deleted, or appears for
          * the first time). Implementation: client-side polling on top of
