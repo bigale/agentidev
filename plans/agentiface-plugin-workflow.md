@@ -1,179 +1,211 @@
-# Plan: Agentiface → Plugin Unified Workflow
+# Plan: Agentiface Plugin Authoring (Revised)
 
 ## The vision
 
-A complete loop: **create → refine → publish → use → modify → republish**.
+**The Playground IS the plugin editor. Projects ARE plugins. No separate
+publish step.** Think Microsoft Access: design mode (sidebar open) and
+view mode (sidebar closed). The sidebar is the design surface. The
+canvas is the running app.
 
-Today we have the pieces but not the loop. The screenshot shows the
-mortgage calculator running as a published plugin (`?mode=proj_...`)
-with the Agentiface sidebar open, Inspector bar visible, and the
-project loaded in the sidebar's AF tab. The pieces exist:
+```
++ New → creates a plugin → opens in Playground (design mode)
+Edit  → sidebar open: AI prompt, inspector, skin, settings
+Save  → writes directly to plugin storage (chrome.storage.local)
+Run   → sidebar closed: the app runs, users interact
+Switch → Plugins dropdown: navigate between apps
+Delete → removes from storage
+```
 
-- **Agentiface playground** generates SmartClient configs from prompts
-- **Projects** persist configs in IndexedDB with name/description
-- **Inspector** shows the component tree + "Mode: AI" for modification
-- **Renderer** maps JSON configs to live SmartClient components
-- **Publish Plugin** saves a project as a storage-backed plugin
-- **Plugins dropdown** opens published plugins in their own mode
-- **Bridge server** provides backend compute, scraping, scheduling
-- **CheerpX/CheerpJ runtimes** provide in-browser Java + Linux
-- **host.*** surfaces provide the abstraction layer plugins target
+This replaces the old "project + publish" two-step flow with a single
+concept: plugins that are always editable.
 
-## What's missing (the unfinished territory)
+## UX model: Microsoft Access, not VS Code
 
-### 1. Edit-in-place for published plugins
+The inspiration is Access: a self-contained environment where you
+design forms, wire data sources, and switch between design mode and
+run mode. The sidebar is the property sheet / toolbox. The canvas is
+the form.
 
-**Current**: publish is one-way. Once published, the plugin is a static
-config. To modify it you have to go back to the playground, edit the
-project, and re-publish. The published plugin and the project are
-disconnected copies.
+**Design mode** (sidebar open, AF tab active):
+- AI prompt: "describe changes to malc1..."
+- Inspector: component tree, select → property editing
+- Settings: skin picker, model, capabilities (collapsible sections)
+- Plugin list: all plugins, + New, delete
+- Save / Undo / History / Reset
 
-**Needed**: when a published plugin is open (`?mode=<id>`), the
-Agentiface sidebar should:
-- Recognize it's a published plugin (not a playground session)
-- Load the plugin's config into the sidebar's editing state
-- Allow "Describe changes to malc1..." prompts against the live plugin
-- "Save" writes back to the storage-backed plugin (not to the project)
-- The live plugin UI updates immediately
+**Run mode** (sidebar closed or on a different tab):
+- Clean SmartClient app, no editing chrome
+- Full data entry, DS persistence, runtime calls
 
-**Architecture**: the bridge.js mode dispatcher for plugin modes would
-need to also set up the playground editing state (currently only
-`?mode=playground` does this). The sidebar's AF tab would work against
-the plugin's storage instead of the project persistence store.
+**Navigation**: sidebar Plugins dropdown OR the AF tab's plugin list.
 
-### 2. Reverse publish (plugin → project)
+## What comes for free with every plugin
 
-**Current**: projects exist in IndexedDB (`sc-projects` database).
-Plugins exist in chrome.storage.local. They're separate stores with
-separate schemas.
+1. **Skin picker** — every plugin gets the full SmartClient skin
+   library (Enterprise, Tahoe, Graphite, etc.). The skin is a
+   per-plugin setting stored alongside the config.
+2. **DataSource persistence** — the renderer's DS handler auto-creates
+   IndexedDB stores. CRUD works immediately for any ListGrid/Form.
+3. **Inspector** — the component tree is always available in the
+   sidebar. Select → see/edit properties.
+4. **AI modification** — "describe changes" prompt works against any
+   plugin's config, not just playground sessions.
+5. **Undo / History** — config versioning comes from the playground's
+   existing undo stack, now applied to plugins.
 
-**Needed**: "Import as Project" button on a published plugin that
-creates a project from the plugin's config, so you can use the full
-project editing workflow (version history, templates, etc.) and then
-re-publish.
+## Sidebar layout (AF tab, collapsible sections)
 
-**Simpler alternative**: just make published plugins editable directly
-(item 1 above) and skip the round-trip. Projects become the "source"
-and plugins become the "deployed" version. Editing a plugin creates a
-new version; the project is the version history.
+```
+┌─ AF Tab ──────────────────────┐
+│ [Plugin Name]  ▾ malc1        │  ← dropdown or editable
+│ [Describe changes...]  [Go]   │  ← AI prompt
+│                               │
+│ ▾ Actions                     │  ← collapsible
+│   Save  Undo  History  Reset  │
+│                               │
+│ ▾ Inspector                   │  ← collapsible
+│   [component tree]            │
+│   [property form for selected]│
+│                               │
+│ ▾ Settings                    │  ← collapsible
+│   Skin: [Enterprise ▾]       │
+│   Model: [Sonnet 4.6 ▾]     │
+│   ☑ Skin Picker capability   │
+│                               │
+│ ▾ Plugins                     │  ← collapsible
+│   + New                       │
+│   malc1          2 DS    x   │
+│   horsebread     ★ bridge x  │
+│   hello-runtime  ★ ref   x  │
+│                               │
+│ ▾ Runtimes (when applicable)  │  ← collapsible
+│   cheerpj ● ready             │
+│   cheerpx ● ready             │
+│   bsh     ● ready             │
+└───────────────────────────────┘
+```
 
-### 3. Inspector + visual editing maturity
+The key insight: **everything goes in the sidebar.** No separate
+"design mode" chrome in the canvas. The canvas always shows the
+running app. The sidebar is where you author.
 
-**Current**: the Inspector shows the component tree. "Mode: AI" lets
-you describe changes in natural language. "Add Component" dropdown
-exists but is rudimentary. The JSON config is the source of truth.
+## What needs to change
 
-**Needed for declarative editing**:
-- **Property inspector**: select a component in the tree → see its
-  properties in a form → edit directly (width, title, fields, etc.)
-- **Drag-and-drop reorder**: move components in the layout tree
-- **Add Component** that inserts properly typed SC components at the
-  selected position in the tree
-- **Delete Component** with undo
-- **DataSource editor**: create/edit DataSources visually (fields,
-  primary keys, types)
-- **Action editor**: wire button clicks to handlers visually (pick
-  from ACTION_MAP or define new dispatch targets)
+### 1. Unify projects and plugins (the big refactor)
 
-This is SmartClient's sweet spot — all of this is declarative JSON
-manipulation with a known schema. No runtime code generation needed.
+**Current**: projects live in IndexedDB (`sc-projects`), plugins live
+in `chrome.storage.local` (storage-backed) or `extension/apps/`
+(file-backed). Two separate concepts.
 
-### 4. Handler authoring for plugins
+**Target**: ONE concept — "plugins." The AF tab's "Project Library"
+becomes "Plugins." Creating a new plugin saves to chrome.storage.local
+immediately. The old project persistence store becomes a compatibility
+layer.
 
-**Current**: hello-runtime and horsebread have hand-coded handlers.js
-files. Storage-backed plugins (published from projects) have NO
-handlers — they're pure UI templates.
+**Migration**: existing projects get a one-time migration to
+storage-backed plugins. Or: keep the project store as-is and just
+make the AF tab read from BOTH (plugins first, projects as legacy).
 
-**Needed**: a way to add backend behavior to a published plugin:
-- **Code editor** in the sidebar for writing handler functions
-- **Handler template** library (fetch data, call runtime, transform)
-- **Live reload** — save handler code and have it take effect without
-  extension reload (this is fundamentally hard in MV3 due to static
-  imports; would need eval-in-offscreen or a plugin-handler-interpreter
-  pattern)
+### 2. Plugin editing state
 
-**Pragmatic alternative**: handlers stay as files on disk (the
-assemble.sh pattern). The "publish from Agentiface" path produces
-UI-only plugins. Plugins that need handlers are developed as
-file-backed plugins with a private repo + assemble script.
+**Current**: `SC_PLAYGROUND_STATE` manages the editing state for
+`?mode=playground`. Plugin modes don't have editing state.
 
-### 5. DataSource wiring for published plugins
+**Target**: when the AF tab is active and a plugin is selected, the
+sidebar's editing state is tied to that plugin's config. Changes
+(AI-prompted or manual) update the plugin's config in storage.
+`?mode=<plugin-id>` uses the same editing infrastructure as
+`?mode=playground`.
 
-**Current**: the renderer creates DataSources from the config's
-`dataSources[]` array. These route through the bridge.js DS handler
-to IndexedDB auto-created stores. Published plugins get their own
-namespaced stores (e.g., `plugin:malc1:Scenarios`).
+### 3. Collapsible sidebar sections
 
-**Needed**:
-- DS operations (add/update/remove/fetch) work automatically for
-  published plugins — they already do via the existing DS handler
-- **Cross-plugin DS isolation** — each plugin's DataSources should be
-  namespaced so they don't collide (partially done: DS IDs are unique
-  per-config, but the IDB store names aren't namespaced yet)
-- **Seed data** — a way to pre-populate a plugin's DataSources with
-  fixture records at publish time
+**Current**: the AF tab has a flat layout — prompt, actions, project
+library.
 
-### 6. Runtime integration in the Agentiface workflow
+**Target**: collapsible sections (Actions, Inspector, Settings,
+Plugins, Runtimes). Each remembers its open/closed state.
+Settings section holds skin picker, model, capabilities.
 
-**Current**: the AI generates SmartClient configs. CheerpX/CheerpJ are
-available via host.runtimes but there's no way to tell the AI
-"generate a UI that calls a Java method" or "add a button that runs
-a Python script."
+### 4. Skin as a per-plugin setting
 
-**Needed**: the AI system prompt and renderer need to know about:
-- The available runtimes and their APIs
-- The `dispatchAndDisplay` / `streamSpawnAndAppend` action patterns
-- How to generate templates that reference handlers by name
-- How to wire buttons to `host.exec.spawn` via the dispatch table
+**Current**: skin is per-playground-session (stored in background
+state). Plugins use the default skin (Tahoe).
 
-This is the frontier: AI-generated UIs that leverage the full runtime
-stack. The building blocks (renderer actions, handler dispatch, runtime
-APIs) are all in place — the AI just needs to know about them.
+**Target**: skin is stored in the plugin manifest. Opening a plugin
+applies its skin. The skin picker in the Settings section updates
+the plugin's manifest when changed.
 
-## Recommended phases
+### 5. Inspector activation for all modes
 
-### Phase A: Edit published plugins in-place
-- Extend bridge.js to set up playground editing state for plugin modes
-- "Save" writes back to chrome.storage.local
-- The sidebar's AF tab works against the live plugin
-- Exit: modify a published plugin's layout from the sidebar
+**Current**: the Inspector bar (Inspector | Mode: AI | Add Component)
+renders in the canvas but only activates for `?mode=playground`.
 
-### Phase B: Property inspector
-- Select a component → property form in the sidebar
-- Edit title, width, fields, etc. → config updates → re-render
-- Exit: change a ListGrid's column widths from the inspector
+**Target**: Inspector activates for ANY mode when the sidebar's AF
+tab is active. The component tree reflects the current plugin's
+rendered components. Select → property editing in the sidebar.
 
-### Phase C: AI-aware runtime actions
-- Extend the AI system prompt with runtime action patterns
-- AI can generate buttons wired to `dispatchAndDisplay` / `streamSpawnAndAppend`
-- Exit: "add a button that runs python3 -c 'print(42)'" generates
-  working UI with the CheerpX runtime call
+### 6. AI system prompt for runtime actions
 
-### Phase D: Handler editor + live reload
-- Code editor for handler functions in the sidebar
-- Eval-in-offscreen or plugin-handler-interpreter for live effect
-- Exit: write a handler function in the sidebar, click a button,
-  see the result — no file writes, no extension reload
+**Current**: the AI generates standard SmartClient configs (ListGrids,
+Forms, Buttons with basic actions like 'new', 'save', 'delete').
 
-### Phase E: Full project-plugin bidirectional sync
-- Projects track their published plugin ID
-- Publishing creates a version; editing creates a draft
-- "Deploy" pushes the current project state to the published plugin
-- Exit: full create → edit → publish → modify → republish loop
+**Target**: the AI system prompt includes:
+- Available runtime actions: `dispatchAndDisplay`, `streamSpawnAndAppend`
+- Available handler names (from the plugin's handler table)
+- Available runtimes: cheerpj (Java), cheerpx (Python/Linux), bsh
+- Pattern: "to call Python, add a Button with _action:
+  dispatchAndDisplay, _messageType: HOST_EXEC_SPAWN, _messagePayload:
+  { cmd: '/usr/bin/python3', args: [...] }"
 
-## What we have today (remarkable in its own right)
+## Recommended phases (revised)
 
-The screenshot shows ALL of these working together:
-- AI-generated SmartClient UI running as a published plugin
-- Live data entry (scenarios, amortization schedule)
-- DataSource persistence across page loads
-- Inspector bar + Mode: AI for modification attempts
-- Sidebar with project library, history, skin picker
-- CheerpJ/CheerpX/BeanShell runtimes available via host.*
-- Bridge server with sessions, scripts, schedules
-- Asset server for file serving
-- The full seven-hop message chain + streaming
-- Plugin system with sidebar dropdown discovery
+### Phase 1: Plugins as the primary concept
+- AF tab's "Project Library" reads from PLUGIN_LIST
+- "+ New" calls SC_PUBLISH_PLUGIN with a blank config
+- Clicking a plugin opens `?mode=<id>` with editing state
+- "Save" writes to plugin storage
+- "Delete" removes from storage
+- Existing projects shown as "Legacy" (read-only import)
 
-The foundation is solid. The workflow gaps are all about CONNECTING
-these pieces, not building new capabilities.
+### Phase 2: Collapsible sidebar + Settings
+- Refactor AF tab layout into collapsible sections
+- Settings section: skin picker, model selector, capabilities
+- Skin persisted per-plugin in the manifest
+- Section open/closed state persisted
+
+### Phase 3: Inspector for all modes
+- Inspector activates when AF tab is active, regardless of mode
+- Component tree reflects the running plugin's SC components
+- Select → basic property display in the sidebar
+
+### Phase 4: AI-aware runtime actions
+- Extend the generation system prompt with runtime patterns
+- AI can wire buttons to `dispatchAndDisplay` / `streamSpawnAndAppend`
+- AI knows about available handlers and runtimes
+
+### Phase 5: Property editing + DataSource editor
+- Select component in inspector → editable property form
+- Edit fields, widths, titles, actions → config updates → re-render
+- DataSource field editor for adding/removing columns
+
+## File-backed plugins vs storage-backed plugins
+
+Two tiers coexist:
+
+**Storage-backed** (created in the sidebar):
+- Pure UI templates, no handlers
+- Created/edited/deleted from the AF tab
+- Config in chrome.storage.local
+- Great for dashboards, calculators, data entry apps
+- DataSources auto-created in IndexedDB
+
+**File-backed** (assembled from a private repo):
+- Have handlers.js for backend logic
+- Assembled via assemble.sh (horsebread pattern)
+- Appear in the AF tab alongside storage-backed plugins
+- Read-only in the sidebar (edit in your code editor)
+- Bridge integration, runtime calls, scheduling
+
+Both show up in the same Plugins list. The AF tab shows a
+"★ bridge" badge or similar for file-backed plugins to indicate
+they're externally managed.
