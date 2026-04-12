@@ -41,6 +41,7 @@ export function init() {
   if (dashBtn) dashBtn.addEventListener('click', openDashboard);
   const scDashBtn = document.getElementById('auto-open-sc-dashboard-btn');
   if (scDashBtn) scDashBtn.addEventListener('click', openSCDashboard);
+  initPluginMenu();
 }
 
 export function activate() {
@@ -116,6 +117,59 @@ function openDashboard() {
 
 function openSCDashboard() {
   chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html?mode=dashboard') });
+}
+
+// ---- Plugins dropdown ----
+
+function initPluginMenu() {
+  const btn = document.getElementById('auto-plugins-btn');
+  const dropdown = document.getElementById('auto-plugin-dropdown');
+  if (!btn || !dropdown) return;
+
+  let open = false;
+
+  btn.addEventListener('click', () => {
+    open = !open;
+    if (open) {
+      loadPluginList(dropdown);
+      dropdown.style.display = 'block';
+    } else {
+      dropdown.style.display = 'none';
+    }
+  });
+
+  // Close on outside click
+  document.addEventListener('click', (e) => {
+    if (!btn.contains(e.target) && !dropdown.contains(e.target)) {
+      dropdown.style.display = 'none';
+      open = false;
+    }
+  });
+}
+
+function loadPluginList(dropdown) {
+  dropdown.innerHTML = '<div style="padding:8px;color:#888;font-size:11px;">Loading...</div>';
+  chrome.runtime.sendMessage({ type: 'PLUGIN_LIST' }, (plugins) => {
+    if (chrome.runtime.lastError || !Array.isArray(plugins) || plugins.length === 0) {
+      dropdown.innerHTML = '<div style="padding:8px;color:#888;font-size:11px;">No plugins installed</div>';
+      return;
+    }
+    dropdown.innerHTML = '';
+    for (const p of plugins) {
+      const item = document.createElement('div');
+      item.style.cssText = 'padding:6px 12px;cursor:pointer;font-size:12px;color:#e0e0e0;white-space:nowrap;';
+      item.textContent = p.name;
+      item.title = p.description || p.id;
+      item.addEventListener('mouseenter', () => { item.style.background = '#3a3a5a'; });
+      item.addEventListener('mouseleave', () => { item.style.background = 'transparent'; });
+      item.addEventListener('click', () => {
+        const mode = (p.modes && p.modes[0]) || p.id;
+        chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html?mode=' + encodeURIComponent(mode)) });
+        dropdown.style.display = 'none';
+      });
+      dropdown.appendChild(item);
+    }
+  });
 }
 
 // ---- Scripts ----
