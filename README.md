@@ -18,6 +18,10 @@ graph TD
     style PW fill:#D97AB5,color:black
     style SC fill:#B088D9,color:black
     style Vec fill:#6ECFCF,color:black
+    style Runtimes fill:#F2A65A,color:black
+    style CheerpJ fill:#F2A65A,color:black
+    style CheerpX fill:#F2A65A,color:black
+    style Bsh fill:#F2A65A,color:black
 
     CLI[CLI Client] -->|WebSocket| Bridge[Bridge Server :9876]
     Ext[Chrome Extension] -->|WebSocket| Bridge
@@ -26,8 +30,13 @@ graph TD
     Bridge --> Sched[Cron Scheduler]
     Bridge --> Debug[V8 Debugger]
     Bridge --> Vec[LanceDB Vector Search]
+    Bridge --> Assets[Asset Server :9877]
     Ext --> SM[Semantic Memory]
     Ext --> SC[Agentiface Sandbox]
+    Ext --> Runtimes[Host Runtimes]
+    Runtimes --> CheerpJ[CheerpJ — Java in WASM]
+    Runtimes --> CheerpX[CheerpX — x86 Linux VM]
+    Runtimes --> Bsh[BeanShell on CheerpJ]
     SC --> Renderer[SmartClient Renderer]
     SC --> Monaco[Monaco Editor]
 ```
@@ -125,6 +134,56 @@ SmartClient-powered sandbox iframe with:
 - Live script monitoring with state machine visualization
 - Monaco code editor with V8 debugger integration
 - Artifact browser with inline preview
+
+---
+
+## Host Capabilities & Runtimes
+
+A stable interface (`window.Host`) that lets app code call privileged operations — storage, fs, exec, network, message — without touching `chrome.runtime.*` directly. The chrome extension is the **baseline host**; ports to other shells (web, Tauri, mobile) implement the same interface and stub or proxy whatever their environment can't provide. The design rule is **port by removal**: extension → web is "drop privileges that aren't available," not "add features you didn't have."
+
+Beyond the basic capability surface, hosts expose a `runtimes` registry. Plugins can pull in heavy execution substrates — Java, x86 Linux, scripting interpreters — without each one having to invent its own bootstrap. Today three runtimes are registered out of the box:
+
+| Runtime | Type | What it runs | Cold start | Warm |
+|---------|------|--------------|------------|------|
+| `cheerpj` | `library` | JVM bytecode (Java 11) via [CheerpJ](https://cheerpj.com/) | ~5 s | ~3 s |
+| `cheerpx` | `vm` | Full x86 Linux (Debian mini) via [CheerpX](https://cheerpx.io/) | ~1.3 s | ~130 ms |
+| `bsh` | `interpreter` | [BeanShell](https://github.com/beanshell/beanshell) Java scripting, composed on `cheerpj` | ~2.7 s | ~1.3 s |
+
+```javascript
+const host = window.Host.get();
+host.runtimes.list();
+// → ['cheerpj', 'cheerpx', 'bsh']
+
+// Run a Java main() and get back stdout
+await host.runtimes.get('cheerpj').runMain({
+  jarUrl: 'http://localhost:9877/nist-validator.jar',
+  extraJars: ['http://localhost:9877/nolog-wrap.jar'],
+  className: 'NoLogValidator',
+  args: [hl7Message, profileXml],
+});
+// → { exitCode: 0, stdout: '{"valid":false,"engine":"nist-cheerpj",...}' }
+
+// Run a command in a real Linux VM
+await host.runtimes.get('cheerpx').spawn('/usr/bin/python3', ['-c', 'print(1+1)']);
+// → { exitCode: 0, stdout: '2' }
+
+// Compose: BeanShell on top of CheerpJ
+await host.runtimes.get('bsh').eval('Math.sqrt(2025)');
+// → '45.0'
+```
+
+### Architecture
+
+CheerpJ and BeanShell live in a hidden iframe inside the extension's offscreen document. CheerpX needs cross-origin isolation (SharedArrayBuffer + worker coordination), so it lives in a hidden background tab opened via `chrome.tabs.create({active: false})` with COOP/COEP headers from the asset server — a top-level browsing context can become COI on its own, an extension iframe cannot.
+
+A small `asset-server.mjs` (port 9877) serves JAR/disk-image bytes with CORS, range requests, and scoped COI headers. Plugin assets sit in `~/.agentidev/cheerpx-assets/` and are not bundled into the extension.
+
+### Real-world tested
+
+- **NIST HL7 v2 validator** — 24 MB shaded fat JAR (Kotlin + Java + HAPI HL7 + javax.xml) parses an XML profile, validates an HL7 v2 message, and returns a structured JSON report end-to-end through a seven-hop chain in ~3 s.
+- **Runtime composition** — `bsh` is ~150 lines of code with zero CheerpJ-specific glue; it just calls `host.runtimes.get('cheerpj').runMain(...)` and parses stdout, declaring `dependsOn: ['cheerpj']` so init order resolves automatically.
+
+Full writeups: [`extension/cheerpj-app/STATUS.md`](extension/cheerpj-app/STATUS.md) and [`extension/cheerpx-app/STATUS.md`](extension/cheerpx-app/STATUS.md).
 
 ---
 
@@ -231,9 +290,13 @@ node packages/bridge/claude-client.mjs schedule:list             # List cron sch
 | Component | Technology |
 |-----------|-----------|
 | **Bridge Server** | Node.js, WebSocket (`ws`), Playwright |
+| **Asset Server** | Node.js HTTP, range requests, scoped COOP/COEP/CORP headers |
 | **Vector Search** | LanceDB WASM, all-MiniLM-L6-v2 (transformers.js) |
 | **Scheduling** | Croner (cron expressions) |
 | **Extension** | Chrome MV3, Service Worker, Offscreen Document, Web Workers |
+| **Java Runtime** | CheerpJ 4.0 (JVM bytecode → WASM, Java 11) |
+| **Linux Runtime** | CheerpX 1.0.7 (x86 → WASM, HttpBytesDevice + OverlayDevice) |
+| **Java Scripting** | BeanShell 2.0b5 composed on CheerpJ |
 | **UI Framework** | SmartClient LGPL (sandbox iframe) |
 | **Code Editor** | Monaco Editor |
 | **Debugging** | V8 Inspector Protocol |
