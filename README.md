@@ -155,25 +155,47 @@ Beyond the basic capability surface, hosts expose a `runtimes` registry. Plugins
 
 ```javascript
 const host = window.Host.get();
-host.runtimes.list();
-// → ['cheerpj', 'cheerpx', 'bsh']
 
-// Run a Java main() and get back stdout
-await host.runtimes.get('cheerpj').runMain({
+// ---- Runtimes ----
+host.runtimes.list();                                       // → ['cheerpj', 'cheerpx', 'bsh']
+
+await host.runtimes.get('cheerpj').runMain({                // Java main via CheerpJ
   jarUrl: 'http://localhost:9877/nist-validator.jar',
   extraJars: ['http://localhost:9877/nolog-wrap.jar'],
-  className: 'NoLogValidator',
-  args: [hl7Message, profileXml],
+  className: 'NoLogValidator', args: [hl7Message, profileXml],
 });
-// → { exitCode: 0, stdout: '{"valid":false,"engine":"nist-cheerpj",...}' }
 
-// Run a command in a real Linux VM
 await host.runtimes.get('cheerpx').spawn('/usr/bin/python3', ['-c', 'print(1+1)']);
-// → { exitCode: 0, stdout: '2' }
+// → { exitCode: 0, stdout: '2\n' }
 
-// Compose: BeanShell on top of CheerpJ
-await host.runtimes.get('bsh').eval('Math.sqrt(2025)');
+await host.runtimes.get('bsh').eval('Math.sqrt(2025)');     // BeanShell on CheerpJ
 // → '45.0'
+
+// ---- Host capability surfaces ----
+await host.storage.set('key', { n: 42 });                   // key/value storage
+await host.storage.get('key');                               // → { n: 42 }
+await host.storage.blob.put('b', new Uint8Array([1,2,3]));  // binary blob storage
+await host.storage.blob.get('b');                            // → Uint8Array(3)
+
+await host.network.fetch('https://example.com/api');         // CORS-free fetch (full host_permissions)
+// → { ok: true, status: 200, text: '...' }
+
+await host.exec.spawn('/usr/bin/python3', ['-c', 'print(42)']);        // collect-and-return
+// → { exitCode: 0, stdout: '42\n' }
+
+const handle = host.exec.spawnStream('/bin/sh', ['-c', 'for i in 1 2 3; do echo $i; sleep 0.5; done']);
+handle.onStdout(chunk => liveConsole.append(chunk));         // chunks arrive progressively
+const result = await handle.done;                            // → { exitCode: 0, stdout: '1\n2\n3\n' }
+
+await host.fs.write('/tmp/demo.txt', 'hello\nworld\n');      // write to the Linux VM filesystem
+await host.fs.list('/tmp');                                   // → { entries: [{name:'demo.txt', type:'file', ...}] }
+await host.fs.read('/tmp/demo.txt');                          // → { content: 'hello\nworld\n' }
+await host.fs.read('/tmp/demo.txt', { as: 'bytes' });        // → { bytes: [104,101,...] }
+
+const unsub = host.fs.watch('/tmp/demo.txt', evt => { ... });// polling-based, create/change/delete
+unsub();                                                     // stop watching
+
+host.identity.installId;                                     // → 'ncbbpgbdecmmcmghfahmmpddapbncobd:qku87yrm8ojmnv3ulm0'
 ```
 
 ### Architecture
