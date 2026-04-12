@@ -157,13 +157,8 @@ async function fsRead(handlers, path, as) {
     }
     const r = await handlers['cheerpx-fs-read-bytes']({ path });
     if (!r.success) return r;
-    // Decode hex to a number array
-    const hex = (r.hex || '').replace(/[^0-9a-fA-F]/g, '');
-    const bytes = [];
-    for (let i = 0; i < hex.length; i += 2) {
-      bytes.push(parseInt(hex.substr(i, 2), 16));
-    }
-    return { success: true, exitCode: r.exitCode, bytes };
+    // The runtime returns { bytes: number[] } via IDBDevice.readFileAsBlob.
+    return { success: true, exitCode: r.exitCode, bytes: r.bytes || [] };
   }
   if (typeof handlers['cheerpx-fs-read'] !== 'function') {
     throw new Error('host.fs.read: cheerpx fs handler not registered');

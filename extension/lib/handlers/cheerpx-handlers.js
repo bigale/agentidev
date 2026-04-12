@@ -302,7 +302,14 @@ export function register(handlers) {
     } catch {}
     _streamPorts.delete(msg.streamId);
     try { port.disconnect(); } catch {}
+    // Also send Ctrl+C via the runtime page's spawn-kill command
+    try { await invokeTab('spawn-kill', {}); } catch {}
     return { success: true };
+  };
+
+  // Direct Ctrl+C kill (for non-streaming spawns too)
+  handlers['cheerpx-spawn-kill'] = async (msg) => {
+    return invokeTab('spawn-kill', {});
   };
 }
 
