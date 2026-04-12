@@ -71,8 +71,33 @@ export async function loadPlugins(handlers) {
     }
   }
 
+  // ---- Storage-backed plugins (published from Agentiface projects) ----
+  // These have no handlers and no files on disk — just a manifest + template
+  // in chrome.storage.local under keys like plugin:<id>:manifest.
+  try {
+    const allStorage = await chrome.storage.local.get(null);
+    const storagePluginIds = new Set();
+    for (const key of Object.keys(allStorage)) {
+      const match = key.match(/^plugin:([^:]+):manifest$/);
+      if (match) storagePluginIds.add(match[1]);
+    }
+    for (const id of storagePluginIds) {
+      if (_registry.has(id)) continue;
+      const manifest = allStorage['plugin:' + id + ':manifest'];
+      if (!manifest || !manifest.id) continue;
+      _registry.set(id, {
+        manifest,
+        source: 'storage',
+        loadedAt: Date.now(),
+      });
+      loaded.push(id);
+      console.log(`[PluginLoader] ${id}: loaded from storage (published project)`);
+    }
+  } catch (err) {
+    console.warn('[PluginLoader] storage scan failed:', err.message);
+  }
+
   // Register meta handlers ONCE so the SC sandbox can introspect plugins.
-  // These are added to the same dispatch table the message router uses.
   if (!handlers['PLUGIN_LIST']) {
     handlers['PLUGIN_LIST'] = async () => listPlugins();
   }
@@ -81,6 +106,15 @@ export async function loadPlugins(handlers) {
   }
   if (!handlers['PLUGIN_GET_TEMPLATE']) {
     handlers['PLUGIN_GET_TEMPLATE'] = async (msg) => getTemplate(msg.id, msg.template || 'dashboard');
+  }
+
+  // Publish a project as a plugin (storage-backed)
+  if (!handlers['SC_PUBLISH_PLUGIN']) {
+    handlers['SC_PUBLISH_PLUGIN'] = async (msg) => publishProjectAsPlugin(msg);
+  }
+  // Unpublish
+  if (!handlers['SC_UNPUBLISH_PLUGIN']) {
+    handlers['SC_UNPUBLISH_PLUGIN'] = async (msg) => unpublishPlugin(msg.id);
   }
 
   return { loaded, failed };
@@ -169,6 +203,20 @@ export function getManifest(id) {
 export async function getTemplate(id, template = 'dashboard') {
   const entry = _registry.get(id);
   if (!entry) return { error: `plugin "${id}" not loaded` };
+
+  // Storage-backed plugins: read template from chrome.storage.local
+  if (entry.source === 'storage') {
+    try {
+      const key = 'plugin:' + id + ':template:' + template;
+      const stored = await chrome.storage.local.get(key);
+      if (stored[key]) return { config: stored[key] };
+      return { error: `storage plugin "${id}" has no template "${template}"` };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }
+
+  // File-backed plugins: fetch from extension directory
   const relPath = entry.manifest.templates && entry.manifest.templates[template];
   if (!relPath) return { error: `plugin "${id}" has no template "${template}"` };
   try {
@@ -180,6 +228,66 @@ export async function getTemplate(id, template = 'dashboard') {
   } catch (err) {
     return { error: err.message };
   }
+}
+
+/**
+ * Publish an Agentiface project as a storage-backed plugin.
+ * The project's SmartClient config becomes the plugin's dashboard template.
+ *
+ * @param {object} msg
+ * @param {string} msg.projectId   Project ID from the project persistence store
+ * @param {string} msg.name        Display name for the plugin
+ * @param {string} [msg.description]
+ * @param {object} msg.config      The SmartClient config JSON ({ layout, dataSources })
+ * @returns {Promise<{success, id, mode}>}
+ */
+async function publishProjectAsPlugin(msg) {
+  if (!msg.name || !msg.config) {
+    return { error: 'name and config are required' };
+  }
+  // Generate a kebab-case id from the name
+  const id = msg.projectId || msg.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const mode = id;
+
+  const manifest = {
+    id,
+    name: msg.name,
+    version: '0.1.0',
+    description: msg.description || 'Published from Agentiface project',
+    modes: [mode],
+    templates: { dashboard: '__storage__' },
+    // No handlers — pure UI template
+    source: 'agentiface-project',
+    publishedAt: Date.now(),
+    projectId: msg.projectId || null,
+  };
+
+  // Ensure the config has the { layout } wrapper the renderer expects
+  let config = msg.config;
+  if (config && !config.layout && config._type) {
+    config = { layout: config };
+  }
+
+  await chrome.storage.local.set({
+    ['plugin:' + id + ':manifest']: manifest,
+    ['plugin:' + id + ':template:dashboard']: config,
+  });
+
+  // Register in the live registry so it appears immediately in PLUGIN_LIST
+  _registry.set(id, { manifest, source: 'storage', loadedAt: Date.now() });
+
+  console.log(`[PluginLoader] published project as plugin: ${id}`);
+  return { success: true, id, mode, url: 'smartclient-app/wrapper.html?mode=' + encodeURIComponent(mode) };
+}
+
+async function unpublishPlugin(id) {
+  if (!id) return { error: 'id is required' };
+  await chrome.storage.local.remove([
+    'plugin:' + id + ':manifest',
+    'plugin:' + id + ':template:dashboard',
+  ]);
+  _registry.delete(id);
+  return { success: true };
 }
 
 /** Test/dev helper — wipe the registry so loadPlugins() reloads everything. */

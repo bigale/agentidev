@@ -69,6 +69,7 @@ export function init() {
     // Inspector + templates (Phase 4a)
     inspectorBtn:   document.getElementById('af-inspector-btn'),
     saveTemplateBtn: document.getElementById('af-save-template-btn'),
+    publishPluginBtn: document.getElementById('af-publish-plugin-btn'),
     modeBar:        document.getElementById('af-mode-bar'),
     modeLabel:      document.getElementById('af-mode-label'),
     suggestedPrompts: document.getElementById('af-suggested-prompts'),
@@ -157,6 +158,9 @@ export function init() {
         els.tplName.focus();
       }
     });
+  }
+  if (els.publishPluginBtn) {
+    els.publishPluginBtn.addEventListener('click', handlePublishPlugin);
   }
   if (els.saveTemplateConfirmBtn) {
     els.saveTemplateConfirmBtn.addEventListener('click', handleSaveTemplate);
@@ -491,6 +495,9 @@ function updateUI(state) {
   if (els.saveTemplateBtn) {
     els.saveTemplateBtn.style.display = state.hasConfig ? '' : 'none';
   }
+  if (els.publishPluginBtn) {
+    els.publishPluginBtn.style.display = state.hasConfig ? '' : 'none';
+  }
 
   // Sync mode
   if (state.mode) {
@@ -733,6 +740,32 @@ function handleSaveTemplate() {
         populateTemplateDropdown();
       } else {
         showError(response?.error || 'Failed to save template');
+      }
+    });
+  });
+}
+
+function handlePublishPlugin() {
+  chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_STATE' }, (state) => {
+    if (!state?.config) {
+      showError('No config to publish as plugin');
+      return;
+    }
+    const name = state.projectName || prompt('Plugin name:');
+    if (!name) return;
+
+    chrome.runtime.sendMessage({
+      type: 'SC_PUBLISH_PLUGIN',
+      name: name,
+      description: state.projectDescription || name,
+      projectId: state.projectId || null,
+      config: state.config,
+    }, (response) => {
+      if (response?.success) {
+        appendLog('Published as plugin: ' + name + ' (mode: ' + response.mode + ')', 'success');
+        appendLog('Open from sidebar Plugins menu or: wrapper.html?mode=' + response.mode, 'info');
+      } else {
+        showError(response?.error || 'Failed to publish plugin');
       }
     });
   });
