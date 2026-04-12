@@ -263,11 +263,34 @@ function handleSave() {
   els.saveBtn.disabled = true;
   appendLog('Saving...');
   chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_SAVE' }, (response) => {
-    els.saveBtn.disabled = false;
     if (response?.success) {
-      appendLog('Saved', 'success');
-      loadProjectLibrary();
+      // Also update the plugin storage if this config was loaded from a
+      // published plugin. This makes Save = save project + update plugin
+      // so changes persist when the plugin is re-opened.
+      chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_STATE' }, (state) => {
+        els.saveBtn.disabled = false;
+        if (state?.config && state?.projectName) {
+          chrome.runtime.sendMessage({
+            type: 'SC_PUBLISH_PLUGIN',
+            name: state.projectName,
+            description: state.projectDescription || state.projectName,
+            projectId: state.projectId || null,
+            config: state.config,
+          }, (pubResponse) => {
+            if (pubResponse?.success) {
+              appendLog('Saved + plugin updated', 'success');
+            } else {
+              appendLog('Saved (plugin update failed: ' + (pubResponse?.error || '') + ')', 'success');
+            }
+            loadProjectLibrary();
+          });
+        } else {
+          appendLog('Saved', 'success');
+          loadProjectLibrary();
+        }
+      });
     } else {
+      els.saveBtn.disabled = false;
       appendLog('Save failed: ' + (response?.error || 'unknown'), 'error');
       showError(response?.error || 'Save failed');
     }
