@@ -76,6 +76,15 @@
     });
   }
 
+  // ---- Utility ----
+
+  function _fetchBytes(url) {
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error('fetch failed: ' + url + ' ' + r.status);
+      return r.arrayBuffer();
+    }).then(function (buf) { return new Uint8Array(buf); });
+  }
+
   // ---- Public API ----
 
   window.CheerpJHost = {
@@ -106,19 +115,12 @@
       if (!opts || !opts.jarUrl || !opts.className) {
         return Promise.reject(new Error('runMain: jarUrl and className required'));
       }
-      function fetchBytes(url) {
-        return fetch(url).then(function (r) {
-          if (!r.ok) throw new Error('fetch failed: ' + url + ' ' + r.status);
-          return r.arrayBuffer();
-        }).then(function (buf) { return new Uint8Array(buf); });
-      }
-      var primaryP = fetchBytes(opts.jarUrl);
+      var primaryP = _fetchBytes(opts.jarUrl);
       var extraUrls = Array.isArray(opts.extraJars) ? opts.extraJars : [];
       var extraP = Promise.all(extraUrls.map(function (url) {
-        return fetchBytes(url).then(function (bytes) {
-          // Derive a cacheKey from the URL filename
+        return _fetchBytes(url).then(function (bytes) {
           var name = url.split('/').pop().replace(/\.jar$/, '').replace(/[^A-Za-z0-9_-]/g, '_');
-          return { bytes: bytes, cacheKey: name + '-' + bytes.length };
+          return { bytes: bytes, cacheKey: name + '-' + bytes.length, sourceUrl: url };
         });
       }));
       return Promise.all([primaryP, extraP]).then(function (parts) {
@@ -132,7 +134,31 @@
           className: opts.className,
           args: opts.args || [],
           options: opts.options || {},
-        }, opts.timeoutMs || 600000); // 10 min — Jython cold init can hit several minutes
+        }, opts.timeoutMs || 600000);
+      });
+    },
+
+    /**
+     * Load a JAR as a library and call a static method directly.
+     * Returns the method's return value — no console.log interception.
+     * Requires CheerpJ 4.2+ for reliable Proxy-based class walking.
+     */
+    runLibrary: function (opts) {
+      if (!opts || !opts.className || !opts.method) {
+        return Promise.reject(new Error('runLibrary: className and method required'));
+      }
+      var jarUrl = opts.jarUrl;
+      if (!jarUrl) return Promise.reject(new Error('runLibrary: jarUrl required'));
+      return _fetchBytes(jarUrl).then(function (bytes) {
+        return sendCommand('runLibrary', {
+          bytes: bytes,
+          cacheKey: opts.cacheKey || ('lib-' + bytes.length),
+          sourceUrl: jarUrl,
+          className: opts.className,
+          method: opts.method,
+          args: opts.args || [],
+          options: opts.options || {},
+        }, opts.timeoutMs || 120000);
       });
     },
   };

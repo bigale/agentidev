@@ -175,4 +175,15 @@ export function register(handlers) {
       timeoutMs: msg.timeoutMs,
     });
   };
+
+  handlers['cheerpj-runLibrary'] = async (msg) => {
+    return invokeOffscreen('runLibrary', {
+      jarUrl: msg.jarUrl,
+      className: msg.className,
+      method: msg.method,
+      args: msg.args || [],
+      cacheKey: msg.cacheKey,
+      timeoutMs: msg.timeoutMs,
+    });
+  };
 }
