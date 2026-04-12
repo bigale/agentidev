@@ -688,6 +688,33 @@
       color: #202124;
     }
 
+    /* Collapsible sections */
+    .af-collapsible { border-bottom: 1px solid #e0e0e0; }
+    .af-collapsible-header {
+      padding: 8px 12px; font-size: 12px; font-weight: 600;
+      background: #fafafa; color: #202124; cursor: pointer;
+      display: flex; align-items: center; gap: 4px;
+      user-select: none;
+    }
+    .af-collapsible-header:hover { background: #f0f0f0; }
+    .af-collapse-arrow {
+      font-size: 10px; transition: transform 0.15s; display: inline-block;
+    }
+    .af-collapsible.collapsed .af-collapse-arrow { transform: rotate(-90deg); }
+    .af-collapsible.collapsed .af-collapsible-body { display: none; }
+    .af-collapsible-body { padding: 0; }
+    .af-collapsible-header .af-new-btn {
+      margin-left: auto;
+    }
+
+    /* Dark mode overrides for collapsible sections (the sidepanel uses
+       light theme by default but some users may override) */
+    @media (prefers-color-scheme: dark) {
+      .af-collapsible-header { background: #2a2a2a; color: #e0e0e0; border-color: #444; }
+      .af-collapsible-header:hover { background: #333; }
+      .af-collapsible { border-color: #444; }
+    }
+
     .af-app-list { max-height: 300px; overflow-y: auto; }
     .af-app-card {
       display: flex; align-items: center; gap: 8px;
@@ -1215,44 +1242,50 @@
       <!-- Config summary -->
       <div id="af-config-summary" class="af-config-summary" style="display:none;"></div>
 
-      <!-- Capabilities -->
-      <div class="af-section-header">Capabilities</div>
-      <div id="af-capabilities" class="af-capabilities">
-        <label class="af-cap-toggle">
-          <input type="checkbox" id="af-cap-skin" checked /> Skin Picker
-        </label>
-      </div>
-      <div class="af-model-row">
-        <label for="af-model-select">Model:</label>
-        <select id="af-model-select">
-          <option value="sonnet">Sonnet 4.6 (Recommended)</option>
-          <option value="haiku">Haiku 4.5 (Fast)</option>
-          <option value="opus">Opus 4.6 (Best)</option>
-        </select>
-      </div>
-      <div class="af-skin-row">
-        <label for="af-skin-select">Skin:</label>
-        <select id="af-skin-select">
-          <option value="Tahoe">Tahoe</option>
-          <option value="Obsidian">Obsidian</option>
-          <option value="Graphite">Graphite</option>
-          <option value="Stratus">Stratus</option>
-          <option value="Simplicity">Simplicity</option>
-          <option value="SilverWave">SilverWave</option>
-          <option value="Enterprise">Enterprise</option>
-          <option value="EnterpriseBlue">EnterpriseBlue</option>
-          <option value="Cascade">Cascade</option>
-          <option value="TreeFrog">TreeFrog</option>
-          <option value="BlackOps">BlackOps</option>
-          <option value="Twilight">Twilight</option>
-          <option value="fleet">fleet</option>
-          <option value="Cupertino">Cupertino</option>
-          <option value="Shiva">Shiva</option>
-          <option value="ShivaBlue">ShivaBlue</option>
-          <option value="ShivaDark">ShivaDark</option>
-          <option value="Mobile">Mobile</option>
-          <option value="SmartClient">SmartClient</option>
-        </select>
+      <!-- Settings (collapsible) -->
+      <div class="af-collapsible" data-section="settings">
+        <div class="af-collapsible-header" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="af-collapse-arrow">&#9662;</span> Settings
+        </div>
+        <div class="af-collapsible-body">
+          <div id="af-capabilities" class="af-capabilities">
+            <label class="af-cap-toggle">
+              <input type="checkbox" id="af-cap-skin" checked /> Skin Picker
+            </label>
+          </div>
+          <div class="af-model-row">
+            <label for="af-model-select">Model:</label>
+            <select id="af-model-select">
+              <option value="sonnet">Sonnet 4.6 (Recommended)</option>
+              <option value="haiku">Haiku 4.5 (Fast)</option>
+              <option value="opus">Opus 4.6 (Best)</option>
+            </select>
+          </div>
+          <div class="af-skin-row">
+            <label for="af-skin-select">Skin:</label>
+            <select id="af-skin-select">
+              <option value="Tahoe">Tahoe</option>
+              <option value="Obsidian">Obsidian</option>
+              <option value="Graphite">Graphite</option>
+              <option value="Stratus">Stratus</option>
+              <option value="Simplicity">Simplicity</option>
+              <option value="SilverWave">SilverWave</option>
+              <option value="Enterprise">Enterprise</option>
+              <option value="EnterpriseBlue">EnterpriseBlue</option>
+              <option value="Cascade">Cascade</option>
+              <option value="TreeFrog">TreeFrog</option>
+              <option value="BlackOps">BlackOps</option>
+              <option value="Twilight">Twilight</option>
+              <option value="fleet">fleet</option>
+              <option value="Cupertino">Cupertino</option>
+              <option value="Shiva">Shiva</option>
+              <option value="ShivaBlue">ShivaBlue</option>
+              <option value="ShivaDark">ShivaDark</option>
+              <option value="Mobile">Mobile</option>
+              <option value="SmartClient">SmartClient</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <!-- Save-as-Template Dialog (hidden by default) -->
@@ -1309,25 +1342,26 @@
         </div>
       </div>
 
-      <!-- Plugin Library (was "Project Library") -->
-      <div class="af-section-header">
-        <div class="af-section-header-row">
-          <span>Plugins</span>
-          <button id="af-new-project-btn" class="af-new-btn">+ New</button>
+      <!-- Plugin Library (collapsible) -->
+      <div class="af-collapsible" data-section="plugins">
+        <div class="af-collapsible-header" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="af-collapse-arrow">&#9662;</span> Plugins
+          <button id="af-new-project-btn" class="af-new-btn" onclick="event.stopPropagation()">+ New</button>
         </div>
-      </div>
-      <div id="af-project-library">
-        <div id="af-project-list" class="af-app-list">
-          <div class="af-empty">No plugins yet</div>
-        </div>
-      </div>
-
-      <!-- Legacy App Library -->
-      <div id="af-legacy-section" style="display:none;">
-        <div class="af-section-header">Legacy Apps</div>
-        <div id="af-app-library">
-          <div id="af-app-list" class="af-app-list">
-            <div class="af-empty">No saved apps</div>
+        <div class="af-collapsible-body">
+          <div id="af-project-library">
+            <div id="af-project-list" class="af-app-list">
+              <div class="af-empty">No plugins yet</div>
+            </div>
+          </div>
+          <!-- Legacy App Library -->
+          <div id="af-legacy-section" style="display:none;">
+            <div style="font-size:10px;color:#666;padding:6px 4px 2px;border-top:1px solid #333;margin-top:4px;">Legacy Apps</div>
+            <div id="af-app-library">
+              <div id="af-app-list" class="af-app-list">
+                <div class="af-empty">No saved apps</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1355,5 +1389,37 @@
   </footer>
 
   <script type="module" src="sidepanel.js"></script>
+  <!-- Collapsible section state persistence -->
+  <script>
+    (function () {
+      var KEY = 'af-collapsed-sections';
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
+
+      // Restore collapsed state
+      document.querySelectorAll('.af-collapsible').forEach(function (el) {
+        var section = el.dataset.section;
+        if (section && saved[section]) el.classList.add('collapsed');
+      });
+
+      // Observe toggles and persist
+      document.addEventListener('click', function (e) {
+        var header = e.target.closest('.af-collapsible-header');
+        if (!header) return;
+        var section = header.parentElement.dataset.section;
+        if (!section) return;
+        // Wait a tick for the classList.toggle to apply
+        setTimeout(function () {
+          var isCollapsed = header.parentElement.classList.contains('collapsed');
+          try {
+            var state = JSON.parse(localStorage.getItem(KEY) || '{}');
+            if (isCollapsed) state[section] = true;
+            else delete state[section];
+            localStorage.setItem(KEY, JSON.stringify(state));
+          } catch (e) {}
+        }, 0);
+      });
+    })();
+  </script>
 </body>
 </html>
