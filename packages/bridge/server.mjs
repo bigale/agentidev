@@ -2646,7 +2646,18 @@ function startServer() {
   - ListGrid recordClick: set _action:"select" and _targetForm to auto-wire
   - Give components an ID string so buttons can reference them
   - _action:"compute" — client-side math. Set _sourceForm (read values), _targetForm (write results), _formulas:{fieldName:"expression"} where expressions use field names + arithmetic (+,-,*,/,**) + Math.pow/round/floor/ceil/abs. For mortgage/loan calculators also set _scheduleType:"amortization", _targetGrid for amortization schedule, _principalField, _rateField (annual %), _termField (years)
-  - _action:"clear" — reset form fields and clear grid. Set _targetForm and/or _targetGrid`;
+  - _action:"clear" — reset form fields and clear grid. Set _targetForm and/or _targetGrid
+  - _action:"dispatch" — fire-and-forget message to a handler. Set _messageType to the handler name, _messagePayload to an object of params
+  - _action:"dispatchAndDisplay" — call a handler and show the result in a target component. Set _messageType, _messagePayload, _targetCanvas (ID of an HTMLFlow/Label to setContents on), _resultFormatter ("json","stdoutPre","text","rawHtml"), _resultPath (optional dot-path to extract from response), _timeoutMs (optional, default 60000)
+  - _action:"streamSpawnAndAppend" — stream a Linux command's output progressively into a target HTMLFlow. Set _cmd (absolute path like "/usr/bin/python3"), _args (array of strings), _targetCanvas (HTMLFlow ID). Output renders in real-time as the command runs inside the CheerpX Linux VM.
+
+Runtime integration:
+  - To run a Python script: use streamSpawnAndAppend with _cmd:"/usr/bin/python3" and _args:["-c","print(42)"]
+  - To run a shell command: use streamSpawnAndAppend with _cmd:"/bin/sh" and _args:["-c","echo hello"]
+  - To call a Java method: use dispatchAndDisplay with _messageType:"HOST_EXEC_SPAWN" and _messagePayload:{cmd:"/usr/bin/python3",args:["-c","print(42)"]}
+  - To evaluate BeanShell: use dispatchAndDisplay with _messageType:"HELLO_RUNTIME_BSH" and _messagePayload:{code:"1+1"}
+  - For long-running commands use streamSpawnAndAppend (shows output progressively). For quick results use dispatchAndDisplay.
+  - Always pair runtime buttons with an HTMLFlow output pane (ID it and reference via _targetCanvas)`;
 
         const SC_EXAMPLE = `Example for a task tracker:
 {"dataSources":[{"ID":"TaskDS","fields":[{"name":"id","type":"integer","primaryKey":true,"hidden":true},{"name":"title","type":"text","required":true,"title":"Title","length":200},{"name":"status","type":"text","title":"Status","valueMap":["Todo","In Progress","Done"]},{"name":"dueDate","type":"date","title":"Due Date"}]}],"layout":{"_type":"VLayout","width":"100%","height":"100%","membersMargin":8,"layoutMargin":12,"members":[{"_type":"ForgeListGrid","ID":"taskGrid","width":"100%","height":"*","dataSource":"TaskDS","autoFetchData":true,"canEdit":false,"selectionType":"single","_action":"select","_targetForm":"taskForm","fields":[{"name":"title","width":"*"},{"name":"status","width":120},{"name":"dueDate","width":120}]},{"_type":"DynamicForm","ID":"taskForm","width":"100%","dataSource":"TaskDS","numCols":2,"colWidths":[120,"*"],"fields":[{"name":"title","editorType":"TextItem"},{"name":"status","editorType":"SelectItem"},{"name":"dueDate","editorType":"DateItem"}]},{"_type":"HLayout","height":30,"membersMargin":8,"members":[{"_type":"Button","title":"New","width":80,"_action":"new","_targetForm":"taskForm"},{"_type":"Button","title":"Save","width":80,"_action":"save","_targetForm":"taskForm","_targetGrid":"taskGrid"},{"_type":"Button","title":"Delete","width":80,"_action":"delete","_targetGrid":"taskGrid"}]}]}}`;
