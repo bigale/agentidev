@@ -1,0 +1,15 @@
+{
+  "id": "hello-runtime",
+  "name": "Hello Runtime",
+  "version": "0.1.0",
+  "description": "Reference plugin that exercises all three host runtimes (cheerpj, cheerpx, bsh) end-to-end. The first plugin built on the agentidev plugin architecture.",
+  "modes": ["hello-runtime"],
+  "templates": {
+    "dashboard": "templates/dashboard.json"
+  },
+  "handlers": "handlers.js",
+  "requires": {
+    "hostCapabilities": ["message"],
+    "runtimes": ["cheerpj", "cheerpx", "bsh"]
+  }
+}
