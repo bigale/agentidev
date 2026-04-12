@@ -76,6 +76,20 @@
       out('err', 'Test 4 FAILED: ' + e.message);
     }
 
+    // Test 5: Dynamic path — chain WITHOUT await, await ONCE at end
+    // This is the CORRECT pattern for dynamic class resolution.
+    out('info', '--- Test 5: chain without await, await once at end (CORRECT) ---');
+    try {
+      const parts = 'com.agentidev.Hello'.split('.');
+      let ref5 = lib;
+      for (const p of parts) ref5 = ref5[p]; // NO await — accumulate lazy path
+      const Hello5 = await ref5; // await ONCE to resolve the full path
+      const r5 = await Hello5.version();
+      out('ok', 'Test 5 PASSED: typeof=' + typeof r5 + ' value="' + r5 + '"');
+    } catch (e) {
+      out('err', 'Test 5 FAILED: ' + e.message);
+    }
+
   } catch (e) {
     out('err', 'OUTER ERROR: ' + e.message);
   }
