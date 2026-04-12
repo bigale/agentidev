@@ -89,7 +89,9 @@ export function init() {
   els.saveBtn.addEventListener('click', handleSave);
   els.undoBtn.addEventListener('click', handleUndo);
   els.resetBtn.addEventListener('click', handleReset);
-  els.playgroundBtn.addEventListener('click', openPlayground);
+  // Playground button removed (D1). Keep the listener guard in case
+  // the element still exists in old cached HTML.
+  if (els.playgroundBtn) els.playgroundBtn.addEventListener('click', openPlayground);
 
   els.capSkin.addEventListener('change', () => {
     chrome.runtime.sendMessage({

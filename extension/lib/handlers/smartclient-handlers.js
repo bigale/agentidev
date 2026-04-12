@@ -15,6 +15,7 @@ let playgroundSession = {
   projectId: null,
   projectName: null,
   projectDescription: null,
+  pluginId: null,
   promptHistory: [],
   undoStack: [],
   status: 'idle',   // idle | generating | error
@@ -35,6 +36,7 @@ function broadcastPlaygroundState() {
     projectId: playgroundSession.projectId,
     projectName: playgroundSession.projectName,
     projectDescription: playgroundSession.projectDescription,
+    pluginId: playgroundSession.pluginId,
     hasConfig: !!playgroundSession.config,
     promptCount: playgroundSession.promptHistory.length,
     undoCount: playgroundSession.undoStack.length,
@@ -724,6 +726,17 @@ function handlePlaygroundConfigUpdated(message) {
   playgroundSession.config = structuredClone(config);
   playgroundSession.status = 'idle';
   playgroundSession.error = null;
+
+  // Accept plugin metadata if provided (from plugin mode loading)
+  if (message.pluginId) {
+    playgroundSession.pluginId = message.pluginId;
+  }
+  if (message.projectName) {
+    playgroundSession.projectName = message.projectName;
+  }
+  if (message.projectDescription !== undefined) {
+    playgroundSession.projectDescription = message.projectDescription;
+  }
 
   // Auto-save to project if bound
   if (playgroundSession.projectId) {

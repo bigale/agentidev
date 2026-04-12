@@ -182,11 +182,15 @@ else if (urlParams.get('mode')) {
       }
       document.title = match.name + ' — Agentidev';
       sendConfigToIframe(resp.config);
-      // Push the plugin config to the playground session so the sidebar
-      // can see it (Inspector button visibility, AI modification, etc.)
+      // Push the plugin config + metadata to the playground session so
+      // the sidebar knows what's being edited (name, pluginId) and
+      // Save can write back to the correct plugin storage.
       chrome.runtime.sendMessage({
         type: 'SC_PLAYGROUND_CONFIG_UPDATED',
         config: resp.config,
+        pluginId: match.id,
+        projectName: match.name,
+        projectDescription: match.description || '',
       });
     });
   });
