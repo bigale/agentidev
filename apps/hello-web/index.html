@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Hello Runtime — Web App (Phase 6 Port Proof)</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #1a1a2e; color: #e0e0e0; font-family: system-ui, sans-serif; }
+    #app { padding: 16px; max-width: 900px; margin: 0 auto; }
+    h1 { color: #a8b4ff; font-size: 20px; margin: 0 0 4px 0; }
+    .subtitle { color: #888; font-size: 12px; margin-bottom: 16px; }
+    .btn-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    button { background: #2a2a4a; color: #e0e0e0; border: 1px solid #444; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    button:hover { border-color: #6a6aaa; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    .label { font-size: 11px; color: #666; margin: 8px 0 4px 0; }
+    .output { background: #111; border: 1px solid #333; border-radius: 4px; padding: 8px; min-height: 60px; font-family: monospace; font-size: 11px; white-space: pre-wrap; overflow: auto; }
+    .output.console { color: #0f0; min-height: 100px; }
+    .status { font-size: 11px; padding: 4px 8px; background: #252540; border-radius: 3px; margin-bottom: 12px; }
+    .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .dot.ok { background: #4CAF50; } .dot.loading { background: #FF9800; } .dot.err { background: #f44336; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <h1>Hello Runtime — Web App</h1>
+  <p class="subtitle">Phase 6 port proof: same plugin, different host binding. No Chrome extension.</p>
+
+  <div class="status" id="status">
+    <span class="dot loading"></span> Initializing runtimes...
+  </div>
+
+  <div class="btn-row">
+    <button id="btnCheerpJ" disabled>Run Java (CheerpJ)</button>
+    <button id="btnCheerpX" disabled>Run Python (CheerpX)</button>
+    <button id="btnBsh" disabled>Run BeanShell</button>
+    <button id="btnStorage">host.storage</button>
+    <button id="btnNetwork">host.network.fetch</button>
+  </div>
+
+  <div class="label">CheerpJ output</div>
+  <div class="output" id="outCheerpJ">Click "Run Java" to test.</div>
+
+  <div class="label">CheerpX output</div>
+  <div class="output console" id="outCheerpX">Click "Run Python" to test.</div>
+
+  <div class="label">BeanShell output</div>
+  <div class="output" id="outBsh">Click "Run BeanShell" to test.</div>
+
+  <div class="label">Storage / Network</div>
+  <div class="output" id="outMisc">Click a host.* button to test.</div>
+</div>
+
+<!-- CheerpJ from CDN (no COI needed) -->
+<script src="https://cjrtnc.leaningtech.com/20260408_3000/loader.js"></script>
+
+<!-- Host implementation for web apps -->
+<script src="host-web-app.js"></script>
+
+<script>
+(async function () {
+  const status = document.getElementById('status');
+  const dot = status.querySelector('.dot');
+
+  function setStatus(cls, msg) {
+    dot.className = 'dot ' + cls;
+    status.innerHTML = '<span class="dot ' + cls + '"></span> ' + msg;
+  }
+
+  function setOutput(id, text) {
+    document.getElementById(id).textContent = text;
+  }
+
+  try {
+    // Initialize host
+    setStatus('loading', 'Initializing CheerpJ...');
+    const host = window.Host.get();
+    await host.runtimes.get('cheerpj').init();
+    setStatus('ok', 'CheerpJ ready. CheerpX requires a separate COI page (see docs).');
+
+    // Enable CheerpJ + BeanShell buttons
+    document.getElementById('btnCheerpJ').disabled = false;
+    document.getElementById('btnBsh').disabled = false;
+    document.getElementById('btnStorage').disabled = false;
+    document.getElementById('btnNetwork').disabled = false;
+
+    // CheerpJ: Hello.version()
+    document.getElementById('btnCheerpJ').addEventListener('click', async () => {
+      setOutput('outCheerpJ', 'Running...');
+      try {
+        const r = await host.runtimes.get('cheerpj').runLibrary({
+          className: 'com.agentidev.Hello',
+          method: 'version',
+        });
+        setOutput('outCheerpJ', 'version() = ' + JSON.stringify(r) + '\n\ngreet():');
+        const g = await host.runtimes.get('cheerpj').runLibrary({
+          className: 'com.agentidev.Hello',
+          method: 'greet',
+          args: ['web-app'],
+        });
+        setOutput('outCheerpJ', 'version() = ' + JSON.stringify(r) + '\ngreet("web-app") = ' + JSON.stringify(g));
+      } catch (e) {
+        setOutput('outCheerpJ', 'ERROR: ' + e.message);
+      }
+    });
+
+    // BeanShell: eval
+    document.getElementById('btnBsh').addEventListener('click', async () => {
+      setOutput('outBsh', 'Running...');
+      try {
+        const r = await host.runtimes.get('bsh').eval('40 + 2');
+        setOutput('outBsh', 'bsh.eval("40 + 2") = ' + r);
+      } catch (e) {
+        setOutput('outBsh', 'ERROR: ' + e.message);
+      }
+    });
+
+    // Storage round-trip
+    document.getElementById('btnStorage').addEventListener('click', async () => {
+      setOutput('outMisc', 'Testing storage...');
+      try {
+        await host.storage.set('web-app-test', { ts: Date.now(), from: 'web-app' });
+        const v = await host.storage.get('web-app-test');
+        setOutput('outMisc', 'host.storage round-trip:\n' + JSON.stringify(v, null, 2));
+      } catch (e) {
+        setOutput('outMisc', 'ERROR: ' + e.message);
+      }
+    });
+
+    // Network fetch
+    document.getElementById('btnNetwork').addEventListener('click', async () => {
+      setOutput('outMisc', 'Fetching...');
+      try {
+        const r = await host.network.fetch('https://httpbin.org/get', {}, { as: 'json' });
+        setOutput('outMisc', 'host.network.fetch:\nstatus=' + r.status + '\n' + JSON.stringify(r.json, null, 2).slice(0, 500));
+      } catch (e) {
+        setOutput('outMisc', 'ERROR: ' + e.message);
+      }
+    });
+
+  } catch (e) {
+    setStatus('err', 'Init failed: ' + e.message);
+    console.error(e);
+  }
+
+  // CheerpX note — requires COI headers which this simple page may not have
+  document.getElementById('btnCheerpX').title = 'CheerpX requires Cross-Origin Isolation headers. See the extension for full CheerpX support.';
+})();
+</script>
+</body>
+</html>
