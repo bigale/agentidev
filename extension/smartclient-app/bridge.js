@@ -139,6 +139,43 @@ else if (urlParams.get('project')) {
   });
 }
 
+// --- Mode 7: Plugin mode (any other ?mode=<id> resolves via plugin loader) ---
+else if (urlParams.get('mode')) {
+  const pluginMode = urlParams.get('mode');
+  // Ask the SW if a plugin claims this mode. PLUGIN_LIST returns the
+  // installed plugins; we match by id (which is what the manifest's modes
+  // entries are expected to use 1:1 in the simple case).
+  chrome.runtime.sendMessage({ type: 'PLUGIN_LIST' }, (plugins) => {
+    if (chrome.runtime.lastError) {
+      console.error('[Bridge] PLUGIN_LIST failed:', chrome.runtime.lastError.message);
+      return;
+    }
+    const list = Array.isArray(plugins) ? plugins : [];
+    const match = list.find((p) =>
+      p.id === pluginMode || (Array.isArray(p.modes) && p.modes.includes(pluginMode)));
+    if (!match) {
+      console.warn('[Bridge] No plugin claims mode:', pluginMode, '— installed:', list.map((p) => p.id));
+      // Fall back to the gallery so the user isn't stuck on a blank page
+      buildGallery();
+      return;
+    }
+    // Fetch the plugin's dashboard template via the SW and feed it to the
+    // sandbox via the same path the AI generation uses.
+    chrome.runtime.sendMessage({ type: 'PLUGIN_GET_TEMPLATE', id: match.id, template: 'dashboard' }, (resp) => {
+      if (chrome.runtime.lastError) {
+        console.error('[Bridge] PLUGIN_GET_TEMPLATE failed:', chrome.runtime.lastError.message);
+        return;
+      }
+      if (!resp || resp.error || !resp.config) {
+        console.error('[Bridge] plugin template error:', resp && resp.error);
+        return;
+      }
+      document.title = match.name + ' — Agentidev';
+      sendConfigToIframe(resp.config);
+    });
+  });
+}
+
 // --- Mode 6: Gallery (no params) ---
 else {
   buildGallery();

@@ -28,8 +28,25 @@ function resolveRef(id) {
 }
 
 // ---- Dispatch bridge action via postMessage ----
+//
+// Two flavors:
+//   dispatchAction(type, payload)            — fire-and-forget; numeric id.
+//   _rendererDispatchAsync(type, payload)    — Promise-returning. Uses a
+//                                              string id prefixed "rnd-"
+//                                              so our own listener claims
+//                                              it. Renamed to avoid
+//                                              collision with dashboard-
+//                                              app.js's `dispatchActionAsync`
+//                                              (both files are classic
+//                                              scripts; last-one-wins on
+//                                              window for top-level fns).
+//
+// Plugin templates use the `dispatchAndDisplay` action which wraps
+// _rendererDispatchAsync and writes the result into a target component.
 
 var _actionCounter = 0;
+var _rendererPending = Object.create(null); // id -> { resolve, reject, timer }
+var _rendererListenerInstalled = false;
 
 function dispatchAction(messageType, payload) {
   window.parent.postMessage({
@@ -38,6 +55,86 @@ function dispatchAction(messageType, payload) {
     messageType: messageType,
     payload: payload || {},
   }, '*');
+}
+
+function _installRendererListener() {
+  if (_rendererListenerInstalled) return;
+  _rendererListenerInstalled = true;
+  window.addEventListener('message', function (event) {
+    var msg = event.data;
+    if (!msg || msg.source !== 'smartclient-action-response') return;
+    var id = msg.id;
+    if (typeof id !== 'string' || id.slice(0, 4) !== 'rnd-') return;
+    var entry = _rendererPending[id];
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    delete _rendererPending[id];
+    entry.resolve(msg.response);
+  });
+}
+
+function _rendererDispatchAsync(messageType, payload, timeoutMs) {
+  _installRendererListener();
+  var id = 'rnd-' + (++_actionCounter);
+  var timeout = typeof timeoutMs === 'number' ? timeoutMs : 60000;
+  return new Promise(function (resolve, reject) {
+    var timer = setTimeout(function () {
+      delete _rendererPending[id];
+      reject(new Error('dispatch timeout: ' + messageType + ' (' + timeout + 'ms)'));
+    }, timeout);
+    _rendererPending[id] = { resolve: resolve, reject: reject, timer: timer };
+    window.parent.postMessage({
+      source: 'smartclient-action',
+      id: id,
+      messageType: messageType,
+      payload: payload || {},
+    }, '*');
+  });
+}
+
+// ---- Result helpers (used by dispatchAndDisplay) ----
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function extractByPath(obj, path) {
+  if (!path) return obj;
+  var parts = String(path).split('.');
+  var ref = obj;
+  for (var i = 0; i < parts.length; i++) {
+    if (ref == null) return undefined;
+    ref = ref[parts[i]];
+  }
+  return ref;
+}
+
+var RESULT_FORMATTERS = {
+  // Default: pretty-print JSON in a <pre>
+  json: function (value) {
+    return '<pre style="margin:0;font-size:11px;line-height:1.4;">'
+      + escapeHtml(JSON.stringify(value, null, 2)) + '</pre>';
+  },
+  // Plain string in a <pre> with monospace
+  stdoutPre: function (value) {
+    return '<pre style="margin:0;font-size:11px;line-height:1.4;color:#0f0;background:#000;padding:8px;border-radius:3px;">'
+      + escapeHtml(value == null ? '' : String(value)) + '</pre>';
+  },
+  // One-line text
+  text: function (value) {
+    return '<span>' + escapeHtml(value == null ? '' : String(value)) + '</span>';
+  },
+};
+
+function formatResult(value, fullResponse, formatterName) {
+  var fmt = RESULT_FORMATTERS[formatterName] || RESULT_FORMATTERS.json;
+  return fmt(value === undefined ? fullResponse : value);
 }
 
 // ---- Cell formatters ----
@@ -138,6 +235,39 @@ var ACTION_MAP = {
         }
       }
       dispatchAction(node._messageType, payload);
+    };
+  },
+  /**
+   * Like 'dispatch' but waits for the response and writes it into a target
+   * component (HTMLFlow, Label, anything with setContents).
+   *
+   *   {
+   *     "_type": "Button",
+   *     "title": "Run",
+   *     "_action": "dispatchAndDisplay",
+   *     "_messageType": "PLUGIN_FOO",
+   *     "_messagePayload": {...},        // optional
+   *     "_targetCanvas": "outputFlow",   // ID of component to setContents on
+   *     "_resultPath": "stdout",         // optional dot-path to extract from response
+   *     "_resultFormatter": "stdoutPre"  // optional, see RESULT_FORMATTERS
+   *   }
+   */
+  'dispatchAndDisplay': function (component, node) {
+    component.click = function () {
+      var target = resolveRef(node._targetCanvas);
+      if (!target || !target.setContents) {
+        console.warn('[Renderer] dispatchAndDisplay: target', node._targetCanvas, 'has no setContents');
+        return;
+      }
+      var payload = Object.assign({}, node._messagePayload || {});
+      target.setContents('<em style="color:#888;">Running ' + escapeHtml(node._messageType) + '...</em>');
+      _rendererDispatchAsync(node._messageType, payload, node._timeoutMs).then(function (response) {
+        var value = extractByPath(response, node._resultPath);
+        var html = formatResult(value, response, node._resultFormatter);
+        target.setContents(html);
+      }).catch(function (err) {
+        target.setContents('<span style="color:#f44336;">Error: ' + escapeHtml(err.message || String(err)) + '</span>');
+      });
     };
   },
   'scriptPause': function (component, node) {

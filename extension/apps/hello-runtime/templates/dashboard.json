@@ -1,0 +1,104 @@
+{
+  "layout": {
+    "_type": "VLayout",
+    "ID": "helloRuntimeRoot",
+    "width": "100%",
+    "height": "100%",
+    "padding": 16,
+    "membersMargin": 12,
+    "members": [
+    {
+      "_type": "Label",
+      "height": 28,
+      "contents": "<div style='font-size:18px;font-weight:600;color:#a8b4ff;'>Hello Runtime — agentidev plugin demo</div>"
+    },
+    {
+      "_type": "Label",
+      "height": 36,
+      "contents": "<div style='font-size:12px;color:#888;line-height:1.5;'>Reference plugin from <code>extension/apps/hello-runtime/</code>. Each button calls a plugin handler that wraps a host runtime. The runtimes are <code>cheerpj</code> (Java in WASM), <code>cheerpx</code> (x86 Linux VM), and <code>bsh</code> (BeanShell composed on cheerpj).</div>"
+    },
+    {
+      "_type": "HLayout",
+      "height": 36,
+      "membersMargin": 8,
+      "members": [
+        {
+          "_type": "Button",
+          "ID": "btnRunBsh",
+          "title": "Run BeanShell (1 + 1)",
+          "width": 200,
+          "_action": "dispatchAndDisplay",
+          "_messageType": "HELLO_RUNTIME_BSH",
+          "_messagePayload": { "code": "1 + 1" },
+          "_targetCanvas": "outputBshFlow",
+          "_resultPath": "result",
+          "_resultFormatter": "stdoutPre",
+          "_timeoutMs": 60000
+        },
+        {
+          "_type": "Button",
+          "ID": "btnRunCheerpx",
+          "title": "Run Python (CheerpX)",
+          "width": 200,
+          "_action": "dispatchAndDisplay",
+          "_messageType": "HELLO_RUNTIME_CHEERPX",
+          "_messagePayload": { "cmd": "/usr/bin/python3", "args": ["-c", "import platform; print(platform.platform()); print(6*7)"] },
+          "_targetCanvas": "outputCheerpxFlow",
+          "_resultPath": "stdout",
+          "_resultFormatter": "stdoutPre",
+          "_timeoutMs": 120000
+        },
+        {
+          "_type": "Button",
+          "ID": "btnRunCheerpj",
+          "title": "Run Java main (CheerpJ)",
+          "width": 200,
+          "_action": "dispatchAndDisplay",
+          "_messageType": "HELLO_RUNTIME_CHEERPJ",
+          "_messagePayload": {},
+          "_targetCanvas": "outputCheerpjFlow",
+          "_resultPath": "stdout",
+          "_resultFormatter": "stdoutPre",
+          "_timeoutMs": 120000
+        }
+      ]
+    },
+    {
+      "_type": "Label",
+      "height": 18,
+      "contents": "<div style='font-size:11px;color:#666;'>BeanShell output (interpreter on cheerpj)</div>"
+    },
+    {
+      "_type": "HTMLFlow",
+      "ID": "outputBshFlow",
+      "height": 70,
+      "padding": 4,
+      "contents": "<em style='color:#888;'>Click \"Run BeanShell\" to evaluate.</em>"
+    },
+    {
+      "_type": "Label",
+      "height": 18,
+      "contents": "<div style='font-size:11px;color:#666;'>CheerpX output (Linux VM stdout)</div>"
+    },
+    {
+      "_type": "HTMLFlow",
+      "ID": "outputCheerpxFlow",
+      "height": 90,
+      "padding": 4,
+      "contents": "<em style='color:#888;'>Click \"Run Python\" to spawn a command in the Linux VM.</em>"
+    },
+    {
+      "_type": "Label",
+      "height": 18,
+      "contents": "<div style='font-size:11px;color:#666;'>CheerpJ output (Java main stdout)</div>"
+    },
+    {
+      "_type": "HTMLFlow",
+      "ID": "outputCheerpjFlow",
+      "height": 100,
+      "padding": 4,
+      "contents": "<em style='color:#888;'>Click \"Run Java main\" to invoke a Java class.</em>"
+    }
+    ]
+  }
+}

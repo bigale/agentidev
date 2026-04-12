@@ -52,9 +52,20 @@ temp/
 # SmartClient runtime (external symlink, ~260MB)
 extension/smartclient
 
-# Plugin assembly outputs — assembled from private repos at build time.
-# Keep PLAN.md (the public placeholder) visible for discovery.
-extension/apps/horsebread/
+# Plugin assembly outputs (extension/apps/<id>/) — private plugins are
+# assembled from outside repos at build time and never enter public history.
+# Checked-in exceptions:
+#   - apps/README.md       — explains the convention
+#   - apps/index.json      — plugin discovery list
+#   - apps/hello-runtime/  — in-tree reference plugin
+#   - apps/horsebread/PLAN.md (legacy placeholder)
+extension/apps/*
+!extension/apps/README.md
+!extension/apps/index.json
+!extension/apps/_loaded.js
+!extension/apps/hello-runtime/
+!extension/apps/horsebread/
+extension/apps/horsebread/*
 !extension/apps/horsebread/PLAN.md
 
 # Screenshots & data files

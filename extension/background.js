@@ -39,6 +39,7 @@ import { register as registerProjectPersistence } from './lib/handlers/project-p
 import { register as registerSync } from './lib/handlers/sync-handlers.js';
 import { register as registerCheerpJ } from './lib/handlers/cheerpj-handlers.js';
 import { register as registerCheerpX } from './lib/handlers/cheerpx-handlers.js';
+import { loadPlugins } from './lib/plugin-loader.js';
 
 console.log('Agentidev: Background service worker started');
 console.log('[Background] Note: Extension reload = re-initialize (models are cached, not re-downloaded)');
@@ -201,6 +202,19 @@ registerProjectPersistence(handlers);
 registerSync(handlers);
 registerCheerpJ(handlers);
 registerCheerpX(handlers);
+
+// Discover and load plugins from extension/apps/. Each plugin's handlers.js
+// is dynamic-imported and registered on the same dispatch table as the
+// platform handlers above. Failures are non-fatal — a broken plugin should
+// not crash the SW boot.
+loadPlugins(handlers).then(({ loaded, failed }) => {
+  console.log('[Background] plugins loaded:', loaded.length, 'failed:', failed.length);
+  if (failed.length) {
+    for (const f of failed) console.warn(`[Background] plugin ${f.id} failed:`, f.error);
+  }
+}).catch((err) => {
+  console.warn('[Background] plugin loader threw:', err.message);
+});
 
 chrome.runtime.onMessage.addListener(createMessageRouter(handlers));
 
