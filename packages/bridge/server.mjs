@@ -2657,7 +2657,15 @@ Runtime integration:
   - To call a Java method: use dispatchAndDisplay with _messageType:"HOST_EXEC_SPAWN" and _messagePayload:{cmd:"/usr/bin/python3",args:["-c","print(42)"]}
   - To evaluate BeanShell: use dispatchAndDisplay with _messageType:"HELLO_RUNTIME_BSH" and _messagePayload:{code:"1+1"}
   - For long-running commands use streamSpawnAndAppend (shows output progressively). For quick results use dispatchAndDisplay.
-  - Always pair runtime buttons with an HTMLFlow output pane (ID it and reference via _targetCanvas)`;
+  - Always pair runtime buttons with an HTMLFlow output pane (ID it and reference via _targetCanvas)
+
+API / Network calls:
+  - To fetch data from any URL (no CORS restrictions): use dispatchAndDisplay with _messageType:"HOST_NETWORK_FETCH" and _messagePayload:{url:"https://api.example.com/data",init:{},as:"json"}
+  - The "as" field controls response format: "json" (parsed JSON), "text" (raw string), "bytes" (binary array)
+  - The response includes {ok, status, statusText, url, headers, json/text/bytes}
+  - For displaying API results: set _resultPath to extract a specific field (e.g. "json.results"), _resultFormatter:"json" for pretty-print or "text" for plain
+  - Network calls go through the extension service worker which has full host permissions — no CORS issues even for cross-origin APIs
+  - For periodic polling, have the user click the button again (no auto-refresh yet)`;
 
         const SC_EXAMPLE = `Example for a task tracker:
 {"dataSources":[{"ID":"TaskDS","fields":[{"name":"id","type":"integer","primaryKey":true,"hidden":true},{"name":"title","type":"text","required":true,"title":"Title","length":200},{"name":"status","type":"text","title":"Status","valueMap":["Todo","In Progress","Done"]},{"name":"dueDate","type":"date","title":"Due Date"}]}],"layout":{"_type":"VLayout","width":"100%","height":"100%","membersMargin":8,"layoutMargin":12,"members":[{"_type":"ForgeListGrid","ID":"taskGrid","width":"100%","height":"*","dataSource":"TaskDS","autoFetchData":true,"canEdit":false,"selectionType":"single","_action":"select","_targetForm":"taskForm","fields":[{"name":"title","width":"*"},{"name":"status","width":120},{"name":"dueDate","width":120}]},{"_type":"DynamicForm","ID":"taskForm","width":"100%","dataSource":"TaskDS","numCols":2,"colWidths":[120,"*"],"fields":[{"name":"title","editorType":"TextItem"},{"name":"status","editorType":"SelectItem"},{"name":"dueDate","editorType":"DateItem"}]},{"_type":"HLayout","height":30,"membersMargin":8,"members":[{"_type":"Button","title":"New","width":80,"_action":"new","_targetForm":"taskForm"},{"_type":"Button","title":"Save","width":80,"_action":"save","_targetForm":"taskForm","_targetGrid":"taskGrid"},{"_type":"Button","title":"Delete","width":80,"_action":"delete","_targetGrid":"taskGrid"}]}]}}`;
