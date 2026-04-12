@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>CheerpJ Library Mode — await pattern repro</title>
+  <style>
+    body { background: #111; color: #ccc; font-family: monospace; padding: 16px; font-size: 13px; }
+    pre { background: #1a1a2e; padding: 12px; border-radius: 4px; white-space: pre-wrap; margin: 8px 0; }
+    .ok { color: #8f8; } .err { color: #f88; } .info { color: #8cf; }
+    h3 { color: #a8b4ff; margin: 16px 0 4px 0; }
+  </style>
+</head>
+<body>
+<h2>CheerpJ runLibrary — single await vs incremental awaits</h2>
+<pre id="log">Loading...</pre>
+<script src="https://cjrtnc.leaningtech.com/20260408_3000/loader.js"></script>
+<script>
+(async function () {
+  const log = document.getElementById('log');
+  log.textContent = '';
+  function out(cls, msg) {
+    const d = document.createElement('div');
+    d.className = cls;
+    d.textContent = msg;
+    log.appendChild(d);
+  }
+  try {
+    await cheerpjInit({ version: 11, status: 'none' });
+    out('ok', 'cheerpjInit done');
+    const lib = await cheerpjRunLibrary('/app/hello-main.jar');
+    out('ok', 'library loaded');
+
+    // Test 1: Single chained expression — await at the END only
+    out('info', '--- Test 1: await lib.com.agentidev.Hello (single chain) ---');
+    try {
+      const Hello1 = await lib.com.agentidev.Hello;
+      const r1 = await Hello1.version();
+      out('ok', 'Test 1 PASSED: typeof=' + typeof r1 + ' value="' + r1 + '"');
+    } catch (e) {
+      out('err', 'Test 1 FAILED: ' + e.message);
+    }
+
+    // Test 2: Incremental await at each step
+    out('info', '--- Test 2: await at each step (incremental) ---');
+    try {
+      let ref = lib;
+      ref = await ref['com'];
+      ref = await ref['agentidev'];
+      ref = await ref['Hello'];
+      const r2 = await ref.version();
+      out('ok', 'Test 2 PASSED: typeof=' + typeof r2 + ' value="' + r2 + '"');
+    } catch (e) {
+      out('err', 'Test 2 FAILED: ' + e.message);
+    }
+
+    // Test 3: Incremental but with dot notation
+    out('info', '--- Test 3: await at each step (dot notation) ---');
+    try {
+      let ref3 = lib;
+      ref3 = await ref3.com;
+      ref3 = await ref3.agentidev;
+      ref3 = await ref3.Hello;
+      const r3 = await ref3.version();
+      out('ok', 'Test 3 PASSED: typeof=' + typeof r3 + ' value="' + r3 + '"');
+    } catch (e) {
+      out('err', 'Test 3 FAILED: ' + e.message);
+    }
+
+    // Test 4: Single chain with bracket notation
+    out('info', '--- Test 4: await lib["com"]["agentidev"]["Hello"] (single chain, brackets) ---');
+    try {
+      const Hello4 = await lib['com']['agentidev']['Hello'];
+      const r4 = await Hello4.version();
+      out('ok', 'Test 4 PASSED: typeof=' + typeof r4 + ' value="' + r4 + '"');
+    } catch (e) {
+      out('err', 'Test 4 FAILED: ' + e.message);
+    }
+
+  } catch (e) {
+    out('err', 'OUTER ERROR: ' + e.message);
+  }
+})();
+</script>
+</body>
+</html>
