@@ -150,7 +150,21 @@ async function execSpawn(handlers, msg) {
  * length (~64 KB after base64 expansion) — bigger files want a stdin pipe
  * which is Phase 4.6 work.
  */
-async function fsRead(handlers, path) {
+async function fsRead(handlers, path, as) {
+  if (as === 'bytes') {
+    if (typeof handlers['cheerpx-fs-read-bytes'] !== 'function') {
+      throw new Error('host.fs.read(as:bytes): cheerpx fs-read-bytes handler not registered');
+    }
+    const r = await handlers['cheerpx-fs-read-bytes']({ path });
+    if (!r.success) return r;
+    // Decode hex to a number array
+    const hex = (r.hex || '').replace(/[^0-9a-fA-F]/g, '');
+    const bytes = [];
+    for (let i = 0; i < hex.length; i += 2) {
+      bytes.push(parseInt(hex.substr(i, 2), 16));
+    }
+    return { success: true, exitCode: r.exitCode, bytes };
+  }
   if (typeof handlers['cheerpx-fs-read'] !== 'function') {
     throw new Error('host.fs.read: cheerpx fs handler not registered');
   }
@@ -191,8 +205,53 @@ export function register(handlers) {
   // time and can find cheerpx-spawn at call time.
   handlers['HOST_EXEC_SPAWN'] = async (msg) => execSpawn(handlers, msg);
 
+  // Streaming exec — caller provides a clientStreamId; the SW relays each
+  // chunk via chrome.runtime.sendMessage broadcast (CHEERPX_STREAM_EVENT)
+  // which wrapper.html forwards to the sandbox.
+  handlers['HOST_EXEC_SPAWN_STREAM_START'] = async (msg) => {
+    if (typeof handlers['cheerpx-spawn-stream-start'] !== 'function') {
+      throw new Error('host.exec.spawnStream: cheerpx stream handler not registered');
+    }
+    return handlers['cheerpx-spawn-stream-start']({
+      streamId: msg.streamId,
+      cmd: msg.cmd,
+      args: msg.args || [],
+      opts: msg.opts || {},
+    });
+  };
+
+  handlers['HOST_EXEC_SPAWN_STREAM_KILL'] = async (msg) => {
+    if (typeof handlers['cheerpx-spawn-stream-kill'] !== 'function') {
+      throw new Error('host.exec.spawnStream.kill: cheerpx stream handler not registered');
+    }
+    return handlers['cheerpx-spawn-stream-kill']({ streamId: msg.streamId });
+  };
+
   // ---- fs (delegates to cheerpx-fs-*) ----
-  handlers['HOST_FS_READ']  = async (msg) => fsRead(handlers, msg.path);
+  handlers['HOST_FS_READ']  = async (msg) => fsRead(handlers, msg.path, msg.as);
   handlers['HOST_FS_WRITE'] = async (msg) => fsWrite(handlers, msg.path, msg.content);
   handlers['HOST_FS_LIST']  = async (msg) => fsList(handlers, msg.path);
+
+  // ---- identity ----
+  // Surface the real chrome.runtime.id plus a per-install nonce that's
+  // generated once and persisted in chrome.storage.local. The result is
+  // stable across SW restarts but distinct per install.
+  handlers['HOST_IDENTITY_GET'] = async () => {
+    let nonce;
+    try {
+      const stored = await chrome.storage.local.get('__hostInstallNonce');
+      nonce = stored && stored.__hostInstallNonce;
+      if (!nonce) {
+        nonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        await chrome.storage.local.set({ __hostInstallNonce: nonce });
+      }
+    } catch {
+      nonce = 'unknown';
+    }
+    return {
+      hostType: 'chrome-extension',
+      extensionId: chrome.runtime.id,
+      installId: chrome.runtime.id + ':' + nonce,
+    };
+  };
 }

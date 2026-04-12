@@ -270,6 +270,63 @@ var ACTION_MAP = {
       });
     };
   },
+  /**
+   * Stream spawn output progressively into a target component. Uses
+   * host.exec.spawnStream and appends each chunk to a Live Console
+   * <pre> as it arrives.
+   *
+   *   {
+   *     "_type": "Button",
+   *     "title": "Run streaming",
+   *     "_action": "streamSpawnAndAppend",
+   *     "_cmd": "/bin/sh",
+   *     "_args": ["-c", "for i in 1 2 3; do echo $i; sleep 0.5; done"],
+   *     "_targetCanvas": "liveConsole"
+   *   }
+   */
+  'streamSpawnAndAppend': function (component, node) {
+    component.click = function () {
+      var target = resolveRef(node._targetCanvas);
+      if (!target || !target.setContents) {
+        console.warn('[Renderer] streamSpawnAndAppend: target', node._targetCanvas, 'has no setContents');
+        return;
+      }
+      if (typeof window.Host === 'undefined' || !window.Host.get) {
+        target.setContents('<span style="color:#f44336;">window.Host not available</span>');
+        return;
+      }
+      var cmd = node._cmd;
+      var args = node._args || [];
+      var lines = [];
+      var openTag = '<pre style="margin:0;font-size:11px;line-height:1.4;color:#0f0;background:#000;padding:8px;border-radius:3px;white-space:pre-wrap;">';
+      var closeTag = '</pre>';
+      function render() {
+        target.setContents(openTag + escapeHtml(lines.join('')) + closeTag);
+      }
+      lines.push('$ ' + cmd + ' ' + args.join(' ') + '\n');
+      render();
+      try {
+        var handle = window.Host.get().exec.spawnStream(cmd, args);
+        handle.onStdout(function (chunk) {
+          lines.push(chunk);
+          render();
+        });
+        handle.onError(function (err) {
+          lines.push('[error] ' + (err && err.message || String(err)) + '\n');
+          render();
+        });
+        handle.done.then(function (result) {
+          lines.push('[exit ' + result.exitCode + ' in ' + Math.round(result.elapsedMs || 0) + 'ms]\n');
+          render();
+        }).catch(function (err) {
+          lines.push('[failed] ' + (err && err.message || String(err)) + '\n');
+          render();
+        });
+      } catch (err) {
+        target.setContents('<span style="color:#f44336;">Spawn failed: ' + escapeHtml(err.message || String(err)) + '</span>');
+      }
+    };
+  },
   'scriptPause': function (component, node) {
     component.click = function () {
       var grid = resolveRef(node._targetGrid);

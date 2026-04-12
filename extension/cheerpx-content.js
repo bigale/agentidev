@@ -94,4 +94,84 @@
       console.warn('[cheerpx-bridge] failed to signal ready:', e.message);
     }
   });
+
+  // ---- Streaming via long-lived chrome.runtime.Port ----
+  //
+  // The SW opens a port via chrome.tabs.connect(tabId, {name:'cheerpx-stream'})
+  // when it wants to start a streaming spawn. Each port carries one stream:
+  //   SW → port: { type: 'spawn-stream', streamId, cmd, args, opts }
+  //   page → port: { type: 'stdout', streamId, chunk }
+  //                { type: 'exit', streamId, exitCode }
+  //                { type: 'error', streamId, error }
+  //
+  // The runtime page emits stream events as window.postMessage with
+  // source 'agentidev-cheerpx-stream'; we filter by streamId so multiple
+  // concurrent streams (theoretically — CheerpX serializes today) don't
+  // mix.
+  var _activeStreams = Object.create(null); // streamId -> port
+
+  // Listen for stream events from the runtime page and route them to the
+  // matching port. One global listener handles all in-flight streams.
+  window.addEventListener('message', function (event) {
+    var msg = event.data;
+    if (!msg || msg.source !== 'agentidev-cheerpx-stream') return;
+    var port = _activeStreams[msg.streamId];
+    if (!port) return;
+    try {
+      port.postMessage({
+        type: msg.type,
+        streamId: msg.streamId,
+        chunk: msg.chunk,
+        exitCode: msg.exitCode,
+        elapsedMs: msg.elapsedMs,
+        error: msg.error,
+      });
+      if (msg.type === 'exit' || msg.type === 'error') {
+        delete _activeStreams[msg.streamId];
+      }
+    } catch (e) {
+      // Port may have been disconnected; clean up
+      delete _activeStreams[msg.streamId];
+    }
+  });
+
+  chrome.runtime.onConnect.addListener(function (port) {
+    if (port.name !== 'cheerpx-stream') return;
+    console.log('[cheerpx-bridge] stream port opened');
+
+    port.onMessage.addListener(function (msg) {
+      if (!msg || !msg.type) return;
+      if (msg.type === 'spawn-stream') {
+        var streamId = msg.streamId;
+        if (!streamId) {
+          port.postMessage({ type: 'error', error: 'spawn-stream requires streamId' });
+          return;
+        }
+        // Register port for stream events
+        _activeStreams[streamId] = port;
+        // Forward to runtime page
+        window.postMessage({
+          source: 'agentidev-cheerpx',
+          id: 'stream-' + streamId,
+          type: 'spawn-stream',
+          streamId: streamId,
+          cmd: msg.cmd,
+          args: msg.args || [],
+          opts: msg.opts || {},
+        }, location.origin);
+      } else if (msg.type === 'kill') {
+        // CheerpX 1.0.7's cx.run has no kill API. Best effort: drop the
+        // port mapping so further chunks are ignored. The actual command
+        // continues until it exits naturally. Phase 4.7 territory.
+        if (msg.streamId) delete _activeStreams[msg.streamId];
+      }
+    });
+
+    port.onDisconnect.addListener(function () {
+      // Garbage-collect any streams owned by this port
+      for (var sid in _activeStreams) {
+        if (_activeStreams[sid] === port) delete _activeStreams[sid];
+      }
+    });
+  });
 })();

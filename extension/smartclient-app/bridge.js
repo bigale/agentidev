@@ -390,6 +390,23 @@ const BROADCAST_DS_MAP = {
 };
 
 chrome.runtime.onMessage.addListener((message) => {
+  // Streaming events from the cheerpx tab via the SW. We forward these
+  // to the sandbox iframe so host.exec.spawnStream's per-stream listener
+  // can route them by streamId. The wrapper page itself doesn't care
+  // about the contents — we just relay.
+  if (message && message.type === 'CHEERPX_STREAM_EVENT') {
+    try {
+      iframe.contentWindow.postMessage({
+        source: 'smartclient-stream-event',
+        streamId: message.streamId,
+        event: message.event,
+      }, '*');
+    } catch (e) {
+      // iframe may not be loaded yet
+    }
+    return;
+  }
+
   // Playground mode: skin change triggers iframe reload
   if (message.type === 'AUTO_BROADCAST_SC_SKIN' && urlParams.get('mode') === 'playground') {
     _beginIframeNavigation();

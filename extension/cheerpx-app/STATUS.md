@@ -290,3 +290,172 @@ existing `dispatchAndDisplay` action.
 dashboard. Newline preservation fix is also validated by the existing
 Phase 2 sanity test (which previously only passed because `print(1+1)`
 has no newlines to lose).
+
+---
+
+## Phase 4.6 — streaming exec, host.fs.watch, binary fs, real installId
+
+**Status: done.** Streaming spawn produces chunks as they arrive (verified
+~210 ms apart for `sleep 0.2` between echoes). Binary fs.read returns
+exact bytes via `xxd -p` round-trip. `host.identity.installId` is now
+`chrome.runtime.id + ':' + nonce` instead of random per-tab.
+`host.fs.watch` catches `create` and `delete` cleanly; `change` events
+have a documented timing limitation when writes happen via the shared
+spawn queue (see below).
+
+### Streaming architecture — long-lived chrome.tabs.connect Port
+
+The chain has eight hops now (one extra for the port relay):
+
+```
+SC sandbox iframe (app.html)
+  └─[1]─> host.exec.spawnStream(cmd, args)
+            registers streamId locally, dispatches HOST_EXEC_SPAWN_STREAM_START
+              └─[2]─> postMessage 'smartclient-action' to wrapper.html
+                          └─[3]─> chrome.runtime.sendMessage(SW)
+                                      └─[4]─> SW handler cheerpx-spawn-stream-start:
+                                              chrome.tabs.connect(tabId, {name:'cheerpx-stream'})
+                                              port.postMessage({type:'spawn-stream', streamId, cmd, args})
+                                                  └─[5]─> cheerpx-content.js bridge:
+                                                          window.postMessage to runtime page
+                                                              └─[6]─> cheerpx-runtime.html:
+                                                                      MutationObserver on vmConsole detects
+                                                                      each new <p> as cx.run() appends it,
+                                                                      window.postMessage 'agentidev-cheerpx-stream'
+                                                                      with chunk back to source (content script)
+                                                  └─[7]─> content script forwards each chunk via
+                                                          port.postMessage({type:'stdout', streamId, chunk})
+                                              └─[8]─> SW relays each port.onMessage event via
+                                                      chrome.runtime.sendMessage broadcast
+                                                      (CHEERPX_STREAM_EVENT)
+                          └─[3a]─> wrapper.html chrome.runtime.onMessage listener forwards to
+                                   sandbox iframe via iframe.postMessage 'smartclient-stream-event'
+            └─[1a]─> host-chrome-extension.js stream listener routes by streamId,
+                     fires onStdout / onExit / onError callbacks, resolves done Promise
+```
+
+The stream is one-way for chunks (page → content → SW → wrapper → sandbox)
+and bidirectional only for control (start, kill). `kill` is best-effort
+on CheerpX 1.0.7 — `cx.run()` has no kill API, so we drop the port
+mapping and ignore further chunks; the actual command continues to
+completion.
+
+### `host.exec.spawnStream` API
+
+```js
+const handle = host.exec.spawnStream('/bin/sh', ['-c', 'for i in 1..5; do echo $i; sleep 0.4; done']);
+
+handle.onStdout(chunk => liveConsole.append(chunk));
+handle.onExit(code => console.log('exit', code));
+handle.onError(err => console.error(err));
+
+const result = await handle.done; // { exitCode, stdout, elapsedMs }
+
+// Best-effort kill
+await handle.kill();
+```
+
+The `done` Promise also collects all stdout chunks into a final string,
+so callers that only want the end result can `await handle.done` and
+ignore the streaming callbacks.
+
+### Streaming dashboard demo
+
+`hello-runtime` gets a new "Stream output" button that runs
+`for i in 1..5; do echo round-$i; sleep 0.4; done` via the new
+`streamSpawnAndAppend` renderer action. Each chunk renders to the
+"Live Console" HTMLFlow as it arrives — verified by snapshotting
+the contents at 500ms intervals after the click:
+
+```text
+t=0ms:    $ /bin/sh -c for i...   round-1   round-2
+t=500ms:  ... + round-3
+t=1000ms: ... + round-4
+t=1500ms: ... + round-5
+t=2000ms: ... + [exit 0 in 2064ms]
+t=2500ms: stable
+```
+
+`streamSpawnAndAppend` is a new generic action in `renderer.js` —
+plugins use it the same way they use `dispatchAndDisplay`:
+
+```jsonc
+{
+  "_type": "Button",
+  "title": "Run streaming",
+  "_action": "streamSpawnAndAppend",
+  "_cmd": "/bin/sh",
+  "_args": ["-c", "..."],
+  "_targetCanvas": "liveConsole"
+}
+```
+
+### Binary `host.fs.read({as: 'bytes'})`
+
+A new path through `cheerpx-fs-read-bytes` that runs `xxd -p <path>` in
+the VM and decodes the hex on the SW side. The xxd-p output naturally
+contains newlines every 60 chars; the SW handler strips all whitespace
+before parsing. Verified: writing `'AB\nCD\n'` and reading back as
+bytes returns `[65, 66, 10, 67, 68, 10]`.
+
+```js
+await host.fs.write('/tmp/bin.txt', 'AB\nCD\n');
+const r = await host.fs.read('/tmp/bin.txt', { as: 'bytes' });
+// → { success: true, exitCode: 0, bytes: [65, 66, 10, 67, 68, 10] }
+```
+
+### Real `host.identity.installId`
+
+`HOST_IDENTITY_GET` returns `chrome.runtime.id + ':' + nonce`, where the
+nonce is generated once and persisted in `chrome.storage.local` under
+`__hostInstallNonce`. `host-chrome-extension.js` lazy-fetches this on
+first `Host.get()` and updates the identity in place.
+
+```js
+host.identity.installId
+// → "ncbbpgbdecmmcmghfahmmpddapbncobd:qku87yrm8ojmnv3ulm0"
+```
+
+### `host.fs.watch` — best-effort polling
+
+Built on `host.exec.spawn` to call `stat -c '%y' <path>` every
+`intervalMs` (default 2000) and compare the human-readable mtime
+(includes nanoseconds) against the previous tick. Fires `create` /
+`change` / `delete` events; returns an unsubscribe function.
+
+```js
+const unsub = host.fs.watch('/tmp/file', evt => {
+  console.log(evt.type, evt.mtime);
+}, { intervalMs: 800 });
+// later:
+unsub();
+```
+
+**Known limitation**: `change` events have a timing race when writes
+happen through the shared cheerpx spawn queue. The watch poll's `stat`
+and `host.fs.write`'s `sh -c "echo > path"` both go through the same
+serialized `_spawnQueue`, so a poll firing between the truncate and
+the rewrite of a redirect can briefly observe the file as missing and
+fire `delete` instead of `change`. This is a polling-based watch's
+fundamental limit — production-quality file watching needs real inotify
+exposed through the runtime page (a future phase). For horsebread's
+use case (an out-of-band scrape proxy that watches a request-queue
+file written by an in-VM script, not by `host.fs.write`), the race
+doesn't apply because the writer is independent of the polling thread.
+
+### What 4.6 does NOT include (deferred to 4.7)
+
+- **Big-file `host.fs.write`** (>64 KB) — needs stdin pipe on `cx.run`
+- **OPFS-backed `host.storage.blob`** — current is `chrome.storage.local`
+  base64; only matters when blobs get large
+- **True `cx.run` cancellation** — CheerpX 1.0.7 has no kill API; the
+  port-mapping is dropped on kill but the command runs to completion
+- **inotify-based `host.fs.watch`** — would require new in-VM
+  primitives; polling is good enough for the immediate use cases
+
+### Tests
+
+145 / 145 Jest pass. No regressions in cheerpj, cheerpx, bsh, the
+hello-runtime plugin, or any of the dashboard buttons (Phase 4.5 or
+the new streaming button). Streaming verified end-to-end through the
+SC sandbox iframe via `sandbox-eval` snapshots.

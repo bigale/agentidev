@@ -180,6 +180,40 @@
       "height": 120,
       "padding": 4,
       "contents": "<em style='color:#888;'>Click \"host.fs round-trip\" to write a file, list /tmp, and read it back.</em>"
+    },
+    {
+      "_type": "Label",
+      "height": 26,
+      "contents": "<div style='font-size:14px;font-weight:600;color:#a8b4ff;margin-top:8px;'>Streaming exec (Phase 4.6)</div>"
+    },
+    {
+      "_type": "HLayout",
+      "height": 36,
+      "membersMargin": 8,
+      "members": [
+        {
+          "_type": "Button",
+          "ID": "btnRunStream",
+          "title": "Stream output",
+          "width": 200,
+          "_action": "streamSpawnAndAppend",
+          "_cmd": "/bin/sh",
+          "_args": ["-c", "for i in 1 2 3 4 5; do echo round-$i; sleep 0.4; done"],
+          "_targetCanvas": "liveConsole"
+        }
+      ]
+    },
+    {
+      "_type": "Label",
+      "height": 18,
+      "contents": "<div style='font-size:11px;color:#666;'>host.exec.spawnStream — chunks render as they arrive</div>"
+    },
+    {
+      "_type": "HTMLFlow",
+      "ID": "liveConsole",
+      "height": 160,
+      "padding": 4,
+      "contents": "<em style='color:#888;'>Click \"Stream output\" to spawn a long-ish command. Lines appear progressively, not all at once.</em>"
     }
     ]
   }

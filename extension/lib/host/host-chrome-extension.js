@@ -36,19 +36,63 @@
   var _pending = Object.create(null); // id -> { resolve, reject, timer }
   var _listenerInstalled = false;
 
+  // ---- Stream subscriptions ----
+  // Used by host.exec.spawnStream and host.fs.watch. Each entry is keyed
+  // by streamId and points at an ExecHandle / WatchHandle whose onChunk /
+  // onExit / onError callbacks fan out broadcasted CHEERPX_STREAM_EVENT
+  // messages.
+  var _streamHandles = Object.create(null); // streamId -> handle
+  var _streamCounter = 0;
+
   function installListener() {
     if (_listenerInstalled) return;
     _listenerInstalled = true;
     window.addEventListener('message', function (event) {
       var msg = event.data;
-      if (!msg || msg.source !== 'smartclient-action-response') return;
-      var id = msg.id;
-      if (typeof id !== 'string' || id.slice(0, 5) !== 'host-') return;
-      var entry = _pending[id];
-      if (!entry) return;
-      clearTimeout(entry.timer);
-      delete _pending[id];
-      entry.resolve(msg.response);
+      if (!msg) return;
+      // Action responses (single-request/response)
+      if (msg.source === 'smartclient-action-response') {
+        var id = msg.id;
+        if (typeof id !== 'string' || id.slice(0, 5) !== 'host-') return;
+        var entry = _pending[id];
+        if (!entry) return;
+        clearTimeout(entry.timer);
+        delete _pending[id];
+        entry.resolve(msg.response);
+        return;
+      }
+      // Stream events forwarded by wrapper.html bridge.js
+      if (msg.source === 'smartclient-stream-event') {
+        var sid = msg.streamId;
+        var handle = _streamHandles[sid];
+        if (!handle) return;
+        var evt = msg.event || {};
+        try {
+          if (evt.type === 'stdout' && handle._onStdout) {
+            handle._onStdout.forEach(function (cb) { try { cb(evt.chunk); } catch (e) {} });
+          } else if (evt.type === 'stderr' && handle._onStderr) {
+            handle._onStderr.forEach(function (cb) { try { cb(evt.chunk); } catch (e) {} });
+          } else if (evt.type === 'exit') {
+            handle._onExit.forEach(function (cb) { try { cb(evt.exitCode); } catch (e) {} });
+            handle._resolve({
+              exitCode: evt.exitCode,
+              stdout: handle._collectedStdout,
+              elapsedMs: evt.elapsedMs,
+            });
+            delete _streamHandles[sid];
+          } else if (evt.type === 'error') {
+            handle._onError.forEach(function (cb) { try { cb(new Error(evt.error)); } catch (e) {} });
+            handle._reject(new Error(evt.error));
+            delete _streamHandles[sid];
+          }
+          if (evt.type === 'stdout' && handle._collectStdout) {
+            handle._collectedStdout += evt.chunk;
+          }
+        } catch (e) {
+          console.warn('[Host stream] callback threw:', e && e.message);
+        }
+        return;
+      }
     });
   }
 
@@ -82,11 +126,50 @@
 
   // ---- Install ID ----
   //
-  // Phase 0: use a stable-per-tab value. Later phases should surface the real
-  // extension install ID from chrome.runtime.id via the service worker and
-  // cache it here. For now, use a string that distinguishes sessions but
-  // does not claim to be a real install identifier.
+  // Phase 4.6: lazily fetched from the SW via HOST_IDENTITY_GET, which
+  // surfaces chrome.runtime.id plus a per-install nonce stored in
+  // chrome.storage.local. Until the first call resolves we fall back to a
+  // sandbox-prefixed value so callers always get a string.
   var _installId = 'sandbox-' + Math.random().toString(36).slice(2, 10);
+  var _hostType = 'chrome-extension-sandbox';
+  var _identityFetched = false;
+  function fetchIdentityOnce() {
+    if (_identityFetched) return Promise.resolve();
+    _identityFetched = true;
+    return dispatch('HOST_IDENTITY_GET', {}, 5000).then(function (id) {
+      if (id && id.installId) {
+        _installId = id.installId;
+        if (id.hostType) _hostType = id.hostType;
+        if (_host) _host.identity.installId = _installId;
+      }
+    }).catch(function () { _identityFetched = false; });
+  }
+
+  // ---- ExecHandle factory (used by host.exec.spawnStream) ----
+  function _makeExecHandle(streamId) {
+    var resolveDone, rejectDone;
+    var done = new Promise(function (res, rej) { resolveDone = res; rejectDone = rej; });
+    var handle = {
+      streamId: streamId,
+      done: done,
+      _onStdout: [],
+      _onStderr: [],
+      _onExit: [],
+      _onError: [],
+      _collectStdout: true,    // accumulate stdout chunks for the done payload
+      _collectedStdout: '',
+      _resolve: resolveDone,
+      _reject: rejectDone,
+      onStdout: function (cb) { this._onStdout.push(cb); return this; },
+      onStderr: function (cb) { this._onStderr.push(cb); return this; },
+      onExit:   function (cb) { this._onExit.push(cb);   return this; },
+      onError:  function (cb) { this._onError.push(cb);  return this; },
+      kill: function () {
+        return dispatch('HOST_EXEC_SPAWN_STREAM_KILL', { streamId: streamId }, 5000);
+      },
+    };
+    return handle;
+  }
 
   // ---- Runtimes registry ----
 
@@ -116,9 +199,11 @@
   var _host = null;
 
   function createHost() {
+    // Kick off identity fetch in the background — non-blocking
+    fetchIdentityOnce();
     var host = {
       identity: {
-        hostType: 'chrome-extension-sandbox',
+        hostType: _hostType,
         installId: _installId,
       },
 
@@ -229,7 +314,7 @@
          * For non-default runtimes, call host.runtimes.get('<name>').spawn(...)
          * directly.
          *
-         * Currently collect-and-return; streaming ExecHandle is Phase 4.6.
+         * Collect-and-return — see spawnStream() for the streaming variant.
          *
          * @param {string} cmd        Absolute path to executable
          * @param {string[]} [args]
@@ -243,18 +328,63 @@
             opts: opts || {},
           }, 300000);
         },
+
+        /**
+         * Streaming spawn — returns an ExecHandle whose onStdout / onStderr
+         * / onExit / onError callbacks fire as data arrives. The `done`
+         * Promise resolves with the final exit info when the process
+         * exits.
+         *
+         *   var handle = host.exec.spawnStream('/usr/bin/python3', ['-c', 'for i in range(3): print(i)']);
+         *   handle.onStdout(function (chunk) { console.log(chunk); });
+         *   await handle.done;  // → { exitCode: 0, stdout: '0\n1\n2\n', elapsedMs: ... }
+         *
+         * @param {string} cmd
+         * @param {string[]} [args]
+         * @param {object} [opts]
+         * @returns {ExecHandle}
+         */
+        spawnStream: function (cmd, args, opts) {
+          installListener();
+          var streamId = 'estream-' + (++_streamCounter) + '-' + Date.now();
+          var handle = _makeExecHandle(streamId);
+          _streamHandles[streamId] = handle;
+          // Kick off the stream. We don't await — chunks arrive via the
+          // installed listener and resolve handle.done.
+          dispatch('HOST_EXEC_SPAWN_STREAM_START', {
+            streamId: streamId,
+            cmd: cmd,
+            args: args || [],
+            opts: opts || {},
+          }, 30000).then(function (resp) {
+            if (!resp || !resp.success) {
+              var err = new Error((resp && resp.error) || 'spawnStream start failed');
+              handle._onError.forEach(function (cb) { try { cb(err); } catch (e) {} });
+              handle._reject(err);
+              delete _streamHandles[streamId];
+            }
+          }).catch(function (err) {
+            handle._onError.forEach(function (cb) { try { cb(err); } catch (e) {} });
+            handle._reject(err);
+            delete _streamHandles[streamId];
+          });
+          return handle;
+        },
       },
 
       fs: {
         /**
          * Read a file from the default vm runtime's filesystem (cheerpx).
-         * Returns text content. Binary support comes in Phase 4.6.
          *
          * @param {string} path
-         * @returns {Promise<{success, exitCode, content}>}
+         * @param {object} [opts]
+         * @param {string} [opts.as]   'text' (default) or 'bytes' (returns
+         *                              { bytes: number[] } using xxd hex
+         *                              encoding to survive transport)
+         * @returns {Promise<{success, exitCode, content?, bytes?}>}
          */
-        read: function (path) {
-          return dispatch('HOST_FS_READ', { path: path }, 60000);
+        read: function (path, opts) {
+          return dispatch('HOST_FS_READ', { path: path, as: opts && opts.as }, 60000);
         },
 
         /**
@@ -277,6 +407,65 @@
          */
         list: function (path) {
           return dispatch('HOST_FS_LIST', { path: path }, 60000);
+        },
+
+        /**
+         * Watch a file or directory for changes. The callback fires whenever
+         * the path's mtime changes (file modified, deleted, or appears for
+         * the first time). Implementation: client-side polling on top of
+         * host.fs.list/host.exec.spawn — no real inotify support yet.
+         *
+         * @param {string} path
+         * @param {(evt: {type: 'change'|'delete'|'create', mtime?: string}) => void} cb
+         * @param {object} [opts]
+         * @param {number} [opts.intervalMs=2000]   poll interval
+         * @returns {() => void}                     unsubscribe function
+         */
+        watch: function (path, cb, opts) {
+          var intervalMs = (opts && opts.intervalMs) || 2000;
+          var lastMtime = null;
+          var lastExists = null;
+          var stopped = false;
+          // Use the parent dir + filename split so we can poll via /bin/stat
+          // (or, fall back to spawn with stat -c '%Y') instead of relying on
+          // host.fs.list of a directory which is overkill for one file.
+          function tick() {
+            if (stopped) return;
+            // stat -c '%y' returns human-readable mtime including nanoseconds
+            // (e.g., "2026-04-12 01:46:13.123456789 +0000"), so writes within
+            // the same epoch second produce distinct strings. Nonzero exit
+            // means the file is missing — handled below.
+            dispatch('HOST_EXEC_SPAWN', {
+              cmd: '/bin/sh',
+              args: ['-c', "stat -c '%y' '" + String(path).replace(/'/g, "'\\''") + "' 2>/dev/null"],
+            }, 10000).then(function (r) {
+              if (stopped) return;
+              var stdout = (r && r.stdout) || '';
+              var mtime = stdout.trim();
+              if (!mtime) {
+                // File doesn't exist
+                if (lastExists === true) {
+                  try { cb({ type: 'delete' }); } catch (e) {}
+                  lastMtime = null;
+                }
+                lastExists = false;
+              } else {
+                if (lastExists === false) {
+                  try { cb({ type: 'create', mtime: mtime }); } catch (e) {}
+                } else if (lastMtime !== null && mtime !== lastMtime) {
+                  try { cb({ type: 'change', mtime: mtime }); } catch (e) {}
+                }
+                lastExists = true;
+                lastMtime = mtime;
+              }
+            }).catch(function (err) {
+              console.warn('[host.fs.watch] poll error:', err && err.message);
+            }).finally(function () {
+              if (!stopped) setTimeout(tick, intervalMs);
+            });
+          }
+          tick();
+          return function unsubscribe() { stopped = true; };
         },
       },
     };
