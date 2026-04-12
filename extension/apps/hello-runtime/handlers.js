@@ -143,4 +143,54 @@ export function register(handlers /*, { manifest } */) {
       read: readRes.content,
     };
   };
+
+  /**
+   * Streaming spawn demo — runs `for i in 1..5; sleep 0.2; echo round-$i`
+   * via a long-lived port. Returns the captured chunks with their arrival
+   * timestamps so the dashboard can show that streaming actually streams
+   * (chunks ~200ms apart, not all at the end).
+   *
+   * Note: this handler runs in the SW context, NOT through host.exec.
+   * The streaming API on `host.exec.spawnStream` is sandbox-side. To
+   * exercise it from a SW handler we go directly through the cheerpx
+   * stream-port handlers.
+   */
+  handlers['HELLO_RUNTIME_STREAM'] = async (msg) => {
+    if (typeof handlers['cheerpx-spawn-stream-start'] !== 'function') {
+      return { success: false, error: 'cheerpx stream handler not registered' };
+    }
+    const streamId = 'hello-stream-' + Date.now();
+    const t0 = Date.now();
+    const chunks = [];
+    let exitCode = null;
+    // Listen for broadcasts and capture matching streamId chunks
+    const collector = (incoming) => {
+      if (!incoming || incoming.type !== 'CHEERPX_STREAM_EVENT' || incoming.streamId !== streamId) return;
+      const evt = incoming.event || {};
+      if (evt.type === 'stdout') chunks.push({ ms: Date.now() - t0, chunk: evt.chunk });
+      if (evt.type === 'exit') exitCode = evt.exitCode;
+    };
+    chrome.runtime.onMessage.addListener(collector);
+    try {
+      await handlers['cheerpx-spawn-stream-start']({
+        streamId,
+        cmd: '/bin/sh',
+        args: ['-c', 'for i in 1 2 3 4 5; do echo round-$i; sleep 0.2; done'],
+      });
+      // Wait for the exit event (poll)
+      const deadline = Date.now() + 30000;
+      while (exitCode === null && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    } finally {
+      chrome.runtime.onMessage.removeListener(collector);
+    }
+    return {
+      success: exitCode === 0,
+      exitCode,
+      chunkCount: chunks.length,
+      chunks,
+      totalElapsedMs: Date.now() - t0,
+    };
+  };
 }

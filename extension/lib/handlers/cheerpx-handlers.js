@@ -238,4 +238,71 @@ export function register(handlers) {
   handlers['cheerpx-fs-list'] = async (msg) => {
     return invokeTab('fs-list', { path: msg.path });
   };
+
+  handlers['cheerpx-fs-read-bytes'] = async (msg) => {
+    return invokeTab('fs-read-bytes', { path: msg.path });
+  };
+
+  // ---- Streaming spawn via long-lived chrome.tabs.connect Port ----
+  //
+  // The caller (host.exec.spawnStream → HOST_EXEC_SPAWN_STREAM_START)
+  // provides a streamId. We open a port to the cheerpx tab's content
+  // script, send the spawn-stream command, and relay each port message
+  // (stdout chunk, exit, error) to the wider extension via
+  // chrome.runtime.sendMessage broadcast — wrapper.html's onMessage
+  // listener picks them up and forwards to the SC sandbox iframe.
+
+  const _streamPorts = new Map(); // streamId -> Port
+
+  handlers['cheerpx-spawn-stream-start'] = async (msg) => {
+    if (!msg.streamId) throw new Error('spawn-stream requires streamId');
+    await ensureCheerpXTab();
+
+    const port = chrome.tabs.connect(_tabId, { name: 'cheerpx-stream' });
+    _streamPorts.set(msg.streamId, port);
+
+    port.onMessage.addListener((evt) => {
+      if (!evt || !evt.type) return;
+      // Broadcast to all extension contexts (wrapper.html will pick it up)
+      chrome.runtime.sendMessage({
+        type: 'CHEERPX_STREAM_EVENT',
+        streamId: msg.streamId,
+        event: evt,
+      }).catch(() => {}); // ignore errors when no listeners present
+      if (evt.type === 'exit' || evt.type === 'error') {
+        _streamPorts.delete(msg.streamId);
+        try { port.disconnect(); } catch {}
+      }
+    });
+
+    port.onDisconnect.addListener(() => {
+      _streamPorts.delete(msg.streamId);
+    });
+
+    port.postMessage({
+      type: 'spawn-stream',
+      streamId: msg.streamId,
+      cmd: msg.cmd,
+      args: msg.args || [],
+      opts: msg.opts || {},
+    });
+
+    return { success: true, streamId: msg.streamId };
+  };
+
+  handlers['cheerpx-spawn-stream-kill'] = async (msg) => {
+    const port = _streamPorts.get(msg.streamId);
+    if (!port) return { success: false, error: 'no such stream' };
+    try {
+      port.postMessage({ type: 'kill', streamId: msg.streamId });
+    } catch {}
+    _streamPorts.delete(msg.streamId);
+    try { port.disconnect(); } catch {}
+    return { success: true };
+  };
 }
+
+// Re-export the tab id reference so SW eval can inspect it for diagnostics
+// (only useful in dev — production callers should never need it).
+function _getTabId() { return _tabId; }
+export { _getTabId };
