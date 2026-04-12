@@ -1244,7 +1244,7 @@
 
       <!-- Settings (collapsible) -->
       <div class="af-collapsible" data-section="settings">
-        <div class="af-collapsible-header" onclick="this.parentElement.classList.toggle('collapsed')">
+        <div class="af-collapsible-header">
           <span class="af-collapse-arrow">&#9662;</span> Settings
         </div>
         <div class="af-collapsible-body">
@@ -1344,9 +1344,9 @@
 
       <!-- Plugin Library (collapsible) -->
       <div class="af-collapsible" data-section="plugins">
-        <div class="af-collapsible-header" onclick="this.parentElement.classList.toggle('collapsed')">
+        <div class="af-collapsible-header">
           <span class="af-collapse-arrow">&#9662;</span> Plugins
-          <button id="af-new-project-btn" class="af-new-btn" onclick="event.stopPropagation()">+ New</button>
+          <button id="af-new-project-btn" class="af-new-btn">+ New</button>
         </div>
         <div class="af-collapsible-body">
           <div id="af-project-library">
@@ -1389,37 +1389,6 @@
   </footer>
 
   <script type="module" src="sidepanel.js"></script>
-  <!-- Collapsible section state persistence -->
-  <script>
-    (function () {
-      var KEY = 'af-collapsed-sections';
-      var saved = {};
-      try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
-
-      // Restore collapsed state
-      document.querySelectorAll('.af-collapsible').forEach(function (el) {
-        var section = el.dataset.section;
-        if (section && saved[section]) el.classList.add('collapsed');
-      });
-
-      // Observe toggles and persist
-      document.addEventListener('click', function (e) {
-        var header = e.target.closest('.af-collapsible-header');
-        if (!header) return;
-        var section = header.parentElement.dataset.section;
-        if (!section) return;
-        // Wait a tick for the classList.toggle to apply
-        setTimeout(function () {
-          var isCollapsed = header.parentElement.classList.contains('collapsed');
-          try {
-            var state = JSON.parse(localStorage.getItem(KEY) || '{}');
-            if (isCollapsed) state[section] = true;
-            else delete state[section];
-            localStorage.setItem(KEY, JSON.stringify(state));
-          } catch (e) {}
-        }, 0);
-      });
-    })();
-  </script>
+  <script src="collapsible.js"></script>
 </body>
 </html>
