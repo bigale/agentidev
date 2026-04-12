@@ -24,8 +24,16 @@
  *     -> CheerpX.Linux.run captures stdout, replies back through the chain
  */
 
-const CHEERPX_URL = 'http://localhost:9877/cheerpx-runtime.html';
+const CHEERPX_URL_BASE = 'http://localhost:9877/cheerpx-runtime.html';
 const CONTENT_SCRIPT = 'cheerpx-content.js';
+
+// Cache-bust the runtime page on each fresh-tab creation. asset-server sends
+// max-age=3600 for HTML, so without ?t= the browser HTTP cache may serve a
+// stale runtime page after we update it during dev. The query string only
+// matters for tab creation; once the tab is open, we leave it alone.
+function freshUrl() {
+  return CHEERPX_URL_BASE + '?t=' + Date.now();
+}
 
 let _tabId = null;
 let _ensureInFlight = null;
@@ -51,7 +59,7 @@ export function markTabReady() {
 
 async function findExistingTab() {
   try {
-    const tabs = await chrome.tabs.query({ url: CHEERPX_URL + '*' });
+    const tabs = await chrome.tabs.query({ url: CHEERPX_URL_BASE + '*' });
     if (tabs && tabs.length > 0) {
       console.log('[CheerpX] found existing tab', tabs[0].id);
       return tabs[0].id;
@@ -121,9 +129,10 @@ async function ensureCheerpXTab() {
     }
 
     if (_tabId === null) {
-      console.log('[CheerpX] creating background tab:', CHEERPX_URL);
+      const url = freshUrl();
+      console.log('[CheerpX] creating background tab:', url);
       resetReadyPromise();
-      const tab = await chrome.tabs.create({ url: CHEERPX_URL, active: false });
+      const tab = await chrome.tabs.create({ url, active: false });
       _tabId = tab.id;
       console.log('[CheerpX] tab created', _tabId);
       await waitForTabComplete(_tabId);
@@ -210,5 +219,23 @@ export function register(handlers) {
       opts: msg.opts || {},
       options: msg.options || {},
     });
+  };
+
+  // ---- Filesystem operations ----
+  // Each routes to a corresponding `fs-*` command on the runtime page,
+  // which uses cx.run() under the hood (cat / sh / ls). Phase 4.6 will
+  // replace these with native CheerpX filesystem APIs once we surface
+  // them through the runtime iframe.
+
+  handlers['cheerpx-fs-read'] = async (msg) => {
+    return invokeTab('fs-read', { path: msg.path });
+  };
+
+  handlers['cheerpx-fs-write'] = async (msg) => {
+    return invokeTab('fs-write', { path: msg.path, content: msg.content });
+  };
+
+  handlers['cheerpx-fs-list'] = async (msg) => {
+    return invokeTab('fs-list', { path: msg.path });
   };
 }

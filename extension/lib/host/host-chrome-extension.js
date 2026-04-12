@@ -136,6 +136,55 @@
 
       storage: {
         /**
+         * Get a value previously stored via host.storage.set().
+         * @param {string} key
+         * @returns {Promise<any>}  resolves to the stored value or undefined
+         */
+        get: function (key) {
+          return dispatch('HOST_STORAGE_GET', { key: key }).then(function (r) {
+            return r && r.value;
+          });
+        },
+
+        /**
+         * Set a value in host-managed key/value storage.
+         * @param {string} key
+         * @param {any} value  any structured-clonable value
+         * @returns {Promise<void>}
+         */
+        set: function (key, value) {
+          return dispatch('HOST_STORAGE_SET', { key: key, value: value }).then(function () {});
+        },
+
+        /**
+         * Delete a key.
+         * @param {string} key
+         * @returns {Promise<void>}
+         */
+        del: function (key) {
+          return dispatch('HOST_STORAGE_DEL', { key: key }).then(function () {});
+        },
+
+        /**
+         * Opaque blob storage. Phase 4.5 wraps base64 in storage.local;
+         * Phase 4.6 will switch to OPFS without changing the API.
+         */
+        blob: {
+          put: function (key, bytes) {
+            // bytes is Uint8Array | number[] — postMessage transports number[]
+            var arr = bytes instanceof Uint8Array ? Array.from(bytes) : (bytes || []);
+            return dispatch('HOST_STORAGE_BLOB_PUT', { key: key, bytes: arr }, 60000)
+              .then(function (r) { return r; });
+          },
+          get: function (key) {
+            return dispatch('HOST_STORAGE_BLOB_GET', { key: key }, 60000).then(function (r) {
+              if (!r || !r.found) return null;
+              return new Uint8Array(r.bytes || []);
+            });
+          },
+        },
+
+        /**
          * Export app storage to the host's backing store. In the chrome
          * extension, this routes to the existing IDB_EXPORT handler which
          * serializes IndexedDB stores and pushes them to the bridge server.
@@ -148,6 +197,86 @@
           if (opts && opts.stores) payload.stores = opts.stores;
           var timeoutMs = (opts && opts.timeoutMs) || 30000;
           return dispatch('IDB_EXPORT', payload, timeoutMs);
+        },
+      },
+
+      network: {
+        /**
+         * Fetch a URL via the SW (which has full host_permissions).
+         * Returns a serializable subset of Response: { ok, status, statusText,
+         * url, headers, text|json|bytes }. The body shape is selected by `as`.
+         *
+         * @param {string} url
+         * @param {object} [init]  fetch init (method, headers, body)
+         * @param {object} [opts]
+         * @param {string} [opts.as]   'text' (default) | 'json' | 'bytes'
+         * @returns {Promise<object>}
+         */
+        fetch: function (url, init, opts) {
+          var as = (opts && opts.as) || 'text';
+          var timeoutMs = (opts && opts.timeoutMs) || 60000;
+          return dispatch('HOST_NETWORK_FETCH', {
+            url: url,
+            init: init || {},
+            as: as,
+          }, timeoutMs);
+        },
+      },
+
+      exec: {
+        /**
+         * Run a command in the default exec runtime (today: cheerpx).
+         * For non-default runtimes, call host.runtimes.get('<name>').spawn(...)
+         * directly.
+         *
+         * Currently collect-and-return; streaming ExecHandle is Phase 4.6.
+         *
+         * @param {string} cmd        Absolute path to executable
+         * @param {string[]} [args]
+         * @param {object} [opts]     cwd, env, etc. (passed to runtime)
+         * @returns {Promise<{success, exitCode, stdout, elapsedMs}>}
+         */
+        spawn: function (cmd, args, opts) {
+          return dispatch('HOST_EXEC_SPAWN', {
+            cmd: cmd,
+            args: args || [],
+            opts: opts || {},
+          }, 300000);
+        },
+      },
+
+      fs: {
+        /**
+         * Read a file from the default vm runtime's filesystem (cheerpx).
+         * Returns text content. Binary support comes in Phase 4.6.
+         *
+         * @param {string} path
+         * @returns {Promise<{success, exitCode, content}>}
+         */
+        read: function (path) {
+          return dispatch('HOST_FS_READ', { path: path }, 60000);
+        },
+
+        /**
+         * Write a string to a file in the default vm runtime's filesystem.
+         * Phase 4.5 caps content size around ~64 KB due to argv length;
+         * stdin streaming comes in Phase 4.6.
+         *
+         * @param {string} path
+         * @param {string} content
+         * @returns {Promise<{success, exitCode, bytesWritten}>}
+         */
+        write: function (path, content) {
+          return dispatch('HOST_FS_WRITE', { path: path, content: content }, 60000);
+        },
+
+        /**
+         * List a directory in the default vm runtime's filesystem.
+         * @param {string} path
+         * @returns {Promise<{success, entries: Array<{name,type,size,mode,mtime}>}>}
+         */
+        list: function (path) {
+          return dispatch('HOST_FS_LIST', { path: path }, 60000);
         },
       },
     };
