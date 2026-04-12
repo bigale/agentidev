@@ -232,6 +232,19 @@ export function register(handlers) {
   handlers['HOST_FS_WRITE'] = async (msg) => fsWrite(handlers, msg.path, msg.content);
   handlers['HOST_FS_LIST']  = async (msg) => fsList(handlers, msg.path);
 
+  /**
+   * Upload a URL's contents into the VM filesystem. The runtime page
+   * fetches the URL (same-origin to its localhost:9877 host), chunks
+   * the bytes, and writes them via base64-encoded cx.run shell commands.
+   * This bypasses the 64 KB host.fs.write limit.
+   */
+  handlers['HOST_FS_UPLOAD'] = async (msg) => {
+    if (typeof handlers['cheerpx-fs-upload'] !== 'function') {
+      throw new Error('host.fs.upload: cheerpx fs-upload handler not registered');
+    }
+    return handlers['cheerpx-fs-upload']({ url: msg.url, path: msg.path });
+  };
+
   // ---- identity ----
   // Surface the real chrome.runtime.id plus a per-install nonce that's
   // generated once and persisted in chrome.storage.local. The result is

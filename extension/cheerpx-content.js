@@ -26,10 +26,13 @@
 (function () {
   'use strict';
 
-  // Idempotency guard — executeScript can fire twice if the SW restarts.
-  if (window.__agentidevCheerpXBridgeInstalled) return;
-  window.__agentidevCheerpXBridgeInstalled = true;
-
+  // On extension reload, the previous content script's listeners are GC'd
+  // (they belonged to the old extension context) but the page persists with
+  // __agentidevCheerpXBridgeInstalled still set. So we MUST re-install every
+  // time — checking a window flag would skip installation and leave no
+  // working bridge. Duplicate listeners are harmless: each request/response
+  // is matched by unique id/streamId, so a duplicate listener just drops
+  // the message it can't match.
   console.log('[cheerpx-bridge] installing on', location.href);
 
   var _reqCounter = 0;

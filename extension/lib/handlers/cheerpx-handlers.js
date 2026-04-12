@@ -243,6 +243,10 @@ export function register(handlers) {
     return invokeTab('fs-read-bytes', { path: msg.path });
   };
 
+  handlers['cheerpx-fs-upload'] = async (msg) => {
+    return invokeTab('fs-upload', { url: msg.url, path: msg.path });
+  };
+
   // ---- Streaming spawn via long-lived chrome.tabs.connect Port ----
   //
   // The caller (host.exec.spawnStream → HOST_EXEC_SPAWN_STREAM_START)
