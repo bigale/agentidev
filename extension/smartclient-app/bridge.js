@@ -172,6 +172,12 @@ else if (urlParams.get('mode')) {
       }
       document.title = match.name + ' — Agentidev';
       sendConfigToIframe(resp.config);
+      // Push the plugin config to the playground session so the sidebar
+      // can see it (Inspector button visibility, AI modification, etc.)
+      chrome.runtime.sendMessage({
+        type: 'SC_PLAYGROUND_CONFIG_UPDATED',
+        config: resp.config,
+      });
     });
   });
 }
@@ -407,8 +413,8 @@ chrome.runtime.onMessage.addListener((message) => {
     return;
   }
 
-  // Playground mode: skin change triggers iframe reload
-  if (message.type === 'AUTO_BROADCAST_SC_SKIN' && urlParams.get('mode') === 'playground') {
+  // Skin change triggers iframe reload — works in playground AND plugin modes
+  if (message.type === 'AUTO_BROADCAST_SC_SKIN' && urlParams.get('mode')) {
     _beginIframeNavigation();
     iframe.src = 'app.html?skin=' + encodeURIComponent(message.skin);
     // After new skin loads, re-send current config (buffered via ready signal)
@@ -420,14 +426,14 @@ chrome.runtime.onMessage.addListener((message) => {
     return;
   }
 
-  // Playground mode: accept broadcast configs from sidepanel controller
-  if (message.type === 'AUTO_BROADCAST_SC_CONFIG' && urlParams.get('mode') === 'playground') {
+  // Accept broadcast configs from sidepanel — works in all modes
+  if (message.type === 'AUTO_BROADCAST_SC_CONFIG' && urlParams.get('mode')) {
     if (message.config) sendConfigToIframe(message.config, message.capabilities);
     return;
   }
 
-  // Inspector mode toggle from sidepanel
-  if (message.type === 'AUTO_BROADCAST_SC_MODE' && urlParams.get('mode') === 'playground') {
+  // Inspector mode toggle from sidepanel — works in playground AND plugin modes
+  if (message.type === 'AUTO_BROADCAST_SC_MODE' && urlParams.get('mode')) {
     try {
       iframe.contentWindow.postMessage({
         source: 'smartclient-set-mode',
