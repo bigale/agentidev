@@ -48,8 +48,10 @@
       if (_inspectorVisible) {
         this.refresh();
         _splitPane.show();
+        if (_toolbar) _toolbar.show();
       } else {
         _splitPane.hide();
+        if (_toolbar) _toolbar.hide();
       }
       _updateToggleButton();
     },
@@ -129,6 +131,7 @@
     _toolbar = isc.ToolStrip.create({
       width: '100%',
       height: 30,
+      visibility: 'hidden',
       members: [
         isc.ToolStripButton.create({
           ID: 'inspectorToggleBtn',
