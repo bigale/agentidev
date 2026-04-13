@@ -587,95 +587,50 @@ function showError(msg) {
 function loadProjectLibrary() {
   if (!els.projectList) return;
 
-  // Load plugins (primary) + legacy projects (secondary)
+  // Load plugins only — legacy projects deprecated
   chrome.runtime.sendMessage({ type: 'PLUGIN_LIST' }, (plugins) => {
     const pluginList = Array.isArray(plugins) ? plugins : [];
 
-    // Also load legacy projects
-    chrome.runtime.sendMessage({ type: 'AF_PROJECT_LIST' }, (projResponse) => {
-      const projects = (projResponse?.success && projResponse.projects) ? projResponse.projects : [];
-      // Filter out projects that are already published as plugins
-      const pluginIds = new Set(pluginList.map(p => p.id));
-      const legacyProjects = projects.filter(p => !pluginIds.has(p.id));
+    // Known file-backed plugin IDs that shouldn't have a delete button
+    // (they're managed externally via assemble.sh)
+    const FILE_BACKED = new Set(['hello-runtime', 'horsebread']);
 
-      const items = [];
+    const items = [];
+    for (const p of pluginList) {
+      const isFile = FILE_BACKED.has(p.id);
+      const badge = isFile ? '<span style="color:#888;font-size:9px;margin-left:4px;">file</span>' : '';
+      items.push(`<div class="af-project-card" data-id="${esc(p.id)}" data-source="plugin">
+        <div class="af-project-card-header">
+          <div class="af-project-card-name">${esc(p.name)}${badge}</div>
+          <div class="af-project-card-meta">${esc(p.version || '')}</div>
+          ${!isFile ? `<button class="af-app-delete" data-id="${esc(p.id)}" data-type="plugin" title="Delete">x</button>` : ''}
+        </div>
+        ${p.description ? `<div class="af-project-card-desc">${esc(p.description).slice(0, 60)}</div>` : ''}
+      </div>`);
+    }
 
-      // Plugins first
-      for (const p of pluginList) {
-        const isFileBacked = !p.description?.includes('Published from Agentiface') && !p.id?.startsWith('proj_');
-        const badge = isFileBacked ? '<span style="color:#888;font-size:9px;margin-left:4px;">file</span>' : '';
-        items.push(`<div class="af-project-card" data-id="${esc(p.id)}" data-source="plugin">
-          <div class="af-project-card-header">
-            <div class="af-project-card-name">${esc(p.name)}${badge}</div>
-            <div class="af-project-card-meta">${esc(p.version || '')}</div>
-            ${!isFileBacked ? `<button class="af-app-delete" data-id="${esc(p.id)}" data-type="plugin" title="Delete">x</button>` : ''}
-          </div>
-          ${p.description ? `<div class="af-project-card-desc">${esc(p.description).slice(0, 60)}</div>` : ''}
-        </div>`);
-      }
+    if (items.length === 0) {
+      els.projectList.innerHTML = '<div class="af-empty">No plugins yet — click + New</div>';
+    } else {
+      els.projectList.innerHTML = items.join('');
+    }
 
-      // Legacy projects (not yet published as plugins)
-      if (legacyProjects.length > 0) {
-        items.push('<div style="font-size:10px;color:#666;padding:6px 4px 2px;border-top:1px solid #333;margin-top:4px;">Legacy Projects</div>');
-        for (const proj of legacyProjects) {
-          const compCount = proj.componentCount || 0;
-          items.push(`<div class="af-project-card" data-id="${esc(proj.id)}" data-source="project">
-            <div class="af-project-card-header">
-              <div class="af-project-card-name">${esc(proj.name)}</div>
-              <div class="af-project-card-meta">${compCount} DS</div>
-              <button class="af-app-delete" data-id="${esc(proj.id)}" data-type="project" title="Delete">x</button>
-            </div>
-            ${proj.description ? `<div class="af-project-card-desc">${esc(proj.description)}</div>` : ''}
-          </div>`);
-        }
-      }
+    // Click → open plugin mode
+    els.projectList.querySelectorAll('.af-project-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.classList.contains('af-app-delete')) return;
+        openPluginMode(card.dataset.id);
+      });
+    });
 
-      if (items.length === 0) {
-        els.projectList.innerHTML = '<div class="af-empty">No plugins yet — click + New</div>';
-      } else {
-        els.projectList.innerHTML = items.join('');
-      }
-
-      // Click handlers
-      els.projectList.querySelectorAll('.af-project-card').forEach(card => {
-        card.addEventListener('click', (e) => {
-          if (e.target.classList.contains('af-app-delete')) return;
-          const id = card.dataset.id;
-          const source = card.dataset.source;
-          if (source === 'plugin') {
-            // Open the plugin in its own mode (editable if storage-backed)
-            openPluginMode(id);
-          } else {
-            // Legacy: load project into playground
-            chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_LOAD_PROJECT', id }, (response) => {
-              if (response?.success) openPlayground();
-            });
-          }
+    // Delete → unpublish
+    els.projectList.querySelectorAll('.af-app-delete').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        chrome.runtime.sendMessage({ type: 'SC_UNPUBLISH_PLUGIN', id: btn.dataset.id }, () => {
+          loadProjectLibrary();
         });
       });
-
-      // Delete handlers
-      els.projectList.querySelectorAll('.af-app-delete').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const id = btn.dataset.id;
-          const type = btn.dataset.type;
-          if (type === 'plugin') {
-            chrome.runtime.sendMessage({ type: 'SC_UNPUBLISH_PLUGIN', id }, () => {
-              loadProjectLibrary();
-            });
-          } else {
-            chrome.runtime.sendMessage({ type: 'SC_PROJECT_DELETE', id }, () => {
-              chrome.runtime.sendMessage({ type: 'AF_PROJECT_DELETE', id }, () => {
-                loadProjectLibrary();
-              });
-            });
-          }
-        });
-      });
-
-      // Load legacy apps
-      loadLegacyApps();
     });
   });
 }
