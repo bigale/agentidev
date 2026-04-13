@@ -128,35 +128,11 @@
   // ---- Internal: Build Components ----
 
   function _buildToolbar() {
-    _toolbar = isc.ToolStrip.create({
-      width: '100%',
-      height: 30,
-      visibility: 'hidden',
-      members: [
-        isc.ToolStripButton.create({
-          ID: 'inspectorToggleBtn',
-          title: 'Inspector',
-          icon: '[SKINIMG]actions/configure.png',
-          showDown: false,
-          click: function () {
-            InspectorUI.toggle();
-          },
-        }),
-        isc.ToolStripSeparator.create(),
-        isc.Label.create({
-          ID: 'inspectorModeLabel',
-          contents: 'Mode: AI',
-          width: 100,
-          height: 22,
-        }),
-        'separator',
-        isc.ToolStripMenuButton.create({
-          ID: 'addComponentBtn',
-          title: 'Add Component',
-          menu: _buildAddComponentMenu(),
-        }),
-      ],
-    });
+    // Toolbar removed from the canvas — all design controls live in the
+    // sidebar (AF tab). The Inspector toggle, mode label, and Add Component
+    // menu will move to the sidebar's Inspector collapsible section.
+    // For now, _toolbar is null and toggle/getToolbar handle it gracefully.
+    _toolbar = null;
   }
 
   function _buildAddComponentMenu() {
