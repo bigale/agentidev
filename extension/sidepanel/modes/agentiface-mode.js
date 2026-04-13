@@ -276,7 +276,7 @@ function handleSave() {
             type: 'SC_PUBLISH_PLUGIN',
             name: state.projectName,
             description: state.projectDescription || state.projectName,
-            projectId: state.projectId || null,
+            projectId: state.pluginId || state.projectId || null,
             config: state.config,
           }, (pubResponse) => {
             if (pubResponse?.success) {
