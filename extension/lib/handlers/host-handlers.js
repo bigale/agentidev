@@ -240,6 +240,37 @@ export function register(handlers) {
     return handlers['cheerpx-fs-upload']({ url: msg.url, path: msg.path });
   };
 
+  // ---- fetch + transform (generic API → grid records) ----
+  handlers['HOST_FETCH_AND_TRANSFORM'] = async (msg) => {
+    const { url, init, jsonPath, fields } = msg;
+    if (!url) return { success: false, error: 'url required' };
+    try {
+      const r = await fetch(url, init || {});
+      if (!r.ok) return { success: false, error: 'fetch failed: ' + r.status };
+      const json = await r.json();
+      // Extract the array from jsonPath (e.g., "features")
+      let records = json;
+      if (jsonPath) {
+        for (const p of jsonPath.split('.')) records = records?.[p];
+      }
+      if (!Array.isArray(records)) return { success: false, error: 'jsonPath did not resolve to array' };
+      // Flatten: if records have a .properties sub-object, merge it up
+      const flat = records.map((r, i) => {
+        const base = { _rowId: i };
+        const props = r.properties || r;
+        if (fields) {
+          for (const f of fields) base[f] = props[f] ?? '';
+        } else {
+          Object.assign(base, props);
+        }
+        return base;
+      });
+      return { success: true, data: flat, totalRows: flat.length };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  };
+
   // ---- identity ----
   // Surface the real chrome.runtime.id plus a per-install nonce that's
   // generated once and persisted in chrome.storage.local. The result is

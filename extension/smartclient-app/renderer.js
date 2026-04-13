@@ -289,6 +289,48 @@ var ACTION_MAP = {
    *     "_targetCanvas": "liveConsole"
    *   }
    */
+  /**
+   * Fetch data via a handler and load it into a ListGrid.
+   * The handler must return { data: [...records], totalRows }.
+   *
+   *   {
+   *     "_type": "Button",
+   *     "_action": "fetchAndLoadGrid",
+   *     "_messageType": "HOST_FETCH_AND_TRANSFORM",
+   *     "_messagePayload": { url, jsonPath, fields },
+   *     "_targetGrid": "myGrid",
+   *     "_statusCanvas": "statusLabel"   // optional: show count/error
+   *   }
+   */
+  'fetchAndLoadGrid': function (component, node) {
+    component.click = function () {
+      var grid = resolveRef(node._targetGrid);
+      var status = node._statusCanvas ? resolveRef(node._statusCanvas) : null;
+      if (!grid) {
+        console.warn('[Renderer] fetchAndLoadGrid: grid', node._targetGrid, 'not found');
+        return;
+      }
+      if (status && status.setContents) status.setContents('<em style="color:#888;">Loading...</em>');
+      var payload = Object.assign({}, node._messagePayload || {});
+      _rendererDispatchAsync(node._messageType, payload, node._timeoutMs).then(function (response) {
+        if (response && response.data && Array.isArray(response.data)) {
+          grid.setData(response.data);
+          if (status && status.setContents) {
+            status.setContents('<span style="color:#4CAF50;">' + response.totalRows + ' records loaded</span>');
+          }
+        } else {
+          var err = (response && response.error) || 'No data returned';
+          if (status && status.setContents) {
+            status.setContents('<span style="color:#f44336;">Error: ' + escapeHtml(err) + '</span>');
+          }
+        }
+      }).catch(function (err) {
+        if (status && status.setContents) {
+          status.setContents('<span style="color:#f44336;">' + escapeHtml(err.message || String(err)) + '</span>');
+        }
+      });
+    };
+  },
   'streamSpawnAndAppend': function (component, node) {
     component.click = function () {
       var target = resolveRef(node._targetCanvas);
