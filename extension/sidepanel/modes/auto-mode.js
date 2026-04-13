@@ -37,8 +37,7 @@ export function init() {
 
   els.bridgeConnectBtn.addEventListener('click', handleBridgeToggle);
 
-  const dashBtn = document.getElementById('auto-open-dashboard-btn');
-  if (dashBtn) dashBtn.addEventListener('click', openDashboard);
+  // React Dashboard removed (T1) — SC Dashboard is the only dashboard
   const scDashBtn = document.getElementById('auto-open-sc-dashboard-btn');
   if (scDashBtn) scDashBtn.addEventListener('click', openSCDashboard);
   initPluginMenu();
