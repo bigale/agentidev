@@ -431,12 +431,24 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'AUTO_BROADCAST_SC_SKIN' && urlParams.get('mode')) {
     _beginIframeNavigation();
     iframe.src = 'app.html?skin=' + encodeURIComponent(message.skin);
-    // After new skin loads, re-send current config (buffered via ready signal)
-    chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_STATE' }, (state) => {
-      if (state?.config) {
-        sendConfigToIframe(state.config, state.capabilities);
-      }
-    });
+    // After new skin loads, re-send the config. For plugin modes, re-fetch
+    // the PLUGIN's template (not the playground session which may have a
+    // different plugin's config). For playground/dashboard, use the session.
+    const currentMode = urlParams.get('mode');
+    if (currentMode !== 'playground' && currentMode !== 'dashboard') {
+      // Plugin mode — re-fetch this plugin's template
+      chrome.runtime.sendMessage({ type: 'PLUGIN_GET_TEMPLATE', id: currentMode, template: 'dashboard' }, (resp) => {
+        if (resp && resp.config) {
+          sendConfigToIframe(resp.config);
+        }
+      });
+    } else {
+      chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_STATE' }, (state) => {
+        if (state?.config) {
+          sendConfigToIframe(state.config, state.capabilities);
+        }
+      });
+    }
     return;
   }
 
