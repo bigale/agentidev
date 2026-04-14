@@ -934,6 +934,69 @@ window._dashboardConfig = {
               },
             ],
           },
+
+          // ==== Column 2: Test Results ====
+          {
+            _type: 'Portlet',
+            _column: 2,
+            _row: 3,
+            title: 'Test Results',
+            height: 220,
+            members: [
+              {
+                _type: 'VLayout',
+                width: '100%',
+                height: '100%',
+                membersMargin: 4,
+                members: [
+                  {
+                    _type: 'HLayout',
+                    height: 28,
+                    membersMargin: 4,
+                    members: [
+                      {
+                        _type: 'Button',
+                        ID: 'btnRunTests',
+                        title: 'Run All Tests',
+                        width: 100,
+                      },
+                      {
+                        _type: 'Button',
+                        ID: 'btnRefreshTests',
+                        title: 'Refresh',
+                        width: 70,
+                      },
+                      {
+                        _type: 'Label',
+                        ID: 'testStatusLabel',
+                        width: '*',
+                        height: 24,
+                        contents: '',
+                      },
+                    ],
+                  },
+                  {
+                    _type: 'ListGrid',
+                    ID: 'testResultsGrid',
+                    width: '100%',
+                    height: '*',
+                    canEdit: false,
+                    showHeader: true,
+                    sortField: 'completedAt',
+                    sortDirection: 'descending',
+                    fields: [
+                      { name: 'name',       title: 'Test',   width: '*' },
+                      { name: 'pass',       title: 'Pass',   width: 40 },
+                      { name: 'fail',       title: 'Fail',   width: 40 },
+                      { name: 'state',      title: 'Status', width: 60 },
+                      { name: 'durationMs', title: 'ms',     width: 50 },
+                    ],
+                    data: [],
+                  },
+                ],
+              },
+            ],
+          },
         ],
       },
     ],
