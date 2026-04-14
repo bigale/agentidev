@@ -123,11 +123,13 @@ try {
   // Done
   console.log('');
   const exitCode = client.summarize();
+  await client.complete({ assertions: client.getAssertionSummary() });
   process.exit(exitCode);
 
 } catch (err) {
   console.error('\nFatal error:', err.message);
   client.assert(false, 'Fatal: ' + err.message);
   client.summarize();
+  await client.complete({ assertions: client.getAssertionSummary() });
   process.exit(1);
 }

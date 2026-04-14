@@ -43,11 +43,13 @@ try {
   // Test 5: Summary
   await client.progress(5, 5, 'Summary');
   const exitCode = client.summarize();
+  await client.complete({ assertions: client.getAssertionSummary() });
   process.exit(exitCode);
 
 } catch (err) {
   console.error('Test failed:', err.message);
   client.assert(false, 'Unexpected error: ' + err.message);
   client.summarize();
+  await client.complete({ assertions: client.getAssertionSummary() });
   process.exit(1);
 }

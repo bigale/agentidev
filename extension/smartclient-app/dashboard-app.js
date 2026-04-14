@@ -195,9 +195,12 @@ function loadDashboard() {
     btnRunTests.click = function () {
       var testStatusLabel = resolveRef('testStatusLabel');
       if (testStatusLabel) testStatusLabel.setContents('<span style="color:#888;">Launching tests...</span>');
-      dispatchAction('SCRIPT_LAUNCH', { path: process.env.HOME + '/repos/agentidev/examples/test-internal-ops.mjs' });
-      // Refresh results after a delay
-      setTimeout(loadTestResults, 15000);
+      // Get the repo root from bridge info, then launch the test
+      dispatchActionAsync('BRIDGE_GET_INFO', {}).then(function (info) {
+        var base = (info && info.shimPath) ? info.shimPath.replace(/packages\/bridge\/playwright-shim\.mjs$/, '') : '';
+        dispatchAction('SCRIPT_LAUNCH', { path: base + 'examples/test-internal-ops.mjs' });
+        setTimeout(loadTestResults, 20000);
+      });
     };
   }
   var btnRefreshTests = resolveRef('btnRefreshTests');

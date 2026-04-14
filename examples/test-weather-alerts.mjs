@@ -180,11 +180,13 @@ try {
   await client.progress(5, 5, 'Summary');
   console.log('\nScreenshots: /tmp/test-weather-before.png, /tmp/test-weather-after.png');
   const exitCode = client.summarize();
+  await client.complete({ assertions: client.getAssertionSummary() });
   process.exit(exitCode);
 
 } catch (err) {
   console.error('\nFatal error:', err.message);
   client.assert(false, 'Fatal: ' + err.message);
   client.summarize();
+  await client.complete({ assertions: client.getAssertionSummary() });
   process.exit(1);
 }
