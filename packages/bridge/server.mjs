@@ -866,6 +866,7 @@ function startServer() {
       errors: script.errors || 0,
       sessionId: script.sessionId || null,
       artifactCount: script.artifacts.length,
+      assertions: script.assertions || null,
     };
 
     // Build artifact manifest (strip large inline data for broadcast — send metadata only)
@@ -1737,7 +1738,7 @@ function startServer() {
       }
 
       case MSG.BRIDGE_SCRIPT_PROGRESS: {
-        const { scriptId, step, total, label, errors, activity } = msg.payload || {};
+        const { scriptId, step, total, label, errors, activity, assertions } = msg.payload || {};
         const script = scripts.get(scriptId);
         if (!script) {
           sendTo(ws, buildError('Script not found', msg.id));
@@ -1748,6 +1749,7 @@ function startServer() {
         script.label = label ?? script.label;
         script.errors = errors ?? script.errors;
         script.activity = activity ?? script.activity;
+        if (assertions) script.assertions = assertions;
         script.state = 'running';
         broadcast(buildMessage(MSG.BRIDGE_SCRIPT_PROGRESS, scriptProgressPayload(scriptId, script)));
         break;
