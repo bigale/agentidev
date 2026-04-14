@@ -56,6 +56,9 @@ function findFirstGotoUrl(source) {
   return m ? m[1] : null;
 }
 
+// ---- Context menus ----
+var _historyContextMenu = null;
+
 // ---- Layout persistence debounce ----
 var _layoutSaveTimer = null;
 
@@ -92,6 +95,9 @@ function loadDashboard() {
       if (dv && record) dv.setData([record]);
       else if (dv) dv.setData([]);
 
+      // Show assertions if available (from live progress)
+      updateAssertionsGrid(record ? record.assertions : null);
+
       // Load script source into Monaco editor
       if (record && record.name) {
         loadScriptIntoEditor(record.name);
@@ -99,13 +105,60 @@ function loadDashboard() {
 
       refreshToolbar();
     };
+
+    // Double-click: always open script in editor (works in both Live and Archive mode)
+    scriptsGrid.recordDoubleClick = function (viewer, record) {
+      if (record && record.name) {
+        loadScriptIntoEditor(record.name);
+        // Also select in scripts library grid
+        selectScriptInLibrary(record.name);
+      }
+    };
+
+    // Right-click context menu
+    scriptsGrid.showContextMenu = function () {
+      var record = this.getSelectedRecord();
+      if (!record || !record.name) return false;
+      var scriptName = record.name;
+      if (!_historyContextMenu) {
+        _historyContextMenu = isc.Menu.create({
+          ID: 'historyContextMenu',
+          data: [
+            { title: 'Open in Editor', icon: '[SKIN]/actions/edit.png' },
+            { title: 'Run Script', icon: '[SKIN]/actions/forward.png' },
+          ],
+        });
+      }
+      _historyContextMenu.setData([
+        { title: 'Open in Editor', click: function () {
+          loadScriptIntoEditor(scriptName);
+          selectScriptInLibrary(scriptName);
+        }},
+        { title: 'Run Script', click: function () {
+          _loadedScriptName = scriptName;
+          _dashState.selectedScriptId = scriptName;
+          _dashState.selectedScript = { id: scriptName, name: scriptName };
+          launchSelectedScript(false, null);
+        }},
+      ]);
+      _historyContextMenu.showContextMenu();
+      return false;
+    };
   }
 
-  // Wire custom Run button handler (needs originalPath from library)
+  // Wire Run button (standalone — always launches a new browser)
   var tbRun = resolveRef('tbRun');
   if (tbRun) {
     tbRun.click = function () {
-      launchSelectedScript(false);
+      launchSelectedScript(false, null);
+    };
+  }
+
+  // Wire Session Run menu button — dynamically lists available sessions
+  var tbSessionRun = resolveRef('tbSessionRun');
+  if (tbSessionRun) {
+    tbSessionRun.click = function () {
+      showSessionRunMenu(tbSessionRun, false);
     };
   }
 
@@ -113,7 +166,7 @@ function loadDashboard() {
   var tbDebug = resolveRef('tbDebug');
   if (tbDebug) {
     tbDebug.click = function () {
-      launchSelectedScript(true);
+      launchSelectedScript(true, null);
     };
   }
 
@@ -187,6 +240,12 @@ function loadDashboard() {
         }, { defaultValue: '', width: 400 });
       }
     };
+  }
+
+  // Wire Help button
+  var tbHelp = resolveRef('tbHelp');
+  if (tbHelp) {
+    tbHelp.click = function () { showHelpWindow(); };
   }
 
   // Wire Test Results buttons
@@ -796,27 +855,65 @@ function parseIntervalInput(val) {
 
 // ---- Script launch ----
 
-function launchSelectedScript(debug) {
+function showSessionRunMenu(button, debug) {
+  // Read sessions from the grid data (already fetched from bridge)
+  var grid = resolveRef('sessionsGrid');
+  if (!grid) return;
+  var data = grid.getData();
+  if (!data || !data.getLength) return;
+
+  var ready = [];
+  for (var i = 0; i < data.getLength(); i++) {
+    var s = data.get(i);
+    if (s && s.state === 'ready') {
+      ready.push(s);
+    }
+  }
+  if (ready.length === 0) {
+    isc.warn('No ready sessions.<br>Create a session first, then use <b>Session</b> to run the script in it.');
+    return;
+  }
+  var menuData = [];
+  for (var j = 0; j < ready.length; j++) {
+    (function (sess) {
+      menuData.push({
+        title: sess.name + (sess.currentUrl ? ' — ' + sess.currentUrl : ''),
+        click: function () {
+          launchSelectedScript(debug, sess.id);
+        },
+      });
+    })(ready[j]);
+  }
+  var menu = isc.Menu.create({ data: menuData });
+  menu.showNextTo(button, 'bottom');
+}
+
+function launchSelectedScript(debug, sessionId) {
   var script = _dashState.selectedScript;
-  if (!script || !script.name) return;
+  if (!script || !script.name) {
+    console.warn('[Dashboard] Cannot launch — no script selected');
+    return;
+  }
+  console.log('[Dashboard] launchSelectedScript: name=' + script.name + ' debug=' + debug + ' sessionId=' + (sessionId || 'none'));
 
   // Get originalPath from library
   dispatchActionAsync('SCRIPT_LIBRARY_GET', { name: script.name }).then(function (response) {
     if (!response || !response.success || !response.script) {
       console.warn('[Dashboard] Cannot launch — script not found in library:', script.name);
+      isc.warn('Script not in library: <b>' + script.name + '</b><br>Try opening it via the Open button first.');
       return;
     }
 
     var path = response.script.originalPath || script.name;
+    // If path is relative, strip to just the filename — the bridge will find it in the scripts dir
+    if (path && !path.startsWith('/') && !path.match(/^[A-Z]:\\/)) {
+      path = path.split(/[/\\]/).pop();
+    }
     var payload = { path: path, args: '' };
 
-    // Attach sessionId from selected session if available
-    var sessionsGrid = resolveRef('sessionsGrid');
-    if (sessionsGrid) {
-      var session = sessionsGrid.getSelectedRecord();
-      if (session && session.id) {
-        payload.sessionId = session.id;
-      }
+    // Attach sessionId if explicitly provided (from Session Run menu)
+    if (sessionId) {
+      payload.sessionId = sessionId;
     }
 
     if (debug) {
@@ -843,7 +940,9 @@ function launchSelectedScript(debug) {
     function doLaunch(pre, post) {
       if (pre && pre.length > 0) payload.preActions = pre;
       if (post && post.length > 0) payload.postActions = post;
+      console.log('[Dashboard] SCRIPT_LAUNCH payload:', JSON.stringify(payload));
       dispatchActionAsync('SCRIPT_LAUNCH', payload).then(function (resp) {
+        console.log('[Dashboard] SCRIPT_LAUNCH response:', JSON.stringify(resp));
         if (resp && resp.success) {
           if (resp.launchId) {
             _dashState.selectedScriptId = resp.launchId;
@@ -854,7 +953,12 @@ function launchSelectedScript(debug) {
           if (debug && resp.pid) {
             _dashState.v8Pid = resp.pid;
           }
+        } else if (resp) {
+          isc.warn('Launch failed: ' + (resp.error || 'Unknown error'));
         }
+      }).catch(function (err) {
+        console.error('[Dashboard] SCRIPT_LAUNCH error:', err.message);
+        isc.warn('Launch error: ' + err.message);
       });
     }
 
@@ -1591,6 +1695,9 @@ function handleScriptBroadcast(payload) {
     var dv = resolveRef('debugViewer');
     if (dv) dv.setData([payload]);
 
+    // Update assertions grid if assertions data available
+    updateAssertionsGrid(payload.assertions);
+
     // Update checkpoint decorations if paused at checkpoint
     if (payload.state === 'checkpoint' && payload.checkpoint) {
       _currentCheckpoint = payload.checkpoint.name;
@@ -1725,6 +1832,7 @@ function refreshToolbar() {
 
   // Run: enabled when selected, connected, NOT active
   setButtonDisabled('tbRun', !hasSelected || !connected || isActive);
+  setButtonDisabled('tbSessionRun', !hasSelected || !connected || isActive);
 
   // Debug: same conditions as Run
   setButtonDisabled('tbDebug', !hasSelected || !connected || isActive);
@@ -2165,6 +2273,26 @@ function selectScriptInHistoryGrid(name) {
   }
 }
 
+function selectScriptInLibrary(name) {
+  var grid = resolveRef('scriptsLibraryGrid');
+  if (!grid) return;
+  var data = grid.getData();
+  if (!data || !data.length) return;
+  for (var i = 0; i < data.length; i++) {
+    if (data[i] && data[i].name === name) {
+      grid.selectSingleRecord(data[i]);
+      // Trigger normal script selection behavior
+      _dashState.selectedLibScript = name;
+      _dashState.selectedScriptId = name;
+      _dashState.selectedScript = { id: name, name: name };
+      loadRecipeForScript(data[i]);
+      loadVersionHistory(name);
+      refreshToolbar();
+      return;
+    }
+  }
+}
+
 // ---- Script version history ----
 
 function loadVersionHistory(scriptName) {
@@ -2486,6 +2614,9 @@ function handleArchiveRunSelect(record) {
   var dv = resolveRef('debugViewer');
   if (dv) dv.setData([record]);
 
+  // Show assertions if available
+  updateAssertionsGrid(record.assertions);
+
   // Load artifacts for this run
   dispatchActionAsync('SCRIPT_RUN_GET', { scriptId: scriptId }).then(function (resp) {
     var artifacts = (resp && resp.success && resp.artifacts) ? resp.artifacts : [];
@@ -2507,10 +2638,10 @@ function handleArchiveRunSelect(record) {
       };
     }
 
-    // Switch to Artifacts tab if there are artifacts
-    if (artifacts.length > 0) {
+    // Switch to Artifacts tab if there are artifacts (and no assertions already showing)
+    if (artifacts.length > 0 && !record.assertions) {
       var tabs = resolveRef('scriptDetailTabs');
-      if (tabs) tabs.selectTab(1);
+      if (tabs) tabs.selectTab(2); // Artifacts is tab index 2 (after State, Assertions)
     }
   });
 }
@@ -2628,6 +2759,30 @@ window._openScreenshotViewer = function (src, label) {
 
 // ---- Real-time artifact streaming ----
 
+function updateAssertionsGrid(assertions) {
+  var grid = resolveRef('assertionsGrid');
+  var label = resolveRef('assertionSummaryLabel');
+  if (!grid) return;
+  if (!assertions) {
+    grid.setData([]);
+    if (label) label.setContents('');
+    return;
+  }
+  var results = assertions.results || [];
+  grid.setData(results);
+  if (label) {
+    var total = (assertions.pass || 0) + (assertions.fail || 0);
+    var color = assertions.fail > 0 ? '#c33' : '#393';
+    label.setContents('<b style="color:' + color + '">' + assertions.pass + '/' + total + ' passed</b>'
+      + (assertions.fail > 0 ? ' &mdash; <span style="color:#c33">' + assertions.fail + ' failed</span>' : ''));
+  }
+  // Auto-switch to Assertions tab if assertions exist
+  if (results.length > 0) {
+    var tabs = resolveRef('scriptDetailTabs');
+    if (tabs) tabs.selectTab(1); // Assertions is tab index 1
+  }
+}
+
 function handleArtifactBroadcast(payload) {
   if (!payload || !payload.artifact) return;
   var scriptId = payload.scriptId;
@@ -2651,6 +2806,269 @@ function handleArtifactBroadcast(payload) {
 // ---- Capture artifacts toggle in toolbar ----
 // Add a checkbox to the toolbar area for capture artifacts toggle
 // This is wired programmatically since adding DynamicForm to ToolStrip in config is complex
+
+// ---- Help window ----
+
+var _helpWindow = null;
+
+function showHelpWindow() {
+  if (_helpWindow && !_helpWindow.destroyed) {
+    _helpWindow.show();
+    _helpWindow.bringToFront();
+    return;
+  }
+
+  var helpContent = _buildHelpHTML();
+
+  var searchForm = isc.DynamicForm.create({
+    width: '100%',
+    height: 30,
+    numCols: 2,
+    colWidths: [60, '*'],
+    fields: [{
+      name: 'search',
+      title: 'Search',
+      type: 'text',
+      width: '*',
+      changed: function (form, item, value) {
+        _filterHelp(helpFlow, value);
+      },
+    }],
+  });
+
+  var helpFlow = isc.HTMLFlow.create({
+    width: '100%',
+    height: '*',
+    overflow: 'auto',
+    padding: 12,
+    contents: helpContent,
+  });
+
+  _helpWindow = isc.Window.create({
+    ID: 'helpWindow',
+    title: 'Agentidev Dashboard Help',
+    width: 640,
+    height: 520,
+    canDragReposition: true,
+    canDragResize: true,
+    autoCenter: true,
+    showMinimizeButton: true,
+    items: [
+      isc.VLayout.create({
+        width: '100%',
+        height: '100%',
+        members: [searchForm, helpFlow],
+      }),
+    ],
+  });
+}
+
+function _filterHelp(flow, query) {
+  if (!flow) return;
+  var full = _buildHelpHTML();
+  if (!query || query.length < 2) {
+    flow.setContents(full);
+    return;
+  }
+  var q = query.toLowerCase();
+  // Filter sections: keep only those whose content matches
+  var parser = document.createElement('div');
+  parser.innerHTML = full;
+  var sections = parser.querySelectorAll('.help-section');
+  var matched = 0;
+  for (var i = 0; i < sections.length; i++) {
+    var text = sections[i].textContent.toLowerCase();
+    if (text.indexOf(q) === -1) {
+      sections[i].style.display = 'none';
+    } else {
+      sections[i].style.display = '';
+      matched++;
+    }
+  }
+  if (matched === 0) {
+    flow.setContents('<div style="padding:20px;color:#888;">No matches for <b>' + isc.makeXMLSafe(query) + '</b></div>');
+  } else {
+    flow.setContents(parser.innerHTML);
+  }
+}
+
+function _buildHelpHTML() {
+  var css = 'style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px; line-height: 1.5; color: #222;"';
+  var h2 = 'style="font-size: 15px; font-weight: 600; color: #1a5276; margin: 16px 0 6px 0; border-bottom: 1px solid #ddd; padding-bottom: 4px;"';
+  var h3 = 'style="font-size: 13px; font-weight: 600; color: #333; margin: 10px 0 4px 0;"';
+  var dt = 'style="font-weight: 600; color: #1a5276; margin-top: 6px;"';
+  var dd = 'style="margin: 0 0 4px 16px; color: #444;"';
+  var note = 'style="background: #fef9e7; border-left: 3px solid #f0b429; padding: 6px 10px; margin: 8px 0; font-size: 12px; color: #555;"';
+
+  return '<div ' + css + '>'
+
+  // Overview
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Overview</h2>'
+  + '<p>The Agentidev Dashboard is the central hub for browser automation, script development, testing, and scheduling. '
+  + 'It connects to a local <b>bridge server</b> (WebSocket on port 9876) that manages Playwright browser sessions, '
+  + 'runs automation scripts, and archives results.</p>'
+  + '<p>The dashboard runs inside a sandboxed SmartClient iframe. All data is local — nothing leaves your machine.</p>'
+  + '</div>'
+
+  // Toolbar
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Toolbar</h2>'
+  + '<dl>'
+  + '<dt ' + dt + '>File</dt><dd ' + dd + '>Open a script from disk, Save the current editor, or Save As to a new name.</dd>'
+  + '<dt ' + dt + '>Connect / Disconnect</dt><dd ' + dd + '>Toggle the WebSocket connection to the bridge server. The green dot shows connection status.</dd>'
+  + '<dt ' + dt + '>Run</dt><dd ' + dd + '>Launch the selected script. If a ready session is selected, the script connects to that browser; otherwise it launches its own.</dd>'
+  + '<dt ' + dt + '>Pause / Resume / Stop</dt><dd ' + dd + '>Pause at the next checkpoint, resume execution, or gracefully cancel the script.</dd>'
+  + '<dt ' + dt + '>Step / Continue</dt><dd ' + dd + '>Step advances one checkpoint at a time. Continue clears all breakpoints and runs freely. These are script-level controls (checkpoint-based).</dd>'
+  + '<dt ' + dt + '>Kill</dt><dd ' + dd + '>Force-terminate the script immediately (SIGTERM then SIGKILL).</dd>'
+  + '<dt ' + dt + '>Debug</dt><dd ' + dd + '>Launch the script under the V8 inspector with <code>--inspect-brk</code>. Step Into / Step Out send V8 debugger commands.</dd>'
+  + '<dt ' + dt + '>Auth</dt><dd ' + dd + '>Capture browser authentication state (cookies, localStorage) for the current script. Opens the login URL found in the script source, then saves the auth state for reuse on subsequent runs.</dd>'
+  + '<dt ' + dt + '>Sync</dt><dd ' + dd + '>Export the extension\'s IndexedDB stores to the bridge for backup and cross-session persistence.</dd>'
+  + '<dt ' + dt + '>Capture</dt><dd ' + dd + '>Toggle artifact capture. When enabled, screenshots are taken at each checkpoint during script execution.</dd>'
+  + '<dt ' + dt + '>?</dt><dd ' + dd + '>This help window.</dd>'
+  + '</dl>'
+  + '</div>'
+
+  // Sessions
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Sessions</h2>'
+  + '<p>A <b>session</b> is a persistent Playwright-managed browser instance. Sessions stay open so you can observe what automation scripts do in real time.</p>'
+  + '<dl>'
+  + '<dt ' + dt + '>New</dt><dd ' + dd + '>Create a named session — a headed Chromium browser opens and remains available.</dd>'
+  + '<dt ' + dt + '>Destroy</dt><dd ' + dd + '>Close the selected session and its browser.</dd>'
+  + '</dl>'
+  + '<div ' + note + '><b>Session + Script linking:</b> If you select a session before clicking Run, the script connects to that session\'s browser instead of opening its own. '
+  + 'The session must show a <b>ready</b> status (browser running with CDP endpoint). '
+  + 'After the script finishes, the session browser stays open so you can inspect the result. '
+  + 'The script does not own the session lifecycle — it just borrows the browser.</div>'
+  + '</div>'
+
+  // Sessions vs Scripts architecture
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Sessions vs. Scripts</h2>'
+  + '<p>There are two ways scripts interact with browsers:</p>'
+  + '<h3 ' + h3 + '>Standalone (no session selected)</h3>'
+  + '<p>The Playwright shim creates a fresh browser, runs the automation, and the browser closes when the script exits. Every run starts with a clean slate. Best for <b>testing, CI, and scheduled runs</b>.</p>'
+  + '<h3 ' + h3 + '>Session-linked (session selected)</h3>'
+  + '<p>The script connects to the session\'s existing browser via CDP. The browser persists after the script ends, so state accumulates across runs (cookies, navigation history, DOM changes). Best for <b>development and debugging</b> where you want to observe results.</p>'
+  + '<div ' + note + '><b>State responsibility:</b> Scripts are responsible for their own preconditions. If a script needs a clean browser, it should navigate to <code>about:blank</code> or clear cookies at the start. The session is a shared viewport, not a clean room.</div>'
+  + '</div>'
+
+  // Scripts Library
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Scripts Library</h2>'
+  + '<p>Lists all scripts registered with the bridge. Scripts appear here when:</p>'
+  + '<ul style="margin:4px 0 4px 20px;padding:0;">'
+  + '<li>Saved to <code>~/.agentidev/scripts/</code> (the bridge file watcher auto-syncs them)</li>'
+  + '<li>Opened via File &rarr; Open from the toolbar</li>'
+  + '<li>Saved from the editor via File &rarr; Save</li>'
+  + '</ul>'
+  + '<p>Click a script to load it in the editor. The version sub-grid shows prior saves. The Recipe picker assigns pre/post actions to the script.</p>'
+  + '</div>'
+
+  // Script History
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Script History</h2>'
+  + '<p><b>Live</b> mode shows currently running and recently launched scripts with real-time step/state updates. '
+  + '<b>Archive</b> mode shows completed runs from the database with timing and artifact counts.</p>'
+  + '<p>Double-click any entry to open its source in the editor. Right-click for a context menu with Open in Editor and Run Script options.</p>'
+  + '</div>'
+
+  // Source Editor
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Source Editor</h2>'
+  + '<p>Full Monaco editor (VS Code engine) with JavaScript syntax highlighting, line numbers, and code folding.</p>'
+  + '<ul style="margin:4px 0 4px 20px;padding:0;">'
+  + '<li>Click the glyph margin to toggle breakpoints at <code>client.checkpoint()</code> lines</li>'
+  + '<li>The current paused checkpoint is highlighted in gold</li>'
+  + '<li>Ctrl+S saves the script to the library and disk</li>'
+  + '</ul>'
+  + '</div>'
+
+  // Script Detail
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Script Detail</h2>'
+  + '<p>Three tabs for the selected script:</p>'
+  + '<dl>'
+  + '<dt ' + dt + '>State</dt><dd ' + dd + '>Live view of script name, state, step progress, activity label, and session. Includes Step/Continue/Kill buttons for checkpoint-level debugging.</dd>'
+  + '<dt ' + dt + '>Assertions</dt><dd ' + dd + '>Shows individual pass/fail results from <code>client.assert()</code> calls in test scripts, streamed in real time. The summary label shows total pass/fail counts.</dd>'
+  + '<dt ' + dt + '>Artifacts</dt><dd ' + dd + '>Lists captured files (screenshots, console logs, results) with a preview pane. Click an artifact to render it inline. Scripts register artifacts via <code>client.artifact()</code>.</dd>'
+  + '</dl>'
+  + '</div>'
+
+  // Recipes
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Recipes</h2>'
+  + '<p>Recipes define ordered <b>pre-actions</b> and <b>post-actions</b> that run before and after a script launch. Examples: navigate to a URL, set a cookie, clear storage, take a screenshot.</p>'
+  + '<p>Actions are selected from a command palette, can be reordered by drag, and removed individually. Recipes are saved independently and assigned to scripts via the library picker.</p>'
+  + '</div>'
+
+  // Schedules
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Schedules</h2>'
+  + '<p>Automatically run scripts on a cron expression or fixed interval. The schedules grid shows name, script, cron/interval, enabled toggle, run count, and next scheduled time.</p>'
+  + '<p>Name, script, and enabled state are inline-editable (double-click). The sub-grid shows run history for the selected schedule. Buttons: New, Edit, Trigger (run now), Delete.</p>'
+  + '</div>'
+
+  // Test Results
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Test Results</h2>'
+  + '<p>Displays pass/fail counts for test scripts that use <code>client.assert()</code>. '
+  + '<b>Run All Tests</b> launches the internal test suite. <b>Refresh</b> reloads stored results.</p>'
+  + '</div>'
+
+  // Activity
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Activity</h2>'
+  + '<p>Scrolling log of bridge commands and events in reverse-chronological order. Shows the message type, summary, and timestamp. Useful for debugging communication between the dashboard and bridge server.</p>'
+  + '</div>'
+
+  // Writing Scripts
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Writing Automation Scripts</h2>'
+  + '<p>Scripts use the <b>Playwright shim</b> as a drop-in replacement for <code>import { chromium } from \'playwright\'</code>. '
+  + 'The shim auto-connects a ScriptClient to the bridge and wraps Page operations (navigate, click, fill, eval, screenshot) as checkpoints.</p>'
+  + '<pre style="background:#f4f4f4;padding:8px;border-radius:4px;font-size:12px;overflow-x:auto;">'
+  + 'import { chromium, client } from \'../packages/bridge/playwright-shim.mjs\';\n\n'
+  + 'const browser = await chromium.launch({ headless: false });\n'
+  + 'const page = await browser.newPage();\n'
+  + 'await page.goto(\'https://example.com\');\n'
+  + 'await client.progress(1, 3, \'Loaded page\');\n\n'
+  + '// Assertions for test scripts\n'
+  + 'client.assert(await page.title() === \'Example\', \'Page title correct\');\n\n'
+  + '// Register artifacts\n'
+  + 'await page.screenshot({ path: \'/tmp/shot.png\' });\n'
+  + 'await client.artifact({ type: \'screenshot\', label: \'Result\', filePath: \'/tmp/shot.png\', contentType: \'image/png\' });\n\n'
+  + 'await client.complete({ assertions: client.getAssertionSummary() });\n'
+  + 'await browser.close();\n'
+  + '</pre>'
+  + '</div>'
+
+  // Bridge CLI
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Bridge CLI</h2>'
+  + '<p>All bridge operations are also available from the command line:</p>'
+  + '<pre style="background:#f4f4f4;padding:8px;border-radius:4px;font-size:12px;overflow-x:auto;">'
+  + 'bcli = node packages/bridge/claude-client.mjs\n\n'
+  + 'bcli session:create \'{"name":"my-session"}\'\n'
+  + 'bcli session:navigate \'{"sessionId":"ID","url":"https://..."}\'\n'
+  + 'bcli session:snapshot \'{"sessionId":"ID"}\'    # accessibility tree\n'
+  + 'bcli script:launch \'{"path":"my-script.mjs"}\'\n'
+  + 'bcli script:list\n'
+  + 'bcli schedule:list\n'
+  + '</pre>'
+  + '</div>'
+
+  // Keyboard Shortcuts
+  + '<div class="help-section">'
+  + '<h2 ' + h2 + '>Keyboard Shortcuts</h2>'
+  + '<dl>'
+  + '<dt ' + dt + '>Ctrl+S</dt><dd ' + dd + '>Save the current script</dd>'
+  + '</dl>'
+  + '</div>'
+
+  + '</div>';
+}
 
 function addCaptureToggle() {
   var toolbar = resolveRef('dashToolbar');

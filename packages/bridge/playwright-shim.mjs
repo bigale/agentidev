@@ -195,6 +195,31 @@ function wrapBrowser(browser, isSessionBrowser = false) {
     if (_authStatePath && !opts.storageState) {
       opts = { ...opts, storageState: _authStatePath };
     }
+    // Session browser: reuse an existing page instead of opening a new window.
+    // connectOverCDP's newPage() creates a new context (= new window), which is confusing.
+    // Instead, grab the first idle page from the default context if available.
+    if (isSessionBrowser) {
+      const contexts = browser.contexts();
+      for (const ctx of contexts) {
+        const pages = ctx.pages();
+        for (const p of pages) {
+          const url = p.url();
+          if (url === 'about:blank' || url === 'chrome://newtab/') {
+            console.log('[playwright-shim] Reusing existing session page instead of opening new window');
+            if (_authStatePath) {
+              try {
+                const { readFileSync } = await import('fs');
+                const authState = JSON.parse(readFileSync(_authStatePath, 'utf-8'));
+                if (authState.cookies?.length > 0) {
+                  await ctx.addCookies(authState.cookies);
+                }
+              } catch { /* ignore auth injection failure */ }
+            }
+            return wrapPage(p);
+          }
+        }
+      }
+    }
     const page = await origNewPage(opts);
     return wrapPage(page);
   };
@@ -211,10 +236,8 @@ function wrapBrowser(browser, isSessionBrowser = false) {
   if (isSessionBrowser) {
     browser.close = async () => {
       console.log('[playwright-shim] Disconnecting from session browser (not closing)');
-      // Close only contexts created by this script, then disconnect
-      for (const ctx of browser.contexts()) {
-        try { await ctx.close(); } catch { /* ignore */ }
-      }
+      // Don't close contexts — we're borrowing the session's browser.
+      // The page stays open so the user can inspect the final state.
     };
   }
 

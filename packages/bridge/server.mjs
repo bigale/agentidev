@@ -16,7 +16,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { spawn, execFile } from 'child_process';
 import http from 'http';
 import { readFile, writeFile, mkdir, stat, readdir, symlink, lstat, unlink, readlink, rm } from 'fs/promises';
-import { watch } from 'fs';
+import { watch, copyFileSync } from 'fs';
 import { resolve as pathResolve, dirname } from 'path';
 import { Cron } from 'croner';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -711,6 +711,7 @@ function startServer() {
       sessionId: script.sessionId || null,
       startedAt: script.startedAt || null,
       poll: script.poll || null,
+      assertions: script.assertions || null,
       ...overrides,
     };
   }
@@ -927,14 +928,28 @@ function startServer() {
   async function launchScriptInternal(payload) {
     const { path: scriptPath, args: scriptArgs = [], breakpoints: preBreakpoints, lineBreakpoints, debug, sessionId: launchSessionId, originalPath, preActions, postActions, captureArtifacts } = payload;
 
+    // Resolve script path: bare filenames check SCRIPTS_DIR first (dashboard sends just the name),
+    // relative paths resolve against server CWD, absolute paths used as-is.
+    let resolvedScriptPath = scriptPath;
+    if (!scriptPath.startsWith('/')) {
+      const inScriptsDir = pathResolve(SCRIPTS_DIR, scriptPath);
+      try {
+        await stat(inScriptsDir);
+        resolvedScriptPath = inScriptsDir;
+      } catch {
+        resolvedScriptPath = pathResolve(scriptPath);
+      }
+    }
     const useV8Debug = debug || (Array.isArray(lineBreakpoints) && lineBreakpoints.length > 0);
-    const nodeArgs = useV8Debug ? ['--inspect-brk=0', scriptPath, ...scriptArgs] : [scriptPath, ...scriptArgs];
+    const nodeArgs = useV8Debug ? ['--inspect-brk=0', resolvedScriptPath, ...scriptArgs] : [resolvedScriptPath, ...scriptArgs];
     const launchEnv = { ...process.env };
 
     // Session linking
     if (launchSessionId) {
       const linkedSession = getSession(launchSessionId);
       if (!linkedSession) throw new Error(`Session not found: ${launchSessionId}`);
+      // Re-resolve CDP endpoint fresh (port may have changed if session browser restarted)
+      await linkedSession._resolveCdpEndpoint();
       const sessionInfo = linkedSession.getInfo();
       if (!sessionInfo.cdpEndpoint) throw new Error(`Session "${linkedSession.name}" has no CDP endpoint (browser may not be running)`);
       for (const [, s] of scripts) {
@@ -993,7 +1008,8 @@ function startServer() {
     // Dependency resolution
     let launchCwd = undefined;
     if (originalPath) {
-      const originalDir = dirname(originalPath);
+      const resolvedOriginalPath = originalPath.startsWith('/') ? originalPath : pathResolve(originalPath);
+      const originalDir = dirname(resolvedOriginalPath);
       launchCwd = originalDir;
       try {
         const nodeModulesPath = await findNearestNodeModules(originalDir);
@@ -1755,6 +1771,48 @@ function startServer() {
         break;
       }
 
+      case MSG.BRIDGE_SCRIPT_ADD_ARTIFACT: {
+        const { scriptId, artifact } = msg.payload || {};
+        const script = scripts.get(scriptId);
+        if (!script) {
+          sendTo(ws, buildError('Script not found', msg.id));
+          return;
+        }
+        if (!artifact || !artifact.type) {
+          sendTo(ws, buildError('Invalid artifact', msg.id));
+          return;
+        }
+        // If artifact has a filePath, copy it to the artifacts dir
+        const timestamp = artifact.timestamp || Date.now();
+        let diskPath = artifact.diskPath || null;
+        if (artifact.filePath) {
+          try {
+            const dir = pathResolve(ARTIFACTS_DIR, scriptId);
+            await mkdir(dir, { recursive: true });
+            const ext = artifact.filePath.split('.').pop() || 'bin';
+            const filename = `${artifact.type}_${timestamp}.${ext}`;
+            diskPath = pathResolve(dir, filename);
+            copyFileSync(artifact.filePath, diskPath);
+          } catch (err) {
+            console.warn(`[Bridge] Failed to copy artifact file: ${err.message}`);
+          }
+        }
+        const a = {
+          type: artifact.type,
+          label: artifact.label || artifact.type,
+          timestamp,
+          size: artifact.size || 0,
+          diskPath,
+          contentType: artifact.contentType || 'application/octet-stream',
+          data: artifact.data || null,
+        };
+        script.artifacts.push(a);
+        broadcast(buildMessage(MSG.BRIDGE_SCRIPT_ARTIFACT, { scriptId, artifact: a }));
+        sendTo(ws, buildReply(msg, { success: true }));
+        console.log(`[Bridge] Script artifact added: ${a.label} (${a.type}, ${a.size} bytes)`);
+        break;
+      }
+
       case MSG.BRIDGE_SCRIPT_COMPLETE: {
         const { scriptId, results, errors, duration } = msg.payload || {};
         const script = scripts.get(scriptId);
@@ -1920,6 +1978,7 @@ function startServer() {
             } : null,
             sessionId: s.sessionId || null,
             poll: s.poll || null,
+            assertions: s.assertions || null,
           });
         }
         sendTo(ws, buildReply(msg, { success: true, scripts: scriptList }));

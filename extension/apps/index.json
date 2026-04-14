@@ -2,5 +2,6 @@
   "_comment": "Plugin discovery list. The platform's plugin-loader reads this at SW startup. Plugin assemble scripts add their plugin id here. The reference plugin 'hello-runtime' is checked in.",
   "plugins": [
     "hello-runtime"
+    ,"horsebread"
   ]
 }

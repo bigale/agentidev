@@ -68,6 +68,7 @@ export const MSG = {
   // Script run archive & artifacts
   BRIDGE_SCRIPT_RUN_COMPLETE: 'BRIDGE_SCRIPT_RUN_COMPLETE',      // broadcast: run record + artifact manifest on completion
   BRIDGE_SCRIPT_ARTIFACT: 'BRIDGE_SCRIPT_ARTIFACT',              // broadcast: artifact captured during execution
+  BRIDGE_SCRIPT_ADD_ARTIFACT: 'BRIDGE_SCRIPT_ADD_ARTIFACT',      // script→bridge: register artifact (file or inline data)
   BRIDGE_SCRIPT_GET_ARTIFACT: 'BRIDGE_SCRIPT_GET_ARTIFACT',      // request: read artifact file from disk → base64
 
   // Scheduling (server-side auto-launch)

@@ -137,8 +137,13 @@ export class PlaywrightSession {
       console.log(`[Session ${this.name}] Opened (id: ${this.id})`);
       console.log(`[Session ${this.name}] ${result}`);
 
-      // Extract cdpPort from daemon session file for script linking
-      await this._resolveCdpEndpoint();
+      // Extract cdpPort from daemon session file for script linking.
+      // Retry with delay — the daemon may not have written the file yet.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await this._resolveCdpEndpoint();
+        if (this._cdpEndpoint) break;
+        await new Promise(r => setTimeout(r, 1000));
+      }
 
       return true;
     } catch (err) {
@@ -161,9 +166,10 @@ export class PlaywrightSession {
         try {
           const raw = await readFile(sessionFile, 'utf-8');
           const data = JSON.parse(raw);
-          const cdpPort = data?.resolvedConfig?.browser?.launchOptions?.cdpPort;
+          const cdpPort = data?.browser?.launchOptions?.cdpPort
+            || data?.resolvedConfig?.browser?.launchOptions?.cdpPort;
           if (cdpPort) {
-            this._cdpEndpoint = `http://localhost:${cdpPort}`;
+            this._cdpEndpoint = `http://127.0.0.1:${cdpPort}`;
             console.log(`[Session ${this.name}] CDP endpoint: ${this._cdpEndpoint}`);
             return;
           }

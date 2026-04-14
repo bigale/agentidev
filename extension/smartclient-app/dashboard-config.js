@@ -74,7 +74,7 @@ window._dashboardConfig = {
       fields: [
         { name: 'id',     type: 'text',    primaryKey: true, hidden: true },
         { name: 'name',   type: 'text',    title: 'Name',   width: '*' },
-        { name: 'status', type: 'text',    title: 'Status', width: 80 },
+        { name: 'state',  type: 'text',    title: 'Status', width: 80 },
       ],
     },
     {
@@ -87,7 +87,7 @@ window._dashboardConfig = {
         { name: 'totalSteps', type: 'integer', title: 'Total',     width: 50 },
         { name: 'sessionId',  type: 'text',    hidden: true },
         { name: 'activity',   type: 'text',    title: 'Activity',  width: 120 },
-        { name: 'startedAt',  type: 'integer', title: 'Started',   width: 75 },
+        { name: 'startedAt',  type: 'integer', title: 'Started',   width: 75, _formatter: 'timestamp' },
       ],
     },
     {
@@ -100,8 +100,8 @@ window._dashboardConfig = {
         { name: 'cronExpr',  type: 'text',    title: 'Cron',       width: 100 },
         { name: 'enabled',    type: 'boolean', title: 'On',         width: 35 },
         { name: 'runCount',   type: 'integer', title: 'Runs',       width: 45 },
-        { name: 'nextRunAt',  type: 'integer', title: 'Next Run',   width: 80 },
-        { name: 'modifiedAt', type: 'integer', title: 'Modified',   width: 80 },
+        { name: 'nextRunAt',  type: 'integer', title: 'Next Run',   width: 80, _formatter: 'timestamp' },
+        { name: 'modifiedAt', type: 'integer', title: 'Modified',   width: 80, _formatter: 'timestamp' },
       ],
     },
     {
@@ -118,7 +118,7 @@ window._dashboardConfig = {
       fields: [
         { name: 'id',         type: 'integer', primaryKey: true, hidden: true },
         { name: 'name',       type: 'text',    title: 'Recipe',     width: '*' },
-        { name: 'modifiedAt', type: 'integer', title: 'Modified',   width: 100 },
+        { name: 'modifiedAt', type: 'integer', title: 'Modified',   width: 100, _formatter: 'timestamp' },
       ],
     },
     {
@@ -128,8 +128,8 @@ window._dashboardConfig = {
         { name: 'scriptId',      type: 'text',    hidden: true },
         { name: 'name',          type: 'text',    title: 'Script',    width: '*' },
         { name: 'state',         type: 'text',    title: 'State',     width: 80 },
-        { name: 'startedAt',     type: 'integer', title: 'Started',   width: 100 },
-        { name: 'completedAt',   type: 'integer', title: 'Completed', width: 100 },
+        { name: 'startedAt',     type: 'integer', title: 'Started',   width: 100, _formatter: 'timestamp' },
+        { name: 'completedAt',   type: 'integer', title: 'Completed', width: 100, _formatter: 'timestamp' },
         { name: 'durationMs',    type: 'integer', title: 'Duration',  width: 70 },
         { name: 'step',          type: 'integer', title: 'Step',      width: 40 },
         { name: 'totalSteps',    type: 'integer', title: 'Total',     width: 40 },
@@ -210,9 +210,12 @@ window._dashboardConfig = {
             ID: 'tbRun',
             title: 'Run',
             disabled: true,
-            _action: 'dispatch',
-            _messageType: 'SCRIPT_LAUNCH',
-            _payloadFrom: 'scriptsGrid',
+          },
+          {
+            _type: 'ToolStripMenuButton',
+            ID: 'tbSessionRun',
+            title: 'Session',
+            disabled: true,
           },
           {
             _type: 'ToolStripButton',
@@ -311,6 +314,14 @@ window._dashboardConfig = {
             icon: '[SKINIMG]actions/refresh.png',
             _action: 'idbSync',
           },
+          // Help
+          {
+            _type: 'ToolStripButton',
+            ID: 'tbHelp',
+            title: '?',
+            width: 28,
+            prompt: 'Help',
+          },
         ],
       },
 
@@ -352,7 +363,7 @@ window._dashboardConfig = {
                     showHeader: true,
                     fields: [
                       { name: 'name',   width: '*' },
-                      { name: 'status', width: 80 },
+                      { name: 'state',  width: 80, title: 'Status' },
                     ],
                   },
                   {
@@ -517,7 +528,7 @@ window._dashboardConfig = {
                       { name: 'state',     width: 80, _formatter: 'stateDot' },
                       { name: 'step',      width: 35 },
                       { name: 'totalSteps', width: 35, title: '/' },
-                      { name: 'startedAt', width: 70, title: 'Started' },
+                      { name: 'startedAt', width: 70, title: 'Started', _formatter: 'timestamp' },
                     ],
                     _action: 'select',
                     _targetForm: 'debugViewer',
@@ -572,7 +583,7 @@ window._dashboardConfig = {
                     canEdit: false,
                     emptyMessage: 'Select a schedule to view run history',
                     fields: [
-                      { name: 'startedAt',  type: 'integer', title: 'Started',  width: 90 },
+                      { name: 'startedAt',  type: 'integer', title: 'Started',  width: 90, _formatter: 'timestamp' },
                       { name: 'state',       type: 'text',    title: 'State',    width: 70 },
                       { name: 'durationMs',  type: 'integer', title: 'Duration', width: 70 },
                       { name: 'error',       type: 'text',    title: 'Error',    width: '*' },
@@ -796,6 +807,39 @@ window._dashboardConfig = {
                               _targetGrid: 'scriptsGrid',
                               _messagePayload: { force: true },
                             },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    title: 'Assertions',
+                    pane: {
+                      _type: 'VLayout',
+                      width: '100%',
+                      height: '100%',
+                      members: [
+                        {
+                          _type: 'Label',
+                          ID: 'assertionSummaryLabel',
+                          width: '100%',
+                          height: 24,
+                          contents: '',
+                          padding: 4,
+                        },
+                        {
+                          _type: 'ListGrid',
+                          ID: 'assertionsGrid',
+                          width: '100%',
+                          height: '*',
+                          selectionType: 'none',
+                          canEdit: false,
+                          showHeader: true,
+                          emptyMessage: 'No assertions recorded',
+                          fields: [
+                            { name: 'passed', type: 'boolean', title: 'OK',      width: 35 },
+                            { name: 'message', type: 'text',   title: 'Assertion', width: '*' },
+                            { name: 'time',   type: 'integer', title: 'Time',     width: 70, _formatter: 'timestamp' },
                           ],
                         },
                       ],

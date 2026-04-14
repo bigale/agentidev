@@ -141,7 +141,9 @@ try {
   client.assert(components?.status === true, 'Component: statusLabel Label');
 
   // Screenshot before fetch
-  await cdpScreenshot(targets.page.webSocketDebuggerUrl, '/tmp/test-weather-before.png');
+  const beforePath = '/tmp/test-weather-before.png';
+  await cdpScreenshot(targets.page.webSocketDebuggerUrl, beforePath);
+  await client.artifact({ type: 'screenshot', label: 'Before fetch', filePath: beforePath, contentType: 'image/png' });
 
   // 3. Click Fetch Alerts
   await client.progress(3, 5, 'Fetch alerts');
@@ -174,11 +176,12 @@ try {
   client.assert(fields?.includes('onset'), 'Grid has onset column');
 
   // Screenshot after fetch
-  await cdpScreenshot(targets.page.webSocketDebuggerUrl, '/tmp/test-weather-after.png');
+  const afterPath = '/tmp/test-weather-after.png';
+  await cdpScreenshot(targets.page.webSocketDebuggerUrl, afterPath);
+  await client.artifact({ type: 'screenshot', label: 'After fetch', filePath: afterPath, contentType: 'image/png' });
 
   // 5. Summary
   await client.progress(5, 5, 'Summary');
-  console.log('\nScreenshots: /tmp/test-weather-before.png, /tmp/test-weather-after.png');
   const exitCode = client.summarize();
   await client.complete({ assertions: client.getAssertionSummary() });
   process.exit(exitCode);

@@ -25,7 +25,7 @@
  */
 
 import WebSocket from 'ws';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
@@ -132,7 +132,7 @@ export class ScriptClient {
         scriptId: this.scriptId,
         label: (passed ? '✓ ' : '✗ ') + message,
         errors: this.errors,
-        assertions: { pass: this._assertions.pass, fail: this._assertions.fail },
+        assertions: { pass: this._assertions.pass, fail: this._assertions.fail, results: this._assertions.results },
       }));
     }
     return passed;
@@ -482,6 +482,34 @@ export class ScriptClient {
       results,
       errors: this.errors,
       duration: Date.now() - this._startedAt,
+    });
+  }
+
+  /**
+   * Register an artifact with the bridge. The artifact will appear in the
+   * dashboard Artifacts tab and be archived with the run.
+   *
+   * @param {object} opts
+   * @param {string} opts.type - Artifact type ('screenshot', 'log', 'result', etc.)
+   * @param {string} opts.label - Display label
+   * @param {string} [opts.filePath] - Local file path (bridge will copy to artifact storage)
+   * @param {string} [opts.data] - Inline string data (for small text artifacts)
+   * @param {string} [opts.contentType] - MIME type (default: 'application/octet-stream')
+   * @param {number} [opts.size] - Size in bytes (auto-detected from filePath if omitted)
+   */
+  async artifact(opts) {
+    if (!this.scriptId) throw new Error('Not registered');
+    const { type, label, filePath, data, contentType, size } = opts;
+    let artifactSize = size || 0;
+    if (!artifactSize && filePath) {
+      try {
+        artifactSize = statSync(filePath).size;
+      } catch { /* ignore */ }
+    }
+    if (!artifactSize && data) artifactSize = data.length;
+    await this._sendRequest('BRIDGE_SCRIPT_ADD_ARTIFACT', {
+      scriptId: this.scriptId,
+      artifact: { type, label, filePath, data, contentType, size: artifactSize },
     });
   }
 
