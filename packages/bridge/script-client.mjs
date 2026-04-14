@@ -107,6 +107,65 @@ export class ScriptClient {
   }
 
   /**
+   * Test assertion. Logs pass/fail, tracks counts, and reports to the
+   * bridge so the dashboard can show test results.
+   *
+   * @param {boolean} condition - Truthy = pass, falsy = fail
+   * @param {string} message - What was tested
+   * @returns {boolean} The condition value (for chaining)
+   */
+  assert(condition, message) {
+    if (!this._assertions) this._assertions = { pass: 0, fail: 0, results: [] };
+    const passed = !!condition;
+    if (passed) {
+      this._assertions.pass++;
+      console.log(`  ✓ ${message}`);
+    } else {
+      this._assertions.fail++;
+      this.errors++;
+      console.log(`  ✗ FAIL: ${message}`);
+    }
+    this._assertions.results.push({ passed, message, time: Date.now() });
+    // Report to bridge so the dashboard can show results in real-time
+    if (this.scriptId) {
+      this._send(buildMessage('BRIDGE_SCRIPT_PROGRESS', {
+        scriptId: this.scriptId,
+        label: (passed ? '✓ ' : '✗ ') + message,
+        errors: this.errors,
+        assertions: { pass: this._assertions.pass, fail: this._assertions.fail },
+      }));
+    }
+    return passed;
+  }
+
+  /**
+   * Get the assertion summary. Call at the end of a test script.
+   * @returns {{ pass: number, fail: number, total: number, results: Array }}
+   */
+  getAssertionSummary() {
+    const a = this._assertions || { pass: 0, fail: 0, results: [] };
+    return { pass: a.pass, fail: a.fail, total: a.pass + a.fail, results: a.results };
+  }
+
+  /**
+   * Print the assertion summary to console and return exit-code-style result.
+   * @returns {number} 0 if all passed, 1 if any failed
+   */
+  summarize() {
+    const s = this.getAssertionSummary();
+    console.log(`\n${'='.repeat(40)}`);
+    console.log(`Tests: ${s.total} | Pass: ${s.pass} | Fail: ${s.fail}`);
+    console.log(`${'='.repeat(40)}`);
+    if (s.fail > 0) {
+      console.log('Failed:');
+      for (const r of s.results) {
+        if (!r.passed) console.log(`  ✗ ${r.message}`);
+      }
+    }
+    return s.fail === 0 ? 0 : 1;
+  }
+
+  /**
    * Increment error count and report progress.
    * @param {string} [label] - Error description
    */
