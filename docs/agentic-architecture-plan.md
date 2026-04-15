@@ -1,6 +1,75 @@
 # Agentic Architecture Plan: pi-mono + agentidev
 
-## Vision
+## The Shadow Organization
+
+The product-level vision that frames everything below.
+
+A **Shadow Organization** is an airgapped environment where a team of AI agents has read-only access to all organizational resources — documents, code, communications, data — and works autonomously: analyzing, planning, recommending. Human approval is required before any action touches the real world.
+
+The key insight: **the analysis IS the product.** A Shadow CFO that reads every invoice, every contract, every bank statement and produces a weekly financial health report is valuable even if it never touches a bank account. A Shadow CTO that reads every PR, every architecture doc, every incident report and says "here's what's actually going on in your codebase" is valuable even if it never writes a line of code.
+
+The read-only constraint isn't a limitation. It's the feature. It's what makes this deployable in environments where no sane person would let an AI agent have write access.
+
+### Properties
+
+- **Read-only / airgapped**: agents cannot corrupt real resources. Analysis happens in a sandbox.
+- **Team of specialists**: Shadow CTO, Shadow CFO, Shadow PM — each agent has role-specific tools and data access. They collaborate via internal messaging (OpenClaw + Slack).
+- **Human approval gates**: real people review and approve agent recommendations before execution. The agent does the analysis; the human makes the decision.
+- **Progressive scale**: Shadow Person (individual) -> Shadow Small Business -> Shadow Department -> Shadow Company.
+
+### How It Scales
+
+**Shadow Person:** Browser history, bookmarks, email (read-only), calendar. One agent. "What should I focus on today?" "You have 3 overdue follow-ups, a meeting where the attendee just published a relevant paper, and your AWS bill spiked 40%."
+
+**Shadow Small Business:** Quickbooks (read-only), CRM, email, social analytics. 2-3 agents. The bookkeeper notices cash flow will be tight in 6 weeks. The marketing agent sees which posts drove conversions. They coordinate a recommendation.
+
+**Shadow Company:** Full department mirroring. Shadow Engineering reads every repo, CI pipeline, incident channel. Shadow Sales reads every CRM opportunity. Shadow Legal reads every contract. They talk to each other and surface cross-functional insights humans would miss.
+
+### The Architecture
+
+```
+Real World (read-only mirror)
+    |
+    | authenticated browser sessions (agentidev extension)
+    | semantic memory accumulation over time
+    | document indexing into local vector DB
+    v
++-------- Airgapped Shadow Environment --------+
+|                                                |
+|  Shadow CEO  <-->  Shadow CTO                  |
+|      |                  |                      |
+|  Shadow CFO  <-->  Shadow PM                   |
+|                                                |
+|  OpenClaw: agent-to-agent messaging            |
+|  BrowserPod: sandboxed computation             |
+|  CheerpJ/CheerpX: offline code execution       |
+|  SmartClient: generated dashboards/reports      |
++----------------------+-------------------------+
+                       |
+                       | recommendations only
+                       v
+                 Human Approval Gate
+                       |
+                       | approved actions
+                       v
+                  Real World (write)
+```
+
+### The Moat
+
+The moat isn't the AI. It's the **authenticated read-only access layer** — which is exactly what the agentidev extension provides:
+- Log into any SaaS as the user (auth state capture + replay)
+- Accumulate semantic memory over months of browsing (local vector DB)
+- Run code without network access (CheerpJ/CheerpX WASM runtimes)
+- Generate rich UI from analysis results (SmartClient declarative rendering)
+- Coordinate multiple agents (OpenClaw messaging)
+- Schedule autonomous background work (bridge cron)
+
+That's the shadow environment. It already mostly exists. The agents are the last piece.
+
+---
+
+## Technical Vision
 
 A specialized in-browser agentic AI that is an expert in its own tools. Small, local-first, privacy-preserving. Can run entirely in the browser (WebLLM), upgrade to local server (Ollama), or use cloud APIs when available. The agent drives the same capability surface that humans currently operate manually through the dashboard.
 
