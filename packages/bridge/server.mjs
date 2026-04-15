@@ -1429,6 +1429,104 @@ function startServer() {
         break;
       }
 
+      // ---- Session tracing & video recording ----
+
+      case MSG.BRIDGE_SESSION_TRACING_START: {
+        const session = getSession(msg.payload?.sessionId);
+        if (!session) { sendTo(ws, buildError('Session not found', msg.id)); return; }
+        try {
+          const result = await session.tracingStart();
+          sendTo(ws, buildReply(msg, { success: true, output: result }));
+          console.log(`[Bridge] Tracing started on session "${session.name}"`);
+        } catch (err) {
+          sendTo(ws, buildError(`Tracing start failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_SESSION_TRACING_STOP: {
+        const session = getSession(msg.payload?.sessionId);
+        if (!session) { sendTo(ws, buildError('Session not found', msg.id)); return; }
+        try {
+          const result = await session.tracingStop();
+          // Extract trace file path from output
+          const traceMatch = result.match(/\[Trace\]\(([^)]+)\)/);
+          const tracePath = traceMatch ? pathResolve(traceMatch[1]) : null;
+          sendTo(ws, buildReply(msg, { success: true, output: result, tracePath }));
+          console.log(`[Bridge] Tracing stopped on session "${session.name}" → ${tracePath || 'unknown'}`);
+        } catch (err) {
+          sendTo(ws, buildError(`Tracing stop failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_SESSION_VIDEO_START: {
+        const session = getSession(msg.payload?.sessionId);
+        if (!session) { sendTo(ws, buildError('Session not found', msg.id)); return; }
+        try {
+          const result = await session.sendCommand('video-start', []);
+          sendTo(ws, buildReply(msg, { success: true, output: result }));
+          console.log(`[Bridge] Video recording started on session "${session.name}"`);
+        } catch (err) {
+          sendTo(ws, buildError(`Video start failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_SESSION_VIDEO_STOP: {
+        const session = getSession(msg.payload?.sessionId);
+        if (!session) { sendTo(ws, buildError('Session not found', msg.id)); return; }
+        try {
+          const result = await session.sendCommand('video-stop', []);
+          // Extract video file path from output
+          const videoMatch = result.match(/\[Video\]\(([^)]+)\)/);
+          const videoPath = videoMatch ? pathResolve(videoMatch[1]) : null;
+          sendTo(ws, buildReply(msg, { success: true, output: result, videoPath }));
+          console.log(`[Bridge] Video recording stopped on session "${session.name}" → ${videoPath || 'unknown'}`);
+        } catch (err) {
+          sendTo(ws, buildError(`Video stop failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_SESSION_VIDEO_CHAPTER: {
+        const session = getSession(msg.payload?.sessionId);
+        if (!session) { sendTo(ws, buildError('Session not found', msg.id)); return; }
+        try {
+          const title = msg.payload?.title || 'Checkpoint';
+          const result = await session.sendCommand('video-chapter', [title]);
+          sendTo(ws, buildReply(msg, { success: true }));
+        } catch (err) {
+          sendTo(ws, buildError(`Video chapter failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_SESSION_CONSOLE: {
+        const session = getSession(msg.payload?.sessionId);
+        if (!session) { sendTo(ws, buildError('Session not found', msg.id)); return; }
+        try {
+          const level = msg.payload?.level || '';
+          const result = await session.sendCommand('console', level ? [level] : []);
+          sendTo(ws, buildReply(msg, { success: true, output: result }));
+        } catch (err) {
+          sendTo(ws, buildError(`Console fetch failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_SESSION_NETWORK: {
+        const session = getSession(msg.payload?.sessionId);
+        if (!session) { sendTo(ws, buildError('Session not found', msg.id)); return; }
+        try {
+          const result = await session.sendCommand('network', []);
+          sendTo(ws, buildReply(msg, { success: true, output: result }));
+        } catch (err) {
+          sendTo(ws, buildError(`Network fetch failed: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
       case MSG.BRIDGE_SNAPSHOT: {
         const session = getSession(msg.payload?.sessionId);
         if (!session) {
@@ -1549,6 +1647,81 @@ function startServer() {
             sessionId: session.id,
             output: result,
           }));
+
+          // Auto-register trace/video as artifact on the most recent script linked to this session
+          if (cmd === 'tracing-stop' || cmd === 'video-stop') {
+            const fileMatch = cmd === 'tracing-stop'
+              ? result.match(/\[Trace\]\(([^)]+)\)/)
+              : result.match(/\[Video\]\(([^)]+)\)/);
+            if (fileMatch) {
+              // Find the most recent completed script on this session
+              let recentScript = null;
+              for (const [sid, s] of scripts) {
+                if (s.sessionId === session.id && (s.state === 'complete' || s.state === 'disconnected')) {
+                  if (!recentScript || (s.startedAt || 0) > (recentScript.startedAt || 0)) {
+                    recentScript = { id: sid, script: s };
+                  }
+                }
+              }
+              if (recentScript) {
+                const filePath = pathResolve(fileMatch[1]);
+                const artifactType = cmd === 'tracing-stop' ? 'trace' : 'video';
+                const label = cmd === 'tracing-stop' ? 'Session trace' : 'Session video';
+                try {
+                  const dir = pathResolve(ARTIFACTS_DIR, recentScript.id);
+                  await mkdir(dir, { recursive: true });
+
+                  let destPath, ctype;
+                  if (cmd === 'tracing-stop') {
+                    // Package trace + network + resources into a zip for show-trace compatibility
+                    const traceDir = dirname(filePath);
+                    const baseName = filePath.split('/').pop().replace('.trace', '');
+                    const destFile = `trace_${Date.now()}.zip`;
+                    destPath = pathResolve(dir, destFile);
+                    ctype = 'application/zip';
+                    await new Promise((resolve, reject) => {
+                      const zipArgs = ['-j', destPath, filePath];
+                      // Add network log if exists
+                      const networkFile = pathResolve(traceDir, baseName + '.network');
+                      try { if (require('fs').existsSync(networkFile)) zipArgs.push(networkFile); } catch {}
+                      const stacksFile = pathResolve(traceDir, baseName + '.stacks');
+                      try { if (require('fs').existsSync(stacksFile)) zipArgs.push(stacksFile); } catch {}
+                      const zipProc = spawn('zip', zipArgs, { stdio: 'pipe' });
+                      zipProc.on('close', (code) => {
+                        // Add resources dir
+                        const resourcesDir = pathResolve(traceDir, 'resources');
+                        try {
+                          if (require('fs').existsSync(resourcesDir)) {
+                            const zipR = spawn('zip', ['-r', destPath, 'resources/'], { cwd: traceDir, stdio: 'pipe' });
+                            zipR.on('close', () => resolve());
+                            zipR.on('error', () => resolve()); // non-fatal
+                          } else {
+                            resolve();
+                          }
+                        } catch { resolve(); }
+                      });
+                      zipProc.on('error', reject);
+                    });
+                  } else {
+                    // Video: simple copy
+                    const ext = filePath.split('.').pop() || 'webm';
+                    const destFile = `video_${Date.now()}.${ext}`;
+                    destPath = pathResolve(dir, destFile);
+                    ctype = 'video/webm';
+                    copyFileSync(filePath, destPath);
+                  }
+
+                  const a = { type: artifactType, label, timestamp: Date.now(), size: 0, diskPath: destPath, contentType: ctype };
+                  try { a.size = (await stat(destPath)).size; } catch { /* ignore */ }
+                  recentScript.script.artifacts.push(a);
+                  broadcast(buildMessage(MSG.BRIDGE_SCRIPT_ARTIFACT, { scriptId: recentScript.id, artifact: a }));
+                  console.log(`[Bridge] Auto-registered ${artifactType} artifact on ${recentScript.script.name}: ${destPath.split('/').pop()} (${a.size} bytes)`);
+                } catch (err) {
+                  console.warn(`[Bridge] Failed to register ${artifactType} artifact: ${err.message}`);
+                }
+              }
+            }
+          }
         } catch (err) {
           sendTo(ws, buildError(`Command failed: ${err.message}`, msg.id));
         }
@@ -2509,6 +2682,75 @@ function startServer() {
           sendTo(ws, buildReply(msg, { success: true, path: destPath, size: fstat2.size, url: 'http://localhost:9877/' + destName }));
         } catch (err) {
           sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_TRACE_VIEW: {
+        // Launch `npx playwright show-trace` on a local port and return the URL
+        const tracePath = (msg.payload || {}).path;
+        if (!tracePath) {
+          sendTo(ws, buildError('path required', msg.id));
+          break;
+        }
+        const resolvedTrace = tracePath.startsWith('/') ? tracePath : pathResolve(tracePath);
+        try {
+          await stat(resolvedTrace);
+        } catch {
+          sendTo(ws, buildError('Trace file not found: ' + resolvedTrace, msg.id));
+          break;
+        }
+        try {
+          const child = spawn('npx', ['playwright', 'show-trace', '--host=127.0.0.1', '--port=0', resolvedTrace], {
+            stdio: ['ignore', 'pipe', 'pipe'],
+            detached: true,
+            env: { ...process.env, BROWSER: 'none' }, // suppress auto-open in OS browser
+          });
+          child.unref();
+          // Parse the listening URL from stdout
+          const url = await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('show-trace startup timeout')), 10000);
+            let output = '';
+            child.stdout.on('data', (chunk) => {
+              output += chunk.toString();
+              const match = output.match(/Listening on (http:\/\/[^\s]+)/);
+              if (match) { clearTimeout(timer); resolve(match[1]); }
+            });
+            child.on('error', (err) => { clearTimeout(timer); reject(err); });
+            child.on('exit', (code) => { if (!output.includes('Listening')) { clearTimeout(timer); reject(new Error('show-trace exited with code ' + code)); } });
+          });
+          sendTo(ws, buildReply(msg, { success: true, url }));
+          console.log(`[Bridge] Trace viewer launched: ${url} → ${resolvedTrace}`);
+          // Auto-kill after 30 minutes
+          setTimeout(() => { try { child.kill(); } catch {} }, 30 * 60 * 1000);
+        } catch (err) {
+          sendTo(ws, buildError('Failed to launch trace viewer: ' + err.message, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_SERVE_ARTIFACT: {
+        // Copy an artifact file to the asset server root so it can be served via HTTP
+        const artifactPath = (msg.payload || {}).path;
+        if (!artifactPath) {
+          sendTo(ws, buildError('path required', msg.id));
+          break;
+        }
+        try {
+          const { join: pathJoin } = await import('path');
+          const ASSET_ROOT = pathJoin(homedir(), '.agentidev', 'cheerpx-assets');
+          const ext = artifactPath.split('.').pop() || 'bin';
+          const destName = `artifact_${Date.now()}.${ext}`;
+          const destPath = pathJoin(ASSET_ROOT, destName);
+          copyFileSync(artifactPath, destPath);
+          const fstat2 = (await stat(destPath));
+          sendTo(ws, buildReply(msg, {
+            success: true,
+            url: `http://localhost:9877/${destName}`,
+            size: fstat2.size,
+          }));
+        } catch (err) {
+          sendTo(ws, buildError(`Serve artifact failed: ${err.message}`, msg.id));
         }
         break;
       }

@@ -424,6 +424,15 @@ export function register(handlers) {
     }
   };
 
+  handlers['SCRIPT_ADD_ARTIFACT'] = async (msg) => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge' };
+    }
+    const { scriptId, artifact } = msg;
+    if (!scriptId || !artifact) return { success: false, error: 'scriptId and artifact required' };
+    return bridgeClient.addScriptArtifact(scriptId, artifact);
+  };
+
   handlers['SCRIPT_ARTIFACT_GET'] = async (msg) => {
     const { id: artifactId, diskPath } = msg;
 

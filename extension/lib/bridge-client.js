@@ -180,6 +180,30 @@ export function destroySession(sessionId) {
   return _sendRequest('BRIDGE_SESSION_DESTROY', { sessionId });
 }
 
+// ---- Session tracing & video ----
+
+export function sessionTracingStart(sessionId) {
+  return _sendRequest('BRIDGE_SESSION_TRACING_START', { sessionId });
+}
+export function sessionTracingStop(sessionId) {
+  return _sendRequest('BRIDGE_SESSION_TRACING_STOP', { sessionId });
+}
+export function sessionVideoStart(sessionId) {
+  return _sendRequest('BRIDGE_SESSION_VIDEO_START', { sessionId });
+}
+export function sessionVideoStop(sessionId) {
+  return _sendRequest('BRIDGE_SESSION_VIDEO_STOP', { sessionId });
+}
+export function sessionVideoChapter(sessionId, title) {
+  return _sendRequest('BRIDGE_SESSION_VIDEO_CHAPTER', { sessionId, title });
+}
+export function sessionConsole(sessionId, level) {
+  return _sendRequest('BRIDGE_SESSION_CONSOLE', { sessionId, level });
+}
+export function sessionNetwork(sessionId) {
+  return _sendRequest('BRIDGE_SESSION_NETWORK', { sessionId });
+}
+
 /**
  * List all active sessions
  * @returns {Promise<object>} { sessions: [...] }
@@ -248,6 +272,27 @@ export function fillRef(sessionId, ref, value) {
  */
 export function evalInSession(sessionId, expr) {
   return _sendRequest('BRIDGE_EVAL', { sessionId, expr });
+}
+
+/**
+ * Launch trace viewer (show-trace) on a local port and return the URL
+ */
+export function traceView(path) {
+  return _sendRequest('BRIDGE_TRACE_VIEW', { path });
+}
+
+/**
+ * Copy artifact to asset-server and return a servable URL
+ */
+export function serveArtifact(path) {
+  return _sendRequest('BRIDGE_SERVE_ARTIFACT', { path });
+}
+
+/**
+ * Add an artifact to a running or recently completed script
+ */
+export function addScriptArtifact(scriptId, artifact) {
+  return _sendRequest('BRIDGE_SCRIPT_ADD_ARTIFACT', { scriptId, artifact });
 }
 
 // --- Script Management ---

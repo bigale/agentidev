@@ -51,6 +51,12 @@ function contentType(filePath) {
   if (ext === '.js' || ext === '.mjs') return 'application/javascript';
   if (ext === '.json') return 'application/json';
   if (ext === '.html') return 'text/html; charset=utf-8';
+  if (ext === '.css') return 'text/css';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.webm') return 'video/webm';
+  if (ext === '.mp4') return 'video/mp4';
+  if (ext === '.zip' || ext === '.trace') return 'application/zip';
   return 'application/octet-stream';
 }
 

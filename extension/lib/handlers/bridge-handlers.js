@@ -88,6 +88,39 @@ export function register(handlers) {
     return { success: true, ...result };
   };
 
+  handlers['TRACE_VIEW'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected' };
+    return bridgeClient.traceView(msg.path);
+  };
+
+  handlers['SERVE_ARTIFACT'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected' };
+    return bridgeClient.serveArtifact(msg.path);
+  };
+
+  // ---- Session tracing & video ----
+  handlers['SESSION_TRACING_START'] = async (msg) => {
+    return bridgeClient.sessionTracingStart(msg.sessionId);
+  };
+  handlers['SESSION_TRACING_STOP'] = async (msg) => {
+    return bridgeClient.sessionTracingStop(msg.sessionId);
+  };
+  handlers['SESSION_VIDEO_START'] = async (msg) => {
+    return bridgeClient.sessionVideoStart(msg.sessionId);
+  };
+  handlers['SESSION_VIDEO_STOP'] = async (msg) => {
+    return bridgeClient.sessionVideoStop(msg.sessionId);
+  };
+  handlers['SESSION_VIDEO_CHAPTER'] = async (msg) => {
+    return bridgeClient.sessionVideoChapter(msg.sessionId, msg.title);
+  };
+  handlers['SESSION_CONSOLE'] = async (msg) => {
+    return bridgeClient.sessionConsole(msg.sessionId, msg.level);
+  };
+  handlers['SESSION_NETWORK'] = async (msg) => {
+    return bridgeClient.sessionNetwork(msg.sessionId);
+  };
+
   handlers['BRIDGE_SEND_COMMAND'] = async (msg) => {
     const result = await tracked('command', msg.sessionId, { command: msg.command }, () =>
       bridgeClient.sendCommand(msg.sessionId, msg.command)
@@ -416,8 +449,28 @@ export function initBridgeCallbacks(snapshotStorageFn, deps = {}) {
     chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_RUN_COMPLETE', ...data }).catch(() => {});
   });
 
-  bridgeClient.onArtifact((data) => {
+  bridgeClient.onArtifact(async (data) => {
     console.log(`[Background] Artifact: ${data.artifact?.label} (${data.artifact?.type})`);
+    // Persist late artifacts (e.g. trace/video added after run completes) to IndexedDB
+    if (data.scriptId && data.artifact) {
+      try {
+        await dsAdd({
+          dataSource: 'ScriptArtifacts',
+          data: {
+            runId: data.scriptId,
+            type: data.artifact.type,
+            timestamp: data.artifact.timestamp || Date.now(),
+            label: data.artifact.label || '',
+            data: data.artifact.data || null,
+            diskPath: data.artifact.diskPath || null,
+            size: data.artifact.size || 0,
+            contentType: data.artifact.contentType || 'application/octet-stream',
+          },
+        });
+      } catch (err) {
+        console.warn('[Background] Failed to persist artifact:', err.message);
+      }
+    }
     chrome.runtime.sendMessage({ type: 'AUTO_BROADCAST_ARTIFACT', ...data }).catch(() => {});
   });
 

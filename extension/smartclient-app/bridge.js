@@ -521,6 +521,14 @@ window.addEventListener('message', async (event) => {
   const msg = event.data;
   if (!msg) return;
 
+  // Open URL in a new browser tab (from sandbox, bypasses CSP restrictions)
+  if (msg.source === 'smartclient-open-tab') {
+    if (msg.url) {
+      chrome.tabs.create({ url: msg.url });
+    }
+    return;
+  }
+
   // Skin change from in-app picker (sandbox postMessage → extension message)
   if (msg.source === 'smartclient-skin-change') {
     chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_SET_SKIN', skin: msg.skin });
@@ -530,8 +538,11 @@ window.addEventListener('message', async (event) => {
   // Action proxy — forward arbitrary chrome.runtime.sendMessage calls from sandbox
   if (msg.source === 'smartclient-action') {
     const outMsg = { type: msg.messageType, ...msg.payload };
+    // Session recording commands can take longer (playwright-cli exec)
+    const isLongRunning = outMsg.type && outMsg.type.startsWith('SESSION_');
+    const timeout = isLongRunning ? 30000 : MSG_TIMEOUT_MS;
     console.log('[Bridge] Action relay:', JSON.stringify(outMsg));
-    sendMessageWithTimeout(outMsg).then((response) => {
+    sendMessageWithTimeout(outMsg, timeout).then((response) => {
       try {
         iframe.contentWindow.postMessage({
           source: 'smartclient-action-response',

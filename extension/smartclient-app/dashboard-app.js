@@ -37,6 +37,10 @@ var _loadedScriptName = null;
 var _authCaptureSessionId = null;
 var _authCaptureScriptName = null;
 
+// ---- Session recording state ----
+var _tracingSessionId = null;   // sessionId currently being traced
+var _videoSessionId = null;     // sessionId currently being video-recorded
+
 // ---- Async dispatch tracking ----
 var _pendingDispatches = {};
 
@@ -78,6 +82,12 @@ function loadDashboard() {
     renderConfig(window._dashboardConfig);
   }
 
+  // Wire sessions grid click to refresh toolbar (enables Trace/Video buttons)
+  var sessionsGrid = resolveRef('sessionsGrid');
+  if (sessionsGrid) {
+    sessionsGrid.recordClick = function () { refreshToolbar(); };
+  }
+
   // Wire scripts grid recordClick for selection tracking + editor loading
   var scriptsGrid = resolveRef('scriptsGrid');
   if (scriptsGrid) {
@@ -97,6 +107,21 @@ function loadDashboard() {
 
       // Show assertions if available (from live progress)
       updateAssertionsGrid(record ? record.assertions : null);
+
+      // Load artifacts for completed/disconnected scripts (they were broadcast earlier)
+      if (record && (record.state === 'complete' || record.state === 'disconnected')) {
+        var scriptId = record.scriptId || record.id;
+        if (scriptId) {
+          dispatchActionAsync('SCRIPT_RUN_GET', { scriptId: scriptId }).then(function (resp) {
+            var artifacts = (resp && resp.success && resp.artifacts) ? resp.artifacts : [];
+            var artifactsGrid = resolveRef('artifactsGrid');
+            if (artifactsGrid) artifactsGrid.setData(artifacts);
+          });
+        }
+      } else {
+        var artifactsGrid = resolveRef('artifactsGrid');
+        if (artifactsGrid) artifactsGrid.setData([]);
+      }
 
       // Load script source into Monaco editor
       if (record && record.name) {
@@ -242,10 +267,42 @@ function loadDashboard() {
     };
   }
 
+  // Wire Trace toggle button
+  var tbTrace = resolveRef('tbTrace');
+  if (tbTrace) {
+    tbTrace.click = function () { toggleTracing(); };
+  }
+
+  // Wire Video toggle button
+  var tbVideo = resolveRef('tbVideo');
+  if (tbVideo) {
+    tbVideo.click = function () { toggleVideo(); };
+  }
+
   // Wire Help button
   var tbHelp = resolveRef('tbHelp');
   if (tbHelp) {
     tbHelp.click = function () { showHelpWindow(); };
+  }
+
+  // Wire Script Detail tab change — auto-refresh Console/Network when selected
+  var detailTabs = resolveRef('scriptDetailTabs');
+  if (detailTabs) {
+    detailTabs.tabSelected = function (tabNum) {
+      // Tabs: 0=State, 1=Assertions, 2=Artifacts, 3=Console, 4=Network
+      if (tabNum === 3) refreshSessionConsole();
+      if (tabNum === 4) refreshSessionNetwork();
+    };
+  }
+
+  // Wire Console/Network refresh buttons
+  var btnRefreshConsole = resolveRef('btnRefreshConsole');
+  if (btnRefreshConsole) {
+    btnRefreshConsole.click = function () { refreshSessionConsole(); };
+  }
+  var btnRefreshNetwork = resolveRef('btnRefreshNetwork');
+  if (btnRefreshNetwork) {
+    btnRefreshNetwork.click = function () { refreshSessionNetwork(); };
   }
 
   // Wire Test Results buttons
@@ -854,6 +911,207 @@ function parseIntervalInput(val) {
 }
 
 // ---- Script launch ----
+
+// ---- Session tracing & video toggles ----
+
+function getSelectedSessionId() {
+  var g = resolveRef('sessionsGrid');
+  if (!g) return null;
+  var rec = g.getSelectedRecord();
+  return (rec && rec.id) ? rec.id : null;
+}
+
+function toggleTracing() {
+  var sessionId = getSelectedSessionId();
+  if (!sessionId) {
+    isc.warn('Select a session first.');
+    return;
+  }
+  if (_tracingSessionId) {
+    // Stop
+    var stoppingSession = _tracingSessionId;
+    _tracingSessionId = null;
+    refreshToolbar();
+    dispatchActionAsync('BRIDGE_SEND_COMMAND', { sessionId: stoppingSession, command: 'tracing-stop' }, 30000).then(function (resp) {
+      console.log('[Dashboard] Tracing stopped:', resp);
+      // Extract trace path from output
+      var output = (resp && resp.output) || '';
+      var match = output.match(/\[Trace\]\(([^)]+)\)/);
+      if (match) {
+        console.log('[Dashboard] Trace saved:', match[1]);
+      }
+    });
+  } else {
+    // Start
+    dispatchActionAsync('BRIDGE_SEND_COMMAND', { sessionId: sessionId, command: 'tracing-start' }, 30000).then(function (resp) {
+      if (resp && resp.success) {
+        _tracingSessionId = sessionId;
+        console.log('[Dashboard] Tracing started on', sessionId);
+      } else {
+        isc.warn('Tracing failed: ' + (resp && resp.error || 'Unknown error'));
+      }
+      refreshToolbar();
+    });
+  }
+}
+
+function toggleVideo() {
+  var sessionId = getSelectedSessionId();
+  if (!sessionId) {
+    isc.warn('Select a session first.');
+    return;
+  }
+  if (_videoSessionId) {
+    // Stop
+    var stoppingVideoSession = _videoSessionId;
+    _videoSessionId = null;
+    refreshToolbar();
+    dispatchActionAsync('BRIDGE_SEND_COMMAND', { sessionId: stoppingVideoSession, command: 'video-stop' }, 30000).then(function (resp) {
+      console.log('[Dashboard] Video stopped:', resp);
+      var output = (resp && resp.output) || '';
+      var match = output.match(/\[Video\]\(([^)]+)\)/);
+      if (match) {
+        console.log('[Dashboard] Video saved:', match[1]);
+      }
+    });
+  } else {
+    // Start
+    dispatchActionAsync('BRIDGE_SEND_COMMAND', { sessionId: sessionId, command: 'video-start' }, 30000).then(function (resp) {
+      if (resp && resp.success) {
+        _videoSessionId = sessionId;
+        console.log('[Dashboard] Video started on', sessionId);
+      } else {
+        isc.warn('Video failed: ' + (resp && resp.error || 'Unknown error'));
+      }
+      refreshToolbar();
+    });
+  }
+}
+
+function autoStopSessionRecording(run) {
+  var runSessionId = run.sessionId;
+  var scriptId = run.scriptId || run.id;
+
+  // Auto-stop trace if this script's session was being traced
+  if (_tracingSessionId && runSessionId && _tracingSessionId === runSessionId) {
+    console.log('[Dashboard] Auto-stopping trace for completed script:', run.name);
+    _tracingSessionId = null;
+    refreshToolbar();
+    // Fire-and-forget: the bridge server handles stopping trace + artifact registration
+    // via the BRIDGE_SESSION_RECORDING_STOP handler (server-side, avoids MV3 port-close)
+    dispatchActionAsync('BRIDGE_SEND_COMMAND', { sessionId: runSessionId, command: 'tracing-stop' }, 30000)
+      .then(function (resp) {
+        console.log('[Dashboard] Trace auto-stopped:', (resp && resp.output) || '');
+      }).catch(function () {});
+  }
+
+  // Auto-stop video if this script's session was being recorded
+  if (_videoSessionId && runSessionId && _videoSessionId === runSessionId) {
+    console.log('[Dashboard] Auto-stopping video for completed script:', run.name);
+    _videoSessionId = null;
+    refreshToolbar();
+    dispatchActionAsync('BRIDGE_SEND_COMMAND', { sessionId: runSessionId, command: 'video-stop' }, 30000)
+      .then(function (resp) {
+        console.log('[Dashboard] Video auto-stopped:', (resp && resp.output) || '');
+      }).catch(function () {});
+  }
+}
+
+// ---- Session console & network ----
+
+function refreshSessionConsole() {
+  var sessionId = getSelectedSessionId();
+  if (!sessionId) {
+    var out = resolveRef('consoleOutput');
+    if (out) out.setContents('<div style="padding:8px;color:#888;font-size:11px;">Select a session first</div>');
+    return;
+  }
+  var label = resolveRef('consoleSummaryLabel');
+  if (label) label.setContents('<span style="color:#888;">Loading...</span>');
+  dispatchActionAsync('BRIDGE_SEND_COMMAND', { sessionId: sessionId, command: 'console' }, 15000).then(function (resp) {
+    var output = (resp && resp.output) || '';
+    var out = resolveRef('consoleOutput');
+    if (!out) return;
+    // Parse console output into formatted HTML
+    var lines = output.split('\n');
+    var html = '';
+    var msgCount = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (!line || line.startsWith('###') || line.startsWith('Total messages') || line.startsWith('- ')) continue;
+      msgCount++;
+      var color = '#aaa';
+      if (line.startsWith('[ERROR]') || line.startsWith('[error]')) color = '#f44336';
+      else if (line.startsWith('[WARNING]') || line.startsWith('[warning]')) color = '#ff9800';
+      else if (line.startsWith('[INFO]') || line.startsWith('[info]')) color = '#4fc3f7';
+      html += '<div style="padding:1px 4px;font-size:11px;font-family:monospace;color:' + color + ';border-bottom:1px solid #333;white-space:pre-wrap;">' + escapeHtmlDash(line) + '</div>';
+    }
+    if (!html) html = '<div style="padding:8px;color:#888;font-size:11px;">No console messages</div>';
+    out.setContents(html);
+    // Update summary
+    var summaryMatch = output.match(/Total messages: (\d+) \(Errors: (\d+), Warnings: (\d+)\)/);
+    if (label && summaryMatch) {
+      label.setContents('<span style="font-size:11px;color:#aaa;">' + summaryMatch[1] + ' messages, ' +
+        '<span style="color:#f44336;">' + summaryMatch[2] + ' errors</span>, ' +
+        '<span style="color:#ff9800;">' + summaryMatch[3] + ' warnings</span></span>');
+    } else if (label) {
+      label.setContents('<span style="font-size:11px;color:#aaa;">' + msgCount + ' messages</span>');
+    }
+  }).catch(function () {
+    var out = resolveRef('consoleOutput');
+    if (out) out.setContents('<div style="padding:8px;color:#f44336;font-size:11px;">Failed to load console</div>');
+  });
+}
+
+function refreshSessionNetwork() {
+  var sessionId = getSelectedSessionId();
+  if (!sessionId) {
+    var out = resolveRef('networkOutput');
+    if (out) out.setContents('<div style="padding:8px;color:#888;font-size:11px;">Select a session first</div>');
+    return;
+  }
+  var label = resolveRef('networkSummaryLabel');
+  if (label) label.setContents('<span style="color:#888;">Loading...</span>');
+  dispatchActionAsync('BRIDGE_SEND_COMMAND', { sessionId: sessionId, command: 'network' }, 15000).then(function (resp) {
+    var output = (resp && resp.output) || '';
+    var out = resolveRef('networkOutput');
+    if (!out) return;
+    // Parse network output: [METHOD] URL => [STATUS] size
+    var lines = output.split('\n');
+    var html = '';
+    var reqCount = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (!line || line.startsWith('###') || line.startsWith('- ')) continue;
+      var match = line.match(/^\[(\w+)\]\s+(\S+)\s+=>\s+\[([^\]]+)\]\s*(.*)/);
+      if (match) {
+        reqCount++;
+        var method = match[1];
+        var url = match[2];
+        var status = match[3];
+        var extra = match[4] || '';
+        var statusColor = '#4CAF50';
+        if (status.startsWith('4') || status.startsWith('5')) statusColor = '#f44336';
+        else if (status === 'FAILED') statusColor = '#f44336';
+        else if (status.startsWith('3')) statusColor = '#ff9800';
+        // Truncate long URLs
+        var displayUrl = url.length > 80 ? url.substring(0, 77) + '...' : url;
+        html += '<div style="padding:2px 4px;font-size:11px;font-family:monospace;border-bottom:1px solid #333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + escapeHtmlDash(url) + '">'
+          + '<span style="color:#4fc3f7;width:40px;display:inline-block;">' + escapeHtmlDash(method) + '</span> '
+          + '<span style="color:' + statusColor + ';width:50px;display:inline-block;">[' + escapeHtmlDash(status) + ']</span> '
+          + '<span style="color:#aaa;">' + escapeHtmlDash(displayUrl) + '</span>'
+          + (extra ? ' <span style="color:#666;">' + escapeHtmlDash(extra) + '</span>' : '')
+          + '</div>';
+      }
+    }
+    if (!html) html = '<div style="padding:8px;color:#888;font-size:11px;">No network requests</div>';
+    out.setContents(html);
+    if (label) label.setContents('<span style="font-size:11px;color:#aaa;">' + reqCount + ' requests</span>');
+  }).catch(function () {
+    var out = resolveRef('networkOutput');
+    if (out) out.setContents('<div style="padding:8px;color:#f44336;font-size:11px;">Failed to load network</div>');
+  });
+}
 
 function showSessionRunMenu(button, debug) {
   // Read sessions from the grid data (already fetched from bridge)
@@ -1673,6 +1931,10 @@ function handleBroadcast(type, payload) {
       if (_dashState.scriptHistoryMode === 'archive') {
         loadArchiveRuns();
       }
+      // Auto-stop tracing/video if the completed script was on the traced/recorded session
+      if (payload && payload.run) {
+        autoStopSessionRecording(payload.run);
+      }
       break;
   }
 }
@@ -1836,6 +2098,15 @@ function refreshToolbar() {
 
   // Debug: same conditions as Run
   setButtonDisabled('tbDebug', !hasSelected || !connected || isActive);
+
+  // Trace & Video: enabled when connected (toggle state shown in title)
+  var hasSession = !!getSelectedSessionId();
+  setButtonDisabled('tbTrace', !connected || (!hasSession && !_tracingSessionId));
+  setButtonDisabled('tbVideo', !connected || (!hasSession && !_videoSessionId));
+  var traceBtn = resolveRef('tbTrace');
+  if (traceBtn) traceBtn.setTitle(_tracingSessionId ? 'Trace \u25cf' : 'Trace');
+  var videoBtn = resolveRef('tbVideo');
+  if (videoBtn) videoBtn.setTitle(_videoSessionId ? 'Video \u25cf' : 'Video');
 
   // Pause / Resume
   setButtonDisabled('tbPause', !isRunning);
@@ -2732,8 +3003,45 @@ function renderArtifactPreview(preview, artifact, data) {
       } catch (e) { /* not valid JSON, show as-is */ }
       preview.setContents('<pre style="padding:4px;font-size:11px;font-family:monospace;white-space:pre-wrap;color:#4CAF50;margin:0;max-height:300px;overflow:auto;">' + escapeHtmlDash(formatted) + '</pre>');
       break;
+    case 'trace':
+      // Trace — launch show-trace local server via bridge, open in new tab
+      preview.setContents(
+        '<div style="padding:12px;font-size:12px;color:#ccc;">'
+        + '<b>Playwright Trace</b> (' + (artifact.size ? Math.round(artifact.size / 1024) + ' KB' : '') + ')<br><br>'
+        + '<button onclick="window._openTraceViewer && window._openTraceViewer(\'' + escapeHtmlDash(artifact.diskPath || '') + '\')" '
+        + 'style="padding:6px 16px;background:#1976d2;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:13px;">Open Trace Viewer</button><br><br>'
+        + '<span style="color:#666;font-size:11px;">File: ' + escapeHtmlDash(artifact.diskPath || '') + '</span>'
+        + '</div>'
+      );
+      break;
+    case 'video':
+      // Video — serve via asset server and embed <video> player
+      if (artifact.diskPath) {
+        preview.setContents('<div style="padding:8px;color:#888;font-size:11px;">Loading video...</div>');
+        dispatchActionAsync('SERVE_ARTIFACT', { path: artifact.diskPath }, 10000).then(function (resp) {
+          if (resp && resp.success && resp.url) {
+            preview.setContents(
+              '<div style="padding:8px;text-align:center;">'
+              + '<video src="' + resp.url + '" controls style="max-width:100%;max-height:280px;border:1px solid #333;"></video>'
+              + '</div>'
+            );
+          } else {
+            preview.setContents('<div style="padding:12px;color:#888;">Video file: ' + escapeHtmlDash(artifact.diskPath || '') + '</div>');
+          }
+        }).catch(function () {
+          preview.setContents('<div style="padding:12px;color:#888;">Video file: ' + escapeHtmlDash(artifact.diskPath || '') + '</div>');
+        });
+      } else {
+        preview.setContents('<div style="padding:12px;color:#888;">No video file path</div>');
+      }
+      break;
     default:
-      preview.setContents('<pre style="padding:4px;font-size:11px;font-family:monospace;white-space:pre-wrap;color:#888;margin:0;">' + escapeHtmlDash(data) + '</pre>');
+      // For unknown types, try to display as text if it looks like text
+      if (typeof data === 'string' && data.length < 50000 && !data.startsWith('data:')) {
+        preview.setContents('<pre style="padding:4px;font-size:11px;font-family:monospace;white-space:pre-wrap;color:#888;margin:0;">' + escapeHtmlDash(data) + '</pre>');
+      } else {
+        preview.setContents('<div style="padding:8px;color:#888;font-size:11px;">Binary artifact (' + (artifact.size ? Math.round(artifact.size / 1024) + ' KB' : 'unknown size') + ')</div>');
+      }
   }
 }
 
@@ -2755,6 +3063,25 @@ window._openScreenshotViewer = function (src, label) {
       }),
     ],
   }).show();
+};
+
+// Global hook for trace viewer (called from inline onclick in HTMLFlow)
+window._openTraceViewer = function (diskPath) {
+  if (!diskPath) return;
+  // Ask bridge to launch show-trace with a local HTTP server
+  dispatchActionAsync('TRACE_VIEW', { path: diskPath }, 15000).then(function (resp) {
+    if (resp && resp.success && resp.url) {
+      // Ask wrapper to open URL in a new browser tab (avoids CSP/sandbox restrictions)
+      window.parent.postMessage({
+        source: 'smartclient-open-tab',
+        url: resp.url,
+      }, '*');
+    } else {
+      isc.warn('Failed to launch trace viewer: ' + (resp && resp.error || 'unknown'));
+    }
+  }).catch(function (e) {
+    isc.warn('Trace viewer error: ' + e.message);
+  });
 };
 
 // ---- Real-time artifact streaming ----

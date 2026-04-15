@@ -91,6 +91,15 @@ export const MSG = {
   BRIDGE_DBG_PAUSED: 'BRIDGE_DBG_PAUSED',                    // broadcast: script paused (V8)
   BRIDGE_DBG_RESUMED: 'BRIDGE_DBG_RESUMED',                  // broadcast: script resumed (V8)
 
+  // Session tracing & video recording
+  BRIDGE_SESSION_TRACING_START: 'BRIDGE_SESSION_TRACING_START',
+  BRIDGE_SESSION_TRACING_STOP: 'BRIDGE_SESSION_TRACING_STOP',
+  BRIDGE_SESSION_VIDEO_START: 'BRIDGE_SESSION_VIDEO_START',
+  BRIDGE_SESSION_VIDEO_STOP: 'BRIDGE_SESSION_VIDEO_STOP',
+  BRIDGE_SESSION_VIDEO_CHAPTER: 'BRIDGE_SESSION_VIDEO_CHAPTER',
+  BRIDGE_SESSION_CONSOLE: 'BRIDGE_SESSION_CONSOLE',
+  BRIDGE_SESSION_NETWORK: 'BRIDGE_SESSION_NETWORK',
+
   // Auth capture (save/load login state for scripts)
   BRIDGE_AUTH_CAPTURE: 'BRIDGE_AUTH_CAPTURE',                // start auth capture session (open browser, navigate)
   BRIDGE_AUTH_SAVE: 'BRIDGE_AUTH_SAVE',                      // save auth state from session and close it
@@ -100,6 +109,8 @@ export const MSG = {
   BRIDGE_SYSTEM_PROCESSES: 'BRIDGE_SYSTEM_PROCESSES',        // discover running Playwright browser processes
   BRIDGE_KILL_PROCESS: 'BRIDGE_KILL_PROCESS',                // kill a process by PID
   BRIDGE_FILE_PICKER: 'BRIDGE_FILE_PICKER',                  // open native file picker dialog
+  BRIDGE_TRACE_VIEW: 'BRIDGE_TRACE_VIEW',                      // launch show-trace local server, return URL
+  BRIDGE_SERVE_ARTIFACT: 'BRIDGE_SERVE_ARTIFACT',              // copy artifact to asset-server and return URL
   BRIDGE_READ_FILE: 'BRIDGE_READ_FILE',                      // read a local file (text or base64)
   BRIDGE_COPY_TO_ASSETS: 'BRIDGE_COPY_TO_ASSETS',            // copy a local file to the asset-server root
 

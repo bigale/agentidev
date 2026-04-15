@@ -306,6 +306,20 @@ window._dashboardConfig = {
           },
           { _type: 'ToolStripSeparator' },
 
+          // Session recording
+          {
+            _type: 'ToolStripButton',
+            ID: 'tbTrace',
+            title: 'Trace',
+            disabled: true,
+          },
+          {
+            _type: 'ToolStripButton',
+            ID: 'tbVideo',
+            title: 'Video',
+            disabled: true,
+          },
+          { _type: 'ToolStripSeparator' },
           // IDB Sync
           {
             _type: 'ToolStripButton',
@@ -875,6 +889,88 @@ window._dashboardConfig = {
                           height: '*',
                           overflow: 'auto',
                           contents: '<div style="padding:8px;color:#888;font-size:11px;">Select an artifact to preview</div>',
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    title: 'Console',
+                    pane: {
+                      _type: 'VLayout',
+                      width: '100%',
+                      height: '100%',
+                      members: [
+                        {
+                          _type: 'HLayout',
+                          height: 28,
+                          membersMargin: 4,
+                          layoutMargin: 4,
+                          defaultLayoutAlign: 'center',
+                          members: [
+                            {
+                              _type: 'Button',
+                              ID: 'btnRefreshConsole',
+                              title: 'Refresh',
+                              width: 60,
+                              baseStyle: 'toolStripButton',
+                            },
+                            {
+                              _type: 'Label',
+                              ID: 'consoleSummaryLabel',
+                              width: '*',
+                              height: 20,
+                              contents: '',
+                            },
+                          ],
+                        },
+                        {
+                          _type: 'HTMLFlow',
+                          ID: 'consoleOutput',
+                          width: '100%',
+                          height: '*',
+                          overflow: 'auto',
+                          contents: '<div style="padding:8px;color:#888;font-size:11px;">Select a session to view console</div>',
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    title: 'Network',
+                    pane: {
+                      _type: 'VLayout',
+                      width: '100%',
+                      height: '100%',
+                      members: [
+                        {
+                          _type: 'HLayout',
+                          height: 28,
+                          membersMargin: 4,
+                          layoutMargin: 4,
+                          defaultLayoutAlign: 'center',
+                          members: [
+                            {
+                              _type: 'Button',
+                              ID: 'btnRefreshNetwork',
+                              title: 'Refresh',
+                              width: 60,
+                              baseStyle: 'toolStripButton',
+                            },
+                            {
+                              _type: 'Label',
+                              ID: 'networkSummaryLabel',
+                              width: '*',
+                              height: 20,
+                              contents: '',
+                            },
+                          ],
+                        },
+                        {
+                          _type: 'HTMLFlow',
+                          ID: 'networkOutput',
+                          width: '100%',
+                          height: '*',
+                          overflow: 'auto',
+                          contents: '<div style="padding:8px;color:#888;font-size:11px;">Select a session to view network</div>',
                         },
                       ],
                     },
