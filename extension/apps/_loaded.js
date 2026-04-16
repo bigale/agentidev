@@ -29,8 +29,6 @@
 
 import { register as registerHelloRuntime } from './hello-runtime/handlers.js';
 
-import { register as registerHorsebread } from './horsebread/handlers.js';
 export const PLUGIN_REGISTRARS = {
   'hello-runtime': registerHelloRuntime,
-  'horsebread': registerHorsebread,
 };
