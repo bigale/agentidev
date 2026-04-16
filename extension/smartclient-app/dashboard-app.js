@@ -3014,10 +3014,15 @@ function renderArtifactPreview(preview, artifact, data) {
       break;
     case 'trace':
       // Trace — launch show-trace local server via bridge, open in new tab
+      // Store the path in a global map to avoid JavaScript string escaping of backslashes
+      // (Windows paths like C:\Users\bigal\.agentidev\... contain \U, \b which are JS escape sequences)
+      if (!window._tracePathMap) window._tracePathMap = {};
+      var traceKey = 'trace_' + Date.now();
+      window._tracePathMap[traceKey] = artifact.diskPath || '';
       preview.setContents(
         '<div style="padding:12px;font-size:12px;color:#ccc;">'
         + '<b>Playwright Trace</b> (' + (artifact.size ? Math.round(artifact.size / 1024) + ' KB' : '') + ')<br><br>'
-        + '<button onclick="window._openTraceViewer && window._openTraceViewer(\'' + escapeHtmlDash(artifact.diskPath || '') + '\')" '
+        + '<button onclick="window._openTraceViewer && window._openTraceViewer(window._tracePathMap[\'' + traceKey + '\'])" '
         + 'style="padding:6px 16px;background:#1976d2;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:13px;">Open Trace Viewer</button><br><br>'
         + '<span style="color:#666;font-size:11px;">File: ' + escapeHtmlDash(artifact.diskPath || '') + '</span>'
         + '</div>'
