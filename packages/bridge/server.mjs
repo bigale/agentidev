@@ -2807,15 +2807,20 @@ async function startServer() {
           break;
         }
         try {
-          // On Windows, npx is npx.cmd. Use it directly to preserve stdio pipes
-          // (shell:true via cmd.exe buffers stdout and hides the "Listening on ..." line).
-          const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-          const child = spawn(npxCmd, ['playwright', 'show-trace', '--host=127.0.0.1', '--port=0', resolvedTrace], {
+          // Cross-platform npx spawn:
+          // - Windows: Node CVE-2024-27980 mitigation rejects direct .cmd spawn, must use shell:true
+          // - Unix: use detached so the child survives parent restarts
+          // We can't combine shell:true + detached:true (stdio gets lost through cmd.exe),
+          // so on Windows we accept the child dies if bridge restarts (acceptable for viewers).
+          const isWin = process.platform === 'win32';
+          const child = spawn('npx', ['playwright', 'show-trace', '--host=127.0.0.1', '--port=0', resolvedTrace], {
             stdio: ['ignore', 'pipe', 'pipe'],
-            detached: true,
+            shell: isWin,
+            detached: !isWin,
+            windowsHide: true,
             env: { ...process.env, BROWSER: 'none' }, // suppress auto-open in OS browser
           });
-          child.unref();
+          if (!isWin) child.unref();
           // Parse the listening URL from stdout or stderr (playwright sometimes logs to stderr)
           const url = await new Promise((resolve, reject) => {
             const timer = setTimeout(() => reject(new Error('show-trace startup timeout')), 20000);
