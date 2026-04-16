@@ -368,7 +368,56 @@ Rules:
 
 Output ONLY the JSON object. No explanation, no markdown fences.`;
 
-function startServer() {
+async function checkPortConflict(port) {
+  // Try to connect to the port — if something responds, another bridge is already there
+  return new Promise((resolve) => {
+    try {
+      const ws = new WebSocket(`ws://localhost:${port}`);
+      const timer = setTimeout(() => { try { ws.close(); } catch {} resolve(); }, 1500);
+      ws.on('open', () => {
+        clearTimeout(timer);
+        try { ws.close(); } catch {}
+        const isWindows = process.platform === 'win32';
+        console.error('');
+        console.error('='.repeat(60));
+        console.error(`[Bridge] PORT ${port} ALREADY IN USE — another bridge is running`);
+        console.error('='.repeat(60));
+        if (isWindows) {
+          console.error('');
+          console.error('A bridge server is already responding on ws://localhost:' + port + '.');
+          console.error('On Windows, this is commonly a WSL2 bridge whose port is');
+          console.error('automatically forwarded to Windows localhost.');
+          console.error('');
+          console.error('To run the Windows-native bridge:');
+          console.error('  1. In WSL2, stop the existing bridge:  npm run bridge:stop');
+          console.error('  2. Or close the PowerShell/terminal running the bridge elsewhere');
+          console.error('  3. Then retry: npm run bridge');
+          console.error('');
+          console.error('Alternatively, you can use the WSL2 bridge as-is — the Windows');
+          console.error('extension can connect to it. But session browser launches will');
+          console.error('happen in WSL2, not on Windows.');
+        } else {
+          console.error('');
+          console.error('Another bridge is already running on port ' + port + '.');
+          console.error('Stop it with:  npm run bridge:stop');
+          console.error('Then retry:    npm run bridge');
+        }
+        console.error('');
+        console.error('='.repeat(60));
+        console.error('');
+        process.exit(1);
+      });
+      ws.on('error', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    } catch {
+      resolve();
+    }
+  });
+}
+
+async function startServer() {
   // Connected clients: Map<WebSocket, { role, id, connectedAt }>
   const clients = new Map();
 
@@ -607,6 +656,10 @@ function startServer() {
   // accepts connections immediately; indexing waits for isEmbeddingReady())
   initVectorDB().catch(err => console.error('[Bridge] VectorDB init failed:', err.message));
   initEmbeddings().catch(err => console.error('[Bridge] Embeddings init failed:', err.message));
+
+  // Pre-flight: detect if another bridge is already running on this port (e.g. WSL2
+  // bridge being reached from Windows via localhost forwarding, or a stale process).
+  await checkPortConflict(PORT);
 
   const wss = new WebSocketServer({ port: PORT });
 

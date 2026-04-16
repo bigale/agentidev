@@ -2011,7 +2011,16 @@ function updateConnectionUI() {
     if (_dashState.connected) {
       connectBtn.click = function () { dispatchAction('BRIDGE_DISCONNECT', {}); };
     } else {
-      connectBtn.click = function () { dispatchAction('BRIDGE_CONNECT', { port: 9876 }); };
+      connectBtn.click = function () {
+        // Attempt connection, show setup guidance if it fails
+        dispatchActionAsync('BRIDGE_CONNECT', { port: 9876 }, 5000).then(function (resp) {
+          if (!resp || !resp.connected) {
+            showBridgeSetupDialog();
+          }
+        }).catch(function () {
+          showBridgeSetupDialog();
+        });
+      };
     }
   }
 }
