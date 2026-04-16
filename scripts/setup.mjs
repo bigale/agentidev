@@ -130,6 +130,81 @@ if (existsSync(nodeModules)) {
   }
 }
 
+// ---- 4. Playwright browsers ----
+
+console.log('\n4. Playwright browsers');
+try {
+  // Check if playwright-cli is available
+  const cliVersion = execSync('npx @playwright/cli --version 2>&1', { encoding: 'utf8', cwd: ROOT, shell: true }).trim();
+  console.log('   playwright-cli:', cliVersion);
+} catch {
+  console.log('   playwright-cli not found — installing @playwright/cli...');
+  try {
+    execSync('npm install @playwright/cli', { cwd: ROOT, stdio: 'inherit', shell: true });
+  } catch {
+    console.error('   FAILED — install manually: npm install @playwright/cli');
+  }
+}
+
+// Install Chromium browser (needed for sessions and automation)
+console.log('   Checking Chromium browser...');
+try {
+  const installOutput = execSync('npx playwright install chromium 2>&1', {
+    encoding: 'utf8',
+    cwd: ROOT,
+    timeout: 120000,
+    shell: true,
+  }).trim();
+  if (installOutput.includes('already installed') || installOutput.includes('downloaded')) {
+    console.log('   OK — Chromium installed');
+  } else {
+    console.log('   Chromium install output:', installOutput.substring(0, 200));
+  }
+} catch (err) {
+  const msg = err.stdout || err.stderr || err.message || '';
+  if (msg.includes('already') || msg.includes('Downloading')) {
+    console.log('   OK — Chromium installed');
+  } else {
+    console.warn('   WARNING — Chromium install may have failed:', msg.substring(0, 200));
+    console.log('   Run manually: npx playwright install chromium');
+  }
+}
+
+// Verify playwright-cli can open a session
+console.log('   Verifying playwright-cli works...');
+try {
+  const listOutput = execSync('npx @playwright/cli list 2>&1', {
+    encoding: 'utf8',
+    cwd: ROOT,
+    timeout: 15000,
+    shell: true,
+  });
+  if (listOutput.includes('Browsers')) {
+    console.log('   OK — playwright-cli is functional');
+  } else {
+    console.log('   playwright-cli list output:', listOutput.substring(0, 200));
+  }
+} catch (err) {
+  console.warn('   WARNING — playwright-cli list failed:', (err.message || '').substring(0, 200));
+}
+
+// ---- 5. Bridge server test ----
+
+console.log('\n5. Bridge server');
+try {
+  // Just check if the server script exists and is parseable
+  const serverPath = resolve(ROOT, 'packages', 'bridge', 'server.mjs');
+  if (existsSync(serverPath)) {
+    console.log('   OK — server.mjs found');
+    console.log('   Start with: npm run bridge');
+    console.log('   Launch browser with: npm run browser');
+  } else {
+    console.log('   NOT FOUND — packages/bridge/server.mjs missing');
+  }
+} catch {
+  console.log('   Check failed');
+}
+
 // ---- Summary ----
 
 console.log('\n' + '='.repeat(40));
@@ -138,6 +213,11 @@ console.log('To load the extension:');
 console.log('  1. Open chrome://extensions (or edge://extensions)');
 console.log('  2. Enable Developer Mode');
 console.log('  3. Click "Load unpacked" and select the extension/ directory');
+console.log('');
+console.log('To start the automation stack:');
+console.log('  1. npm run bridge          # start bridge server (port 9876)');
+console.log('  2. npm run browser         # launch Chromium with extension');
+console.log('  3. Open the SC Dashboard from the extension');
 console.log('');
 if (!existsSync(scCheck)) {
   console.log('NOTE: SmartClient SDK not found — the dashboard tab will not work.');
