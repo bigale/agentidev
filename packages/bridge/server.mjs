@@ -368,6 +368,77 @@ Rules:
 
 Output ONLY the JSON object. No explanation, no markdown fences.`;
 
+/**
+ * Package a playwright-cli trace into a zip archive.
+ * Uses `zip` on Unix or PowerShell Compress-Archive on Windows.
+ * The resulting zip contains: trace file + network + stacks + resources/
+ * This format is what `playwright show-trace` expects.
+ */
+async function packageTraceZip(traceDir, baseName, tracePath, destPath) {
+  const fs = await import('fs');
+  const isWindows = process.platform === 'win32';
+
+  if (isWindows) {
+    // PowerShell Compress-Archive needs a staging dir to control the zip layout.
+    // Copy files to a temp dir then archive.
+    const tmpDir = pathResolve(tmpdir(), `trace_stage_${Date.now()}`);
+    await mkdir(tmpDir, { recursive: true });
+    const filesToInclude = [tracePath];
+    const networkFile = pathResolve(traceDir, baseName + '.network');
+    const stacksFile = pathResolve(traceDir, baseName + '.stacks');
+    if (fs.existsSync(networkFile)) filesToInclude.push(networkFile);
+    if (fs.existsSync(stacksFile)) filesToInclude.push(stacksFile);
+    for (const f of filesToInclude) {
+      copyFileSync(f, pathResolve(tmpDir, f.split(/[/\\]/).pop()));
+    }
+    const resourcesDir = pathResolve(traceDir, 'resources');
+    if (fs.existsSync(resourcesDir)) {
+      const destResources = pathResolve(tmpDir, 'resources');
+      await mkdir(destResources, { recursive: true });
+      for (const entry of fs.readdirSync(resourcesDir)) {
+        copyFileSync(pathResolve(resourcesDir, entry), pathResolve(destResources, entry));
+      }
+    }
+    await new Promise((resolve, reject) => {
+      const args = [
+        '-NoProfile', '-Command',
+        `Compress-Archive -Path "${tmpDir}\\*" -DestinationPath "${destPath}" -Force`,
+      ];
+      const proc = spawn('powershell', args, { stdio: 'pipe' });
+      let stderr = '';
+      proc.stderr.on('data', (d) => { stderr += d.toString(); });
+      proc.on('close', (code) => {
+        // Clean up temp dir
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+        if (code === 0) resolve();
+        else reject(new Error(`Compress-Archive failed (${code}): ${stderr.trim()}`));
+      });
+      proc.on('error', reject);
+    });
+  } else {
+    // Unix: use `zip` if available, otherwise error out cleanly
+    await new Promise((resolve, reject) => {
+      const zipArgs = ['-j', destPath, tracePath];
+      const networkFile = pathResolve(traceDir, baseName + '.network');
+      const stacksFile = pathResolve(traceDir, baseName + '.stacks');
+      if (fs.existsSync(networkFile)) zipArgs.push(networkFile);
+      if (fs.existsSync(stacksFile)) zipArgs.push(stacksFile);
+      const zipProc = spawn('zip', zipArgs, { stdio: 'pipe' });
+      zipProc.on('close', (code) => {
+        const resourcesDir = pathResolve(traceDir, 'resources');
+        if (fs.existsSync(resourcesDir)) {
+          const zipR = spawn('zip', ['-r', destPath, 'resources/'], { cwd: traceDir, stdio: 'pipe' });
+          zipR.on('close', () => resolve());
+          zipR.on('error', () => resolve());
+        } else {
+          resolve();
+        }
+      });
+      zipProc.on('error', reject);
+    });
+  }
+}
+
 async function checkPortConflict(port) {
   // Try to connect to the port — if something responds, another bridge is already there
   return new Promise((resolve) => {
@@ -1732,33 +1803,11 @@ async function startServer() {
                   if (cmd === 'tracing-stop') {
                     // Package trace + network + resources into a zip for show-trace compatibility
                     const traceDir = dirname(filePath);
-                    const baseName = filePath.split('/').pop().replace('.trace', '');
+                    const baseName = filePath.split(/[/\\]/).pop().replace('.trace', '');
                     const destFile = `trace_${Date.now()}.zip`;
                     destPath = pathResolve(dir, destFile);
                     ctype = 'application/zip';
-                    await new Promise((resolve, reject) => {
-                      const zipArgs = ['-j', destPath, filePath];
-                      // Add network log if exists
-                      const networkFile = pathResolve(traceDir, baseName + '.network');
-                      try { if (require('fs').existsSync(networkFile)) zipArgs.push(networkFile); } catch {}
-                      const stacksFile = pathResolve(traceDir, baseName + '.stacks');
-                      try { if (require('fs').existsSync(stacksFile)) zipArgs.push(stacksFile); } catch {}
-                      const zipProc = spawn('zip', zipArgs, { stdio: 'pipe' });
-                      zipProc.on('close', (code) => {
-                        // Add resources dir
-                        const resourcesDir = pathResolve(traceDir, 'resources');
-                        try {
-                          if (require('fs').existsSync(resourcesDir)) {
-                            const zipR = spawn('zip', ['-r', destPath, 'resources/'], { cwd: traceDir, stdio: 'pipe' });
-                            zipR.on('close', () => resolve());
-                            zipR.on('error', () => resolve()); // non-fatal
-                          } else {
-                            resolve();
-                          }
-                        } catch { resolve(); }
-                      });
-                      zipProc.on('error', reject);
-                    });
+                    await packageTraceZip(traceDir, baseName, filePath, destPath);
                   } else {
                     // Video: simple copy
                     const ext = filePath.split('.').pop() || 'webm';
