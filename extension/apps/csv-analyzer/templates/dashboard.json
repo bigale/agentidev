@@ -1,0 +1,180 @@
+{
+  "layout": {
+    "_type": "VLayout",
+    "ID": "csvRoot",
+    "width": "100%",
+    "height": "100%",
+    "padding": 12,
+    "membersMargin": 10,
+    "members": [
+      {
+        "_type": "Label",
+        "height": 28,
+        "contents": "<div style='font-size:17px;font-weight:600;color:#a8b4ff;'>CSV Analyzer</div>"
+      },
+      {
+        "_type": "Label",
+        "height": 44,
+        "contents": "<div style='font-size:11px;color:#888;line-height:1.5;'>Load a CSV from any URL (CORS-free via the extension), then query it with simple filter/sort/limit expressions. Everything runs in the extension service worker \u2014 no CheerpX VM required.</div>"
+      },
+
+      {
+        "_type": "SectionStack",
+        "height": 90,
+        "visibilityMode": "multiple",
+        "sections": [
+          {
+            "title": "1. Load CSV",
+            "expanded": true,
+            "items": [
+              {
+                "_type": "DynamicForm",
+                "ID": "loadForm",
+                "width": "100%",
+                "numCols": 3,
+                "colWidths": [60, "*", 120],
+                "fields": [
+                  {
+                    "name": "url",
+                    "title": "URL",
+                    "type": "text",
+                    "width": "*",
+                    "defaultValue": "http://localhost:9877/sample.csv",
+                    "hint": "Any http:// URL returning text/csv"
+                  }
+                ]
+              },
+              {
+                "_type": "HLayout",
+                "height": 28,
+                "membersMargin": 8,
+                "members": [
+                  {
+                    "_type": "Button",
+                    "ID": "btnLoad",
+                    "title": "Load",
+                    "width": 80,
+                    "_action": "fetchAndLoadGrid",
+                    "_messageType": "CSV_LOAD_URL",
+                    "_payloadFrom": "loadForm",
+                    "_targetGrid": "summaryGrid",
+                    "_statusCanvas": "loadStatus",
+                    "_timeoutMs": 30000
+                  },
+                  {
+                    "_type": "Button",
+                    "ID": "btnDescribe",
+                    "title": "Describe Columns",
+                    "width": 130,
+                    "_action": "fetchAndLoadGrid",
+                    "_messageType": "CSV_DESCRIBE",
+                    "_targetGrid": "statsGrid",
+                    "_statusCanvas": "loadStatus",
+                    "_dynamicFields": true,
+                    "_timeoutMs": 15000
+                  },
+                  {
+                    "_type": "HTMLFlow",
+                    "ID": "loadStatus",
+                    "width": "*",
+                    "height": 24,
+                    "contents": "<em style='font-size:11px;color:#888;'>No CSV loaded.</em>"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+
+      {
+        "_type": "ListGrid",
+        "ID": "summaryGrid",
+        "height": 60,
+        "showHeader": true,
+        "canEdit": false,
+        "emptyMessage": "Load a CSV to see summary",
+        "fields": [
+          { "name": "url",        "title": "URL",      "width": "*" },
+          { "name": "rows",       "title": "Rows",     "width": 70, "align": "right" },
+          { "name": "columns",    "title": "Cols",     "width": 55, "align": "right" },
+          { "name": "columnList", "title": "Column names", "width": "*" },
+          { "name": "loadedAt",   "title": "Loaded",   "width": 90 }
+        ]
+      },
+
+      {
+        "_type": "Label",
+        "height": 18,
+        "contents": "<div style='font-size:12px;color:#aaa;font-weight:600;'>Column stats</div>"
+      },
+      {
+        "_type": "ListGrid",
+        "ID": "statsGrid",
+        "height": 130,
+        "showHeader": true,
+        "canEdit": false,
+        "autoFitData": "horizontal",
+        "emptyMessage": "Click \"Describe Columns\" after loading"
+      },
+
+      {
+        "_type": "Label",
+        "height": 18,
+        "contents": "<div style='font-size:12px;color:#aaa;font-weight:600;'>Query</div>"
+      },
+      {
+        "_type": "DynamicForm",
+        "ID": "queryForm",
+        "width": "100%",
+        "numCols": 6,
+        "colWidths": [60, "*", 50, 120, 50, 80],
+        "fields": [
+          { "name": "filter",  "title": "Filter",  "type": "text", "width": "*",
+            "defaultValue": "",
+            "hint": "col = val  |  col > N  |  col contains 'str'" },
+          { "name": "sort",    "title": "Sort",    "type": "text",  "width": 120,
+            "defaultValue": "",
+            "hint": "col asc|desc" },
+          { "name": "limit",   "title": "Limit",   "type": "integer", "width": 80, "defaultValue": 100 }
+        ]
+      },
+      {
+        "_type": "HLayout",
+        "height": 28,
+        "membersMargin": 8,
+        "members": [
+          {
+            "_type": "Button",
+            "ID": "btnQuery",
+            "title": "Run Query",
+            "width": 100,
+            "_action": "fetchAndLoadGrid",
+            "_messageType": "CSV_QUERY",
+            "_payloadFrom": "queryForm",
+            "_targetGrid": "resultsGrid",
+            "_statusCanvas": "queryStatus",
+            "_dynamicFields": true,
+            "_timeoutMs": 15000
+          },
+          {
+            "_type": "HTMLFlow",
+            "ID": "queryStatus",
+            "width": "*",
+            "height": 24,
+            "contents": "<em style='font-size:11px;color:#888;'>Run a query to see results.</em>"
+          }
+        ]
+      },
+      {
+        "_type": "ListGrid",
+        "ID": "resultsGrid",
+        "height": "*",
+        "showHeader": true,
+        "canEdit": false,
+        "autoFitData": "horizontal",
+        "emptyMessage": "Run a query to see results"
+      }
+    ]
+  }
+}

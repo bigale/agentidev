@@ -29,8 +29,10 @@
 
 import { register as registerHelloRuntime } from './hello-runtime/handlers.js';
 import { register as registerSqliteQuery } from './sqlite-query/handlers.js';
+import { register as registerCsvAnalyzer } from './csv-analyzer/handlers.js';
 
 export const PLUGIN_REGISTRARS = {
   'hello-runtime': registerHelloRuntime,
   'sqlite-query': registerSqliteQuery,
+  'csv-analyzer': registerCsvAnalyzer,
 };

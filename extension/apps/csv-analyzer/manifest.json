@@ -1,0 +1,14 @@
+{
+  "id": "csv-analyzer",
+  "name": "CSV Analyzer",
+  "version": "0.1.0",
+  "description": "Load a CSV from any URL, filter/sort/limit rows, and view results in a SmartClient grid with auto-inferred columns. All parsing happens in the extension service worker — no CheerpX required.",
+  "modes": ["csv-analyzer"],
+  "templates": {
+    "dashboard": "templates/dashboard.json"
+  },
+  "handlers": "handlers.js",
+  "requires": {
+    "hostCapabilities": ["network"]
+  }
+}

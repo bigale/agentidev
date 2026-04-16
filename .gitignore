@@ -66,6 +66,7 @@ extension/apps/*
 !extension/apps/_loaded.js
 !extension/apps/hello-runtime/
 !extension/apps/sqlite-query/
+!extension/apps/csv-analyzer/
 !extension/apps/horsebread/
 extension/apps/horsebread/*
 !extension/apps/horsebread/PLAN.md
