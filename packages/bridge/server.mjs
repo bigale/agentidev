@@ -2807,9 +2807,11 @@ async function startServer() {
           break;
         }
         try {
+          // On Windows, npx is npx.cmd and requires shell:true to resolve via PATH
           const child = spawn('npx', ['playwright', 'show-trace', '--host=127.0.0.1', '--port=0', resolvedTrace], {
             stdio: ['ignore', 'pipe', 'pipe'],
             detached: true,
+            shell: process.platform === 'win32',
             env: { ...process.env, BROWSER: 'none' }, // suppress auto-open in OS browser
           });
           child.unref();
