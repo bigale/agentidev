@@ -66,6 +66,37 @@
   document.write('<script src="../smartclient/skins/' + _skinName + '/load_skin.js"><\/script>');
 </script>
 
+<!-- Check that SmartClient loaded (missing on fresh clones without SDK) -->
+<script>
+if (typeof isc === 'undefined') {
+  document.addEventListener('DOMContentLoaded', function() {
+    document.body.style.background = '#1a1a2e';
+    document.body.style.color = '#ccc';
+    document.body.style.fontFamily = '-apple-system, BlinkMacSystemFont, sans-serif';
+    document.body.style.padding = '40px';
+    document.body.style.overflow = 'auto';
+    document.body.innerHTML = '<div style="max-width:600px;margin:0 auto;">'
+      + '<h1 style="color:#4fc3f7;margin-bottom:8px;">Agentidev Dashboard</h1>'
+      + '<h2 style="color:#f44336;font-weight:normal;">Setup Required</h2>'
+      + '<p>The SmartClient SDK and/or Forge toolkit are not installed. The core extension (sidepanel, memory, capture) works without them, but the dashboard needs these dependencies.</p>'
+      + '<h3 style="color:#4fc3f7;">Quick Setup</h3>'
+      + '<pre style="background:#0d1117;padding:12px;border-radius:6px;overflow-x:auto;font-size:13px;color:#e6edf3;">node scripts/setup.mjs</pre>'
+      + '<h3 style="color:#4fc3f7;">Manual Setup</h3>'
+      + '<p><b>1. Forge toolkit</b> (extension/lib/agentiface)</p>'
+      + '<pre style="background:#0d1117;padding:12px;border-radius:6px;font-size:12px;color:#e6edf3;">'
+      + '# Linux/macOS:\nln -sf ../../packages/forge extension/lib/agentiface\n\n'
+      + '# Windows (run as admin or enable Developer Mode):\nmklink /J extension\\lib\\agentiface ..\\..\\packages\\forge</pre>'
+      + '<p><b>2. SmartClient SDK</b> (extension/smartclient)</p>'
+      + '<p>Download the LGPL runtime from <a href="https://www.smartclient.com/product/download.jsp" style="color:#4fc3f7;">smartclient.com</a>, then link it:</p>'
+      + '<pre style="background:#0d1117;padding:12px;border-radius:6px;font-size:12px;color:#e6edf3;">'
+      + '# Linux/macOS:\nln -s /path/to/smartclientRuntime/isomorphic extension/smartclient\n\n'
+      + '# Windows:\nmklink /J extension\\smartclient C:\\path\\to\\smartclientRuntime\\isomorphic</pre>'
+      + '<p style="color:#888;margin-top:24px;">After setup, reload the extension (chrome://extensions > reload icon).</p>'
+      + '</div>';
+  });
+}
+</script>
+
 <!-- Agentiface theme + components -->
 <script src="../lib/agentiface/theme-manager.js"></script>
 <script src="../lib/agentiface/forge-listgrid.js"></script>
