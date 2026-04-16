@@ -311,9 +311,31 @@ var ACTION_MAP = {
         return;
       }
       if (status && status.setContents) status.setContents('<em style="color:#888;">Loading...</em>');
+      // Build payload: static _messagePayload merged with form values from _payloadFrom
       var payload = Object.assign({}, node._messagePayload || {});
+      if (node._payloadFrom) {
+        var source = resolveRef(node._payloadFrom);
+        if (source) {
+          if (source.getSelectedRecord) {
+            var record = source.getSelectedRecord();
+            if (record) Object.assign(payload, record);
+          } else if (source.getValues) {
+            Object.assign(payload, source.getValues() || {});
+          }
+        }
+      }
       _rendererDispatchAsync(node._messageType, payload, node._timeoutMs).then(function (response) {
         if (response && response.data && Array.isArray(response.data)) {
+          // Dynamic column inference: if result has a `columns` array or we can
+          // infer from the first row, rebuild the grid's fields before setData.
+          // This makes the grid work for ad-hoc queries (e.g. SQL results).
+          if (node._dynamicFields && response.data.length > 0) {
+            var cols = response.columns || Object.keys(response.data[0]);
+            var fields = cols.map(function (c) {
+              return { name: c, title: c, width: '*' };
+            });
+            grid.setFields(fields);
+          }
           grid.setData(response.data);
           if (status && status.setContents) {
             status.setContents('<span style="color:#4CAF50;">' + response.totalRows + ' records loaded</span>');

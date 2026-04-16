@@ -1,0 +1,15 @@
+{
+  "id": "sqlite-query",
+  "name": "SQLite Query",
+  "version": "0.1.0",
+  "description": "Upload a SQLite database file, run queries against it via sqlite3 in the CheerpX VM, and view results in a SmartClient grid. Demonstrates the Extension-as-network-card + CheerpX-as-compute pattern.",
+  "modes": ["sqlite-query"],
+  "templates": {
+    "dashboard": "templates/dashboard.json"
+  },
+  "handlers": "handlers.js",
+  "requires": {
+    "hostCapabilities": ["exec", "fs"],
+    "runtimes": ["cheerpx"]
+  }
+}

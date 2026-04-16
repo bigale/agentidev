@@ -65,6 +65,7 @@ extension/apps/*
 !extension/apps/index.json
 !extension/apps/_loaded.js
 !extension/apps/hello-runtime/
+!extension/apps/sqlite-query/
 !extension/apps/horsebread/
 extension/apps/horsebread/*
 !extension/apps/horsebread/PLAN.md
