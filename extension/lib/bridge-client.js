@@ -69,15 +69,22 @@ export function connectToBridge(serverPort = DEFAULT_PORT) {
       console.log('[BridgeClient] Connected to bridge server');
       reconnectDelay = INITIAL_RECONNECT_DELAY;
 
-      // Identify as extension
-      const identifyMsg = _buildMessage('BRIDGE_IDENTIFY', { role: 'extension' });
-      ws.send(JSON.stringify(identifyMsg));
-
       // Start keepalive to prevent Chrome MV3 service worker suspension
       _startKeepalive();
 
-      _fireCallbacks('onConnectionChange', { connected: true });
-      resolve(true);
+      // Identify as extension and WAIT for the reply before signaling connected.
+      // The reply contains shimPath/scriptsDir which auto-sync needs.
+      _sendRequest('BRIDGE_IDENTIFY', { role: 'extension' }, 10000).then((payload) => {
+        if (payload?.shimPath) bridgeShimPath = payload.shimPath;
+        if (payload?.scriptsDir) bridgeScriptsDir = payload.scriptsDir;
+        _fireCallbacks('onConnectionChange', { connected: true });
+        resolve(true);
+      }).catch((err) => {
+        console.warn('[BridgeClient] IDENTIFY failed:', err.message);
+        // Still signal connected so UI updates; auto-sync will skip shim rewrite
+        _fireCallbacks('onConnectionChange', { connected: true });
+        resolve(true);
+      });
     };
 
     ws.onmessage = (event) => {

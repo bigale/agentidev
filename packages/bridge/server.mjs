@@ -1068,19 +1068,23 @@ async function startServer() {
         const nodeModulesPath = await findNearestNodeModules(originalDir);
         if (nodeModulesPath) {
           const symlinkDest = pathResolve(SCRIPTS_DIR, 'node_modules');
+          // On Windows, use 'junction' which doesn't require admin/Developer Mode.
+          // On Linux/macOS, 'dir' is the standard symlink type.
+          const linkType = process.platform === 'win32' ? 'junction' : 'dir';
           try {
             const existing = await lstat(symlinkDest);
-            if (existing.isSymbolicLink()) {
-              const currentTarget = await readlink(symlinkDest);
-              if (currentTarget !== nodeModulesPath) {
+            if (existing.isSymbolicLink() || existing.isDirectory()) {
+              let currentTarget = null;
+              try { currentTarget = await readlink(symlinkDest); } catch { /* junction on Windows may not be readlink-able */ }
+              if (currentTarget && currentTarget !== nodeModulesPath) {
                 await unlink(symlinkDest);
-                await symlink(nodeModulesPath, symlinkDest, 'dir');
+                await symlink(nodeModulesPath, symlinkDest, linkType);
               }
             }
           } catch {
-            await symlink(nodeModulesPath, symlinkDest, 'dir');
+            await symlink(nodeModulesPath, symlinkDest, linkType);
           }
-          console.log(`[Bridge] node_modules symlink: ${SCRIPTS_DIR}/node_modules → ${nodeModulesPath}`);
+          console.log(`[Bridge] node_modules ${linkType}: ${SCRIPTS_DIR}/node_modules → ${nodeModulesPath}`);
         }
       } catch (err) {
         console.warn(`[Bridge] node_modules symlink failed (non-fatal): ${err.message}`);

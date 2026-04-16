@@ -82,8 +82,11 @@ export class PlaywrightSession {
   /**
    * Build the base args array for playwright-cli
    */
-  _baseArgs() {
-    const args = [`--config=${AUTOMATION_CONFIG}`];
+  _baseArgs(command) {
+    // --config is only valid for `open` (it sets up the browser).
+    // For all other commands, the session is already open with its config baked in.
+    const args = [];
+    if (command === 'open') args.push(`--config=${AUTOMATION_CONFIG}`);
     if (this.name) args.push(`-s=${this.name}`);
     return args;
   }
@@ -96,7 +99,7 @@ export class PlaywrightSession {
    */
   _exec(command, cmdArgs = []) {
     return new Promise((resolve, reject) => {
-      const args = [...this._baseArgs(), command, ...cmdArgs];
+      const args = [...this._baseArgs(command), command, ...cmdArgs];
       console.log(`[Session ${this.name}] exec: playwright-cli ${args.join(' ')}`);
 
       execFile('playwright-cli', args, {
