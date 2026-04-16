@@ -316,11 +316,14 @@ var ACTION_MAP = {
       if (node._payloadFrom) {
         var source = resolveRef(node._payloadFrom);
         if (source) {
-          if (source.getSelectedRecord) {
+          // Prefer getValues for forms (DynamicForm has both methods but
+          // getSelectedRecord returns null unless a record was loaded);
+          // fall back to getSelectedRecord for grids.
+          if (source.getValues && source.Class !== 'ListGrid') {
+            Object.assign(payload, source.getValues() || {});
+          } else if (source.getSelectedRecord) {
             var record = source.getSelectedRecord();
             if (record) Object.assign(payload, record);
-          } else if (source.getValues) {
-            Object.assign(payload, source.getValues() || {});
           }
         }
       }
