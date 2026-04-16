@@ -1,0 +1,39 @@
+Agentidev
+=========
+
+This project includes the following bundled third-party components:
+
+SmartClient LGPL Runtime (v14.1p)
+---------------------------------
+Located at: extension/smartclient/
+License: GNU Lesser General Public License v3.0 (LGPLv3)
+Source: https://www.smartclient.com/product/download.jsp
+License text: extension/smartclient/LICENSE.html
+
+We bundle a subset of the SmartClient LGPL runtime (modules + 5 skins,
+~27MB) so the dashboard works on fresh clones without manual SDK setup.
+
+The full SDK is available at smartclient.com for users who want
+additional skins, modules, or developer tools. To use a different
+SmartClient build, replace the contents of extension/smartclient/
+with the corresponding files from your SDK.
+
+Per LGPLv3, you are free to replace this library with a modified
+version. The SmartClient runtime is loaded as plain JavaScript files
+and can be swapped in place.
+
+Playwright CLI (@playwright/cli)
+--------------------------------
+License: Apache 2.0
+Source: https://github.com/microsoft/playwright-cli
+
+CheerpJ, CheerpX (loaded from cheerpjrt.leaningtech.com)
+-------------------------------------------------------
+License: see https://leaningtech.com/
+Fetched at runtime, not bundled.
+
+all-MiniLM-L6-v2 Embedding Model
+---------------------------------
+License: Apache 2.0
+Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+Downloaded at runtime via transformers.js.

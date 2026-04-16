@@ -49,8 +49,9 @@ temp/
 # AI toolkit
 .aikit/
 
-# SmartClient runtime (external symlink, ~260MB)
-extension/smartclient
+# SmartClient runtime: we bundle a ~27MB LGPL subset (modules + 5 skins)
+# directly in the repo so the dashboard works out of the box on fresh clones.
+# Full SDK is available from smartclient.com for users who want more skins.
 
 # Plugin assembly outputs (extension/apps/<id>/) — private plugins are
 # assembled from outside repos at build time and never enter public history.

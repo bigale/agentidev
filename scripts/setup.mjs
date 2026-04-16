@@ -88,30 +88,11 @@ const scCheck = join(scDir, 'system', 'modules', 'ISC_Core.js');
 console.log('\n2. SmartClient SDK (extension/smartclient)');
 
 if (existsSync(scCheck)) {
-  console.log('   OK — SmartClient SDK found');
-} else if (existsSync(scDir) && lstatSync(scDir).isSymbolicLink()) {
-  const target = readlinkSync(scDir);
-  console.log(`   WARNING — symlink exists but target not found: ${target}`);
-  console.log('   The SmartClient dashboard will not work without the SDK.');
-  console.log('   Download the LGPL runtime from https://www.smartclient.com/product/download.jsp');
-  console.log('   Then either:');
-  if (isWindows) {
-    console.log(`     mklink /J extension\\smartclient C:\\path\\to\\SmartClient\\smartclientRuntime\\isomorphic`);
-  } else {
-    console.log(`     ln -s /path/to/SmartClient/smartclientRuntime/isomorphic extension/smartclient`);
-  }
+  console.log('   OK — bundled SmartClient runtime found (LGPL v3)');
 } else {
   console.log('   NOT FOUND — SmartClient dashboard will not work.');
-  console.log('   The core extension (sidepanel, capture, memory) works without it.');
-  console.log('');
-  console.log('   To enable the dashboard, download the LGPL runtime:');
-  console.log('     https://www.smartclient.com/product/download.jsp');
-  console.log('   Then link it:');
-  if (isWindows) {
-    console.log(`     mklink /J extension\\smartclient C:\\path\\to\\smartclientRuntime\\isomorphic`);
-  } else {
-    console.log(`     ln -s /path/to/smartclientRuntime/isomorphic extension/smartclient`);
-  }
+  console.log('   The bundled runtime should be in extension/smartclient/ after clone.');
+  console.log('   If missing, re-clone or check that git LFS (if configured) has pulled the files.');
 }
 
 // ---- 3. npm dependencies ----
