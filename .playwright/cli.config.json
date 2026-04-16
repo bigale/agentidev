@@ -7,11 +7,8 @@
       "chromiumSandbox": false,
       "args": [
         "--disable-gpu",
-        "--no-sandbox",
-        "--load-extension=./extension",
-        "--disable-extensions-except=./extension"
+        "--no-sandbox"
       ]
-    },
-    "userDataDir": "/home/bigale/.agentidev/browser-profile"
+    }
   }
 }

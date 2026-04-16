@@ -166,8 +166,19 @@ export class PlaywrightSession {
         try {
           const raw = await readFile(sessionFile, 'utf-8');
           const data = JSON.parse(raw);
-          const cdpPort = data?.browser?.launchOptions?.cdpPort
+          // CDP port location varies by Playwright version and platform:
+          // - Some versions: browser.launchOptions.cdpPort (explicit field)
+          // - Older versions: resolvedConfig.browser.launchOptions.cdpPort
+          // - Windows/newer: in args as --remote-debugging-port=PORT
+          let cdpPort = data?.browser?.launchOptions?.cdpPort
             || data?.resolvedConfig?.browser?.launchOptions?.cdpPort;
+          if (!cdpPort) {
+            const args = data?.browser?.launchOptions?.args || data?.resolvedConfig?.browser?.launchOptions?.args || [];
+            for (const arg of args) {
+              const m = /--remote-debugging-port=(\d+)/.exec(arg);
+              if (m) { cdpPort = parseInt(m[1], 10); break; }
+            }
+          }
           if (cdpPort) {
             this._cdpEndpoint = `http://127.0.0.1:${cdpPort}`;
             console.log(`[Session ${this.name}] CDP endpoint: ${this._cdpEndpoint}`);

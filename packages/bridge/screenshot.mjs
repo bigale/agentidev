@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 import { resolve } from 'path';
 import { readFileSync } from 'fs';
 
-const PROFILE = resolve(process.env.HOME, '.agentidev', 'browser-profile');
+const PROFILE = resolve(process.env.HOME || process.env.USERPROFILE, '.agentidev', 'browser-profile');
 
 // Try to find CDP port from the browser profile
 try {
