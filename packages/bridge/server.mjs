@@ -2807,23 +2807,26 @@ async function startServer() {
           break;
         }
         try {
-          // On Windows, npx is npx.cmd and requires shell:true to resolve via PATH
-          const child = spawn('npx', ['playwright', 'show-trace', '--host=127.0.0.1', '--port=0', resolvedTrace], {
+          // On Windows, npx is npx.cmd. Use it directly to preserve stdio pipes
+          // (shell:true via cmd.exe buffers stdout and hides the "Listening on ..." line).
+          const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+          const child = spawn(npxCmd, ['playwright', 'show-trace', '--host=127.0.0.1', '--port=0', resolvedTrace], {
             stdio: ['ignore', 'pipe', 'pipe'],
             detached: true,
-            shell: process.platform === 'win32',
             env: { ...process.env, BROWSER: 'none' }, // suppress auto-open in OS browser
           });
           child.unref();
-          // Parse the listening URL from stdout
+          // Parse the listening URL from stdout or stderr (playwright sometimes logs to stderr)
           const url = await new Promise((resolve, reject) => {
-            const timer = setTimeout(() => reject(new Error('show-trace startup timeout')), 10000);
+            const timer = setTimeout(() => reject(new Error('show-trace startup timeout')), 20000);
             let output = '';
-            child.stdout.on('data', (chunk) => {
+            const onData = (chunk) => {
               output += chunk.toString();
               const match = output.match(/Listening on (http:\/\/[^\s]+)/);
               if (match) { clearTimeout(timer); resolve(match[1]); }
-            });
+            };
+            child.stdout.on('data', onData);
+            child.stderr.on('data', onData);
             child.on('error', (err) => { clearTimeout(timer); reject(err); });
             child.on('exit', (code) => { if (!output.includes('Listening')) { clearTimeout(timer); reject(new Error('show-trace exited with code ' + code)); } });
           });
