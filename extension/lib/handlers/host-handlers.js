@@ -136,6 +136,7 @@ async function execSpawn(handlers, msg) {
     cmd: msg.cmd,
     args: msg.args || [],
     opts: msg.opts || {},
+    timeout: msg.timeout, // propagate caller-specified timeout
   });
 }
 

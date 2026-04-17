@@ -213,10 +213,13 @@ export function register(handlers) {
   };
 
   handlers['cheerpx-spawn'] = async (msg) => {
+    // Merge timeout from caller into opts
+    const opts = Object.assign({}, msg.opts || {});
+    if (msg.timeout && !opts.timeout) opts.timeout = msg.timeout;
     return invokeTab('spawn', {
       cmd: msg.cmd,
       args: msg.args || [],
-      opts: msg.opts || {},
+      opts,
       options: msg.options || {},
     });
   };

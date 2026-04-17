@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Agentidev CheerpX Runtime</title>
+  <style>
+    html, body { margin: 0; padding: 0; font-family: monospace; background: #111; color: #ccc; font-size: 11px; }
+    #log { padding: 8px; white-space: pre-wrap; }
+    .ok  { color: #8f8; }
+    .err { color: #f88; }
+    .info { color: #8cf; }
+  </style>
+</head>
+<body>
+<div id="log">Starting CheerpX runtime...</div>
+
+<!-- Load CheerpX from public CDN. This page is served from
+     http://localhost:9877 by asset-server.mjs with COOP/COEP headers, so it
+     IS cross-origin isolated and SharedArrayBuffer + COI semantics work.
+     The CDN sends CORP: cross-origin so COEP allows loading the script. -->
+<script src="https://cxrtnc.leaningtech.com/1.0.7/cx.js"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  var logEl = document.getElementById('log');
+  logEl.textContent = '';
+
+  function log(cls, msg) {
+    var line = document.createElement('div');
+    line.className = cls;
+    line.textContent = '[' + new Date().toISOString().slice(11, 23) + '] ' + msg;
+    logEl.appendChild(line);
+    try { logEl.scrollTop = logEl.scrollHeight; } catch (e) {}
+  }
+
+  // ---- Sanity check: cross-origin isolation ----
+
+  log('info', 'crossOriginIsolated=' + (typeof crossOriginIsolated !== 'undefined' ? crossOriginIsolated : 'undefined'));
+  log('info', 'SharedArrayBuffer=' + (typeof SharedArrayBuffer === 'function'));
+  log('info', 'CheerpX global=' + (typeof CheerpX !== 'undefined'));
+
+  // ---- Boot state ----
+
+  var DEFAULT_IMAGE_URL = 'http://localhost:9877/debian_mini.ext2';
+  var DEFAULT_OVERLAY_NAME = 'agentidev-cheerpx-overlay-v1';
+
+  var _initPromise = null;
+  var _cx = null;             // CheerpX.Linux instance
+  var _dataDevice = null;     // DataDevice for JS → VM file transfer
+  var _filesDevice = null;    // IDBDevice for VM → JS file extraction
+  var _sendFn = null;         // send(charCode) from setCustomConsole — for Ctrl+C
+  var _spawnQueue = [];
+  var _spawnBusy = false;
+
+  // ---- Stdout capture via setCustomConsole ----
+  //
+  // setCustomConsole(writeFunc, cols, rows) fires writeFunc in real-time as
+  // the VM produces output. We accumulate into _stdoutBuf during each spawn
+  // and for streaming spawns we push chunks immediately.
+  var _stdoutBuf = [];        // Uint8Array chunks for the current spawn
+  var _stdoutCapturing = false;
+  var _streamCallback = null; // function(text) for spawn-stream chunk delivery
+  var _textDecoder = new TextDecoder('utf-8', { fatal: false });
+
+  function _onConsoleWrite(buf, vt) {
+    // vt = virtual terminal index. Filter to main terminal (1).
+    if (vt !== 1) return;
+    if (!_stdoutCapturing) return;
+    var chunk = (buf instanceof Uint8Array) ? buf : new Uint8Array(buf);
+    _stdoutBuf.push(chunk.slice()); // copy since CheerpX may reuse the buffer
+    // Streaming: push each chunk immediately
+    if (_streamCallback) {
+      try {
+        var text = _textDecoder.decode(chunk, { stream: true });
+        _streamCallback(text);
+      } catch (e) {}
+    }
+  }
+
+  function _drainStdout() {
+    var totalLen = 0;
+    for (var i = 0; i < _stdoutBuf.length; i++) totalLen += _stdoutBuf[i].length;
+    var combined = new Uint8Array(totalLen);
+    var off = 0;
+    for (var j = 0; j < _stdoutBuf.length; j++) {
+      combined.set(_stdoutBuf[j], off);
+      off += _stdoutBuf[j].length;
+    }
+    _stdoutBuf = [];
+    // Strip control characters (Ctrl+C = 0x03 etc) that leak from timeout kills
+    var filtered = [];
+    for (var k = 0; k < combined.length; k++) {
+      var b = combined[k];
+      if (b >= 0x20 || b === 0x0A || b === 0x0D || b === 0x09) filtered.push(b);
+    }
+    return _textDecoder.decode(new Uint8Array(filtered));
+  }
+
+  // ---- Init ----
+
+  function ensureInit(options) {
+    if (_initPromise) return _initPromise;
+    var opts = options || {};
+    var imageUrl = opts.imageUrl || DEFAULT_IMAGE_URL;
+    var overlayName = opts.overlayName || DEFAULT_OVERLAY_NAME;
+
+    _initPromise = (async function () {
+      log('info', 'CheerpX init: image=' + imageUrl + ' overlay=' + overlayName);
+      var t0 = performance.now();
+
+      // Block device: HTTP range-requested disk image + IDB overlay
+      log('info', 'creating HttpBytesDevice...');
+      var blockDevice = await CheerpX.HttpBytesDevice.create(imageUrl);
+      log('ok', 'HttpBytesDevice ready (' + (performance.now() - t0).toFixed(0) + 'ms)');
+
+      log('info', 'creating IDBDevice overlay...');
+      var idbDevice = await CheerpX.IDBDevice.create(overlayName);
+      log('ok', 'IDBDevice ready');
+
+      log('info', 'creating OverlayDevice...');
+      var overlayDevice = await CheerpX.OverlayDevice.create(blockDevice, idbDevice);
+      log('ok', 'OverlayDevice ready');
+
+      // DataDevice: JS → VM file transfer via writeFile(path, bytes)
+      log('info', 'creating DataDevice for /data...');
+      _dataDevice = await CheerpX.DataDevice.create();
+      log('ok', 'DataDevice ready');
+
+      // IDBDevice: VM → JS file extraction via readFileAsBlob(path)
+      log('info', 'creating IDBDevice for /files...');
+      _filesDevice = await CheerpX.IDBDevice.create('agentidev-cheerpx-files');
+      log('ok', 'IDBDevice (files) ready');
+
+      // Boot the VM with all mounts
+      log('info', 'CheerpX.Linux.create (this may take 10-60s on first boot)...');
+      var mountT0 = performance.now();
+      _cx = await CheerpX.Linux.create({
+        mounts: [
+          { type: 'ext2',   path: '/',        dev: overlayDevice },
+          { type: 'dir',    path: '/data',    dev: _dataDevice },
+          { type: 'dir',    path: '/files',   dev: _filesDevice },
+          { type: 'devs',   path: '/dev' },
+          { type: 'devpts', path: '/dev/pts' },
+          { type: 'proc',   path: '/proc' },
+        ],
+      });
+      log('ok', 'Linux VM ready (' + (performance.now() - mountT0).toFixed(0) + 'ms)');
+      window._cx = _cx; // diagnostic
+
+      // setCustomConsole(writeFunc, cols, rows) — correct 3-arg signature.
+      // Returns a send(charCode) function for input injection + Ctrl+C.
+      try {
+        _sendFn = _cx.setCustomConsole(_onConsoleWrite, 80, 24);
+        log('ok', 'setCustomConsole installed (streaming stdout + Ctrl+C ready)');
+      } catch (e) {
+        log('err', 'setCustomConsole failed: ' + e.message + ' — falling back to setConsole');
+        // Fallback: create a hidden <pre> for setConsole. Stdout capture
+        // will not work in this mode — but at least the VM boots.
+        var fallbackEl = document.createElement('pre');
+        fallbackEl.style.display = 'none';
+        document.body.appendChild(fallbackEl);
+        _cx.setConsole(fallbackEl);
+      }
+
+      log('ok', 'init complete in ' + ((performance.now() - t0) / 1000).toFixed(1) + 's');
+    })().catch(function (err) {
+      log('err', 'init failed: ' + (err && err.message || err));
+      _initPromise = null;
+      _cx = null;
+      throw err;
+    });
+    return _initPromise;
+  }
+
+  // ---- Run a command, capture stdout ----
+
+  function spawnQueued(cmd, args, opts) {
+    return new Promise(function (resolve, reject) {
+      _spawnQueue.push({ cmd: cmd, args: args, opts: opts || {}, resolve: resolve, reject: reject });
+      pumpSpawnQueue();
+    });
+  }
+
+  var DEFAULT_SPAWN_TIMEOUT = 30000; // 30s default, overridable per-job via opts.timeout
+
+  function pumpSpawnQueue() {
+    if (_spawnBusy || _spawnQueue.length === 0 || !_cx) return;
+    var job = _spawnQueue.shift();
+    _spawnBusy = true;
+    var timeoutMs = (job.opts && job.opts.timeout) || DEFAULT_SPAWN_TIMEOUT;
+
+    (async function () {
+      var t0 = performance.now();
+      _stdoutBuf = [];
+      _stdoutCapturing = true;
+      _streamCallback = null;
+      try {
+        log('info', 'run ' + job.cmd + ' ' + JSON.stringify(job.args) + ' (timeout=' + timeoutMs + 'ms)');
+        var runOpts = {};
+        if (job.opts.cwd) runOpts.cwd = job.opts.cwd;
+        if (job.opts.uid !== undefined) runOpts.uid = job.opts.uid;
+        if (job.opts.gid !== undefined) runOpts.gid = job.opts.gid;
+
+        // Auto-inject PYTHONHASHSEED=0 for Python commands to prevent
+        // getrandom() entropy starvation hang (CheerpX has no hardware entropy).
+        var env = job.opts.env ? job.opts.env.slice() : [];
+        var cmdBase = job.cmd.split('/').pop();
+        if (cmdBase === 'python3' || cmdBase === 'python') {
+          var hasSeed = env.some(function (e) { return e.indexOf('PYTHONHASHSEED=') === 0; });
+          if (!hasSeed) env.push('PYTHONHASHSEED=0');
+        }
+        if (env.length > 0) runOpts.env = env;
+
+        // Race: _cx.run vs timeout. Timeout sends Ctrl+C then resolves with timedOut flag.
+        var timedOut = false;
+        var result = await Promise.race([
+          _cx.run(job.cmd, job.args || [], runOpts),
+          new Promise(function (resolve) {
+            setTimeout(function () {
+              timedOut = true;
+              log('warn', 'TIMEOUT: ' + job.cmd + ' after ' + timeoutMs + 'ms — sending Ctrl+C');
+              if (_sendFn) _sendFn(3); // Ctrl+C
+              // Give process 2s to respond to Ctrl+C before we force-release the queue
+              setTimeout(function () { resolve({ status: -1 }); }, 2000);
+            }, timeoutMs);
+          }),
+        ]);
+
+        _stdoutCapturing = false;
+        var stdout = _drainStdout();
+        var elapsed = performance.now() - t0;
+
+        if (timedOut) {
+          log('warn', 'run timed out: ' + job.cmd + ' (' + elapsed.toFixed(0) + 'ms) partial stdout=' + JSON.stringify(stdout.slice(0, 80)));
+          job.resolve({
+            success: false,
+            exitCode: -1,
+            stdout: stdout,
+            error: 'SPAWN_TIMEOUT: ' + job.cmd + ' after ' + timeoutMs + 'ms',
+            timedOut: true,
+            elapsedMs: elapsed,
+          });
+        } else {
+          log('ok', 'run done exit=' + (result && result.status) + ' (' + elapsed.toFixed(0) + 'ms) stdout=' + JSON.stringify(stdout.slice(0, 80)));
+          job.resolve({
+            success: true,
+            exitCode: result && typeof result.status === 'number' ? result.status : 0,
+            stdout: stdout,
+            elapsedMs: elapsed,
+          });
+        }
+      } catch (err) {
+        _stdoutCapturing = false;
+        var partialStdout = _drainStdout();
+        log('err', 'run failed: ' + (err && err.message || err));
+        job.resolve({
+          success: false,
+          exitCode: -1,
+          stdout: partialStdout,
+          error: err && err.message || String(err),
+          elapsedMs: performance.now() - t0,
+        });
+      } finally {
+        _spawnBusy = false;
+        pumpSpawnQueue();
+      }
+    })();
+  }
+
+  // ---- ls -la output parser ----
+
+  function parseLsOutput(stdout) {
+    var out = [];
+    if (!stdout) return out;
+    var lines = stdout.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (!line || /^total\b/.test(line)) continue;
+      var parts = line.split(/\s+/);
+      if (parts.length < 7) continue;
+      var mode = parts[0];
+      var size = parseInt(parts[4], 10);
+      var date = parts[5] + ' ' + parts[6];
+      var name = parts.slice(7).join(' ');
+      if (name === '.' || name === '..') continue;
+      var type = 'file';
+      if (mode[0] === 'd') type = 'dir';
+      else if (mode[0] === 'l') type = 'symlink';
+      out.push({ name: name, type: type, size: isNaN(size) ? 0 : size, mode: mode, mtime: date });
+    }
+    return out;
+  }
+
+  // ---- Message handler ----
+
+  window.addEventListener('message', async function (event) {
+    var msg = event.data;
+    if (!msg || msg.source !== 'agentidev-cheerpx') return;
+    var source = event.source;
+    var replyPort = event.ports && event.ports[0];
+
+    function reply(response) {
+      var payload = { source: 'agentidev-cheerpx-response', id: msg.id, response: response };
+      if (replyPort) replyPort.postMessage(payload);
+      else if (source) source.postMessage(payload, '*');
+    }
+
+    try {
+      switch (msg.type) {
+        case 'ping': {
+          reply({
+            success: true,
+            pong: true,
+            crossOriginIsolated: typeof crossOriginIsolated !== 'undefined' ? crossOriginIsolated : null,
+            cheerpxLoaded: typeof CheerpX !== 'undefined',
+            booted: !!_cx,
+            hasDataDevice: !!_dataDevice,
+            hasFilesDevice: !!_filesDevice,
+            hasSendFn: !!_sendFn,
+          });
+          break;
+        }
+        case 'init': {
+          await ensureInit(msg.options);
+          reply({ success: true, booted: true });
+          break;
+        }
+        case 'spawn': {
+          await ensureInit(msg.options);
+          var result = await spawnQueued(msg.cmd, msg.args || [], msg.opts || {});
+          reply(result);
+          break;
+        }
+
+        // ---- File I/O via DataDevice + IDBDevice ----
+
+        case 'fs-read': {
+          // Copy to /files IDBDevice then readFileAsBlob for clean extraction.
+          await ensureInit(msg.options);
+          var fname = 'read-' + Date.now();
+          await spawnQueued('/bin/cp', [msg.path, '/files/' + fname], {});
+          try {
+            var blob = await _filesDevice.readFileAsBlob('/' + fname);
+            var content = await blob.text();
+            // Clean up
+            await spawnQueued('/bin/rm', ['-f', '/files/' + fname], {});
+            reply({ success: true, exitCode: 0, content: content });
+          } catch (e) {
+            reply({ success: false, error: 'readFileAsBlob: ' + e.message });
+          }
+          break;
+        }
+        case 'fs-read-bytes': {
+          // Binary-safe read via IDBDevice.readFileAsBlob.
+          await ensureInit(msg.options);
+          var bfname = 'readb-' + Date.now();
+          await spawnQueued('/bin/cp', [msg.path, '/files/' + bfname], {});
+          try {
+            var bblob = await _filesDevice.readFileAsBlob('/' + bfname);
+            var abuf = await bblob.arrayBuffer();
+            var bytes = Array.from(new Uint8Array(abuf));
+            await spawnQueued('/bin/rm', ['-f', '/files/' + bfname], {});
+            reply({ success: true, exitCode: 0, bytes: bytes });
+          } catch (e) {
+            reply({ success: false, error: 'readFileAsBlob: ' + e.message });
+          }
+          break;
+        }
+        case 'fs-write': {
+          // Write text via DataDevice.writeFile + cp (no base64, no shell).
+          await ensureInit(msg.options);
+          var wContent = msg.content == null ? '' : String(msg.content);
+          var wfname = 'write-' + Date.now();
+          try {
+            await _dataDevice.writeFile('/' + wfname, wContent);
+            var dir = msg.path.replace(/\/[^/]+$/, '');
+            if (dir && dir !== msg.path) {
+              await _cx.run('/bin/mkdir', ['-p', dir]);
+            }
+            // DataDevice files are not executable; cp to real filesystem
+            var cpRes = await spawnQueued('/bin/cp', ['/data/' + wfname, msg.path], {});
+            reply({
+              success: cpRes.exitCode === 0,
+              exitCode: cpRes.exitCode,
+              bytesWritten: wContent.length,
+            });
+          } catch (e) {
+            reply({ success: false, error: 'writeFile: ' + e.message });
+          }
+          break;
+        }
+        case 'fs-list': {
+          await ensureInit(msg.options);
+          var ls = await spawnQueued('/bin/ls', ['-la', '--time-style=long-iso', msg.path], {});
+          var entries = parseLsOutput(ls.stdout);
+          reply({
+            success: ls.exitCode === 0,
+            exitCode: ls.exitCode,
+            entries: entries,
+            raw: ls.stdout,
+          });
+          break;
+        }
+        case 'fs-upload': {
+          // Upload a URL's contents via DataDevice.writeFile (no chunking).
+          await ensureInit(msg.options);
+          if (!msg.url || !msg.path) {
+            reply({ success: false, error: 'fs-upload requires url and path' });
+            break;
+          }
+          var uploadT0 = performance.now();
+          try {
+            log('info', 'fs-upload ' + msg.url + ' -> ' + msg.path);
+            var resp = await fetch(msg.url);
+            if (!resp.ok) {
+              reply({ success: false, error: 'fetch failed: ' + resp.status });
+              break;
+            }
+            var buf = new Uint8Array(await resp.arrayBuffer());
+            log('info', 'fetched ' + buf.length + ' bytes');
+
+            // Write to DataDevice then cp to target
+            var ufname = 'upload-' + Date.now();
+            await _dataDevice.writeFile('/' + ufname, buf);
+
+            var dir = msg.path.replace(/\/[^/]+$/, '');
+            if (dir && dir !== msg.path) {
+              await _cx.run('/bin/mkdir', ['-p', dir]);
+            }
+            await _cx.run('/bin/cp', ['/data/' + ufname, msg.path]);
+
+            var elapsed = performance.now() - uploadT0;
+            log('ok', 'fs-upload done: ' + buf.length + ' bytes in ' + elapsed.toFixed(0) + 'ms');
+            reply({ success: true, bytesWritten: buf.length, chunks: 1, elapsedMs: elapsed });
+          } catch (err) {
+            log('err', 'fs-upload failed: ' + (err && err.message || err));
+            reply({ success: false, error: (err && err.message) || String(err) });
+          }
+          break;
+        }
+
+        // ---- Streaming spawn via setCustomConsole ----
+
+        case 'spawn-stream': {
+          await ensureInit(msg.options);
+          if (!msg.streamId) {
+            reply({ success: false, error: 'spawn-stream requires streamId' });
+            break;
+          }
+          if (_spawnBusy) {
+            reply({ success: false, error: 'cheerpx is busy with another spawn' });
+            break;
+          }
+          _spawnBusy = true;
+          var sourceWin = source;
+          var sid = msg.streamId;
+
+          // Set up streaming: each writeFunc call pushes a chunk immediately
+          _stdoutBuf = [];
+          _stdoutCapturing = true;
+          _streamCallback = function (text) {
+            if (sourceWin) {
+              sourceWin.postMessage({
+                source: 'agentidev-cheerpx-stream',
+                streamId: sid,
+                type: 'stdout',
+                chunk: text,
+              }, '*');
+            }
+          };
+
+          (async function () {
+            var t0 = performance.now();
+            var runOpts = msg.opts || {};
+            try {
+              log('info', 'spawn-stream ' + msg.cmd + ' ' + JSON.stringify(msg.args));
+              var result = await _cx.run(msg.cmd, msg.args || [], runOpts);
+              _stdoutCapturing = false;
+              _streamCallback = null;
+              var elapsed = performance.now() - t0;
+              if (sourceWin) {
+                sourceWin.postMessage({
+                  source: 'agentidev-cheerpx-stream',
+                  streamId: sid,
+                  type: 'exit',
+                  exitCode: result && typeof result.status === 'number' ? result.status : 0,
+                  elapsedMs: elapsed,
+                }, '*');
+              }
+              log('ok', 'spawn-stream done sid=' + sid + ' (' + elapsed.toFixed(0) + 'ms)');
+            } catch (err) {
+              _stdoutCapturing = false;
+              _streamCallback = null;
+              if (sourceWin) {
+                sourceWin.postMessage({
+                  source: 'agentidev-cheerpx-stream',
+                  streamId: sid,
+                  type: 'error',
+                  error: (err && err.message) || String(err),
+                }, '*');
+              }
+              log('err', 'spawn-stream failed: ' + (err && err.message || err));
+            } finally {
+              _spawnBusy = false;
+              _stdoutBuf = [];
+              pumpSpawnQueue();
+            }
+          })();
+
+          reply({ success: true, streamId: sid, started: true });
+          break;
+        }
+
+        // ---- Kill via Ctrl+C ----
+
+        case 'spawn-kill': {
+          if (_sendFn) {
+            _sendFn(3); // ETX = Ctrl+C
+            reply({ success: true, sent: 'ctrl-c' });
+          } else {
+            reply({ success: false, error: 'no send function (setCustomConsole not active)' });
+          }
+          break;
+        }
+
+        default:
+          reply({ success: false, error: 'unknown type: ' + msg.type });
+      }
+    } catch (err) {
+      log('err', 'handler error: ' + (err && err.message || err));
+      reply({ success: false, error: (err && err.message) || String(err) });
+    }
+  });
+
+  log('ok', 'CheerpX runtime ready (awaiting messages)');
+
+  // Announce readiness to any parent window
+  try {
+    window.parent.postMessage({ source: 'agentidev-cheerpx-ready' }, '*');
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>
