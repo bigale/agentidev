@@ -7,6 +7,7 @@ import { init as initSearch, performSearch as searchPerform } from './modes/sear
 import { init as initQA, performSearch as qaPerform } from './modes/qa-mode.js';
 import { init as initExtract } from './modes/extract-mode.js';
 import { init as initAgent } from './modes/agent-mode.js';
+import { mountAgentUI, unmountAgentUI } from './agent/agent-ui.js';
 import { init as initAuto, activate as activateAuto, deactivate as deactivateAuto } from './modes/auto-mode.js';
 import { init as initAF, activate as activateAF, deactivate as deactivateAF } from './modes/agentiface-mode.js';
 
@@ -40,6 +41,18 @@ const modes = {
   agent: {
     btn: document.getElementById('mode-agent'),
     show: [agentContainer],
+    activate: () => {
+      // Mount pi-mono agent chat UI (replaces legacy form-fill agent)
+      if (agentContainer && !agentContainer._piAgentMounted) {
+        agentContainer.innerHTML = ''; // Clear legacy form-fill UI
+        agentContainer.style.height = '100%';
+        mountAgentUI(agentContainer);
+        agentContainer._piAgentMounted = true;
+      }
+    },
+    deactivate: () => {
+      // Agent state persists; UI cleanup is minimal
+    },
   },
   automation: {
     btn: document.getElementById('mode-automation'),
