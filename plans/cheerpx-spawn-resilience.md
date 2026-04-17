@@ -19,17 +19,43 @@ _cx.run(cmd, args) → Promise that resolves ONLY when process exits
 
 The API explicitly states: "NO way to kill/signal a running process from JS. Promise resolves only on natural exit."
 
+### Root Cause: Entropy Starvation (getrandom blocking)
+
+The hangs are caused by **entropy starvation**. CheerpX's browser VM has no hardware entropy sources (no disk I/O jitter, no keyboard interrupts, no RDRAND). Debian Buster's kernel 4.19 blocks `getrandom()` until the entropy pool initializes — which never happens in a browser.
+
+**Every symptom fits:**
+- `sqlite3` calls `sqlite3OsRandomness()` → `getrandom()` → blocks forever
+- `python3 import json` triggers hash randomization via `getrandom()` at startup → blocks
+- `python3 -c "print(42)"` works: fast path before any C extension needing randomness
+- `echo/ls/cp` work: never touch `/dev/urandom` or `getrandom()`
+- `apt-get update`: SSL/TLS init calls `getrandom()` before even attempting DNS
+
+See: Python bugs #26839, #25420; PEP 524; Debian BoottimeEntropyStarvation wiki.
+
+**Ctrl+C won't help** for these hangs — the process is blocked in a kernel syscall (getrandom), not in userspace. But the timeout wrapper still prevents queue jams.
+
+### Quick Fixes for Specific Tools
+
+| Tool | Fix | How |
+|------|-----|-----|
+| Python | `PYTHONHASHSEED=0` env var | Disables hash randomization, skips `getrandom()` |
+| sqlite3 | None known (calls from C, can't skip) | Needs image-level fix |
+| Any | `LD_PRELOAD` fake `getrandom()` | Stub .so returns /dev/urandom-style bytes |
+| All | Install `haveged` in image | Generates entropy from CPU jitter |
+| All | Newer kernel (>= 5.4) | In-kernel jitter entropy collector |
+
 ### Known Hangs in Current Image
 
-- `sqlite3` — any invocation (even `--version`, `:memory:`)
-- `python3 import <anything>` — all stdlib/third-party imports
-- Any network operation (no Tailscale configured)
-- Any process that blocks on I/O the VM can't fulfill
+- `sqlite3` — any invocation (calls getrandom via sqlite3OsRandomness)
+- `python3 import <anything>` — hash randomization calls getrandom
+- Any SSL/TLS operation — OpenSSL init calls getrandom
+- Any network operation (no Tailscale + no entropy)
 
 ### What Works
 
-- `/bin/echo`, `/bin/ls`, `/bin/cp`, `/bin/cat` — ~200ms
-- `python3 -c "print(42)"` — ~1.3s (no imports)
+- `/bin/echo`, `/bin/ls`, `/bin/cp`, `/bin/cat` — ~200ms (no getrandom)
+- `python3 -c "print(42)"` — ~1.3s (fast path, no imports)
+- `python3` with `PYTHONHASHSEED=0` — should work with imports (bypasses getrandom)
 - File upload via DataDevice + HOST_FS_UPLOAD — ~100ms
 - All non-import Python (math, string ops, basic I/O)
 
@@ -195,11 +221,31 @@ client.assert(sqlite.elapsedMs < 35000, 'timeout was ~30s');
 client.assert(echoAfter.exitCode === 0, 'queue recovered after timeout');
 ```
 
+## PYTHONHASHSEED=0 Results (Confirmed Apr 2026)
+
+Setting `PYTHONHASHSEED=0` in env bypasses Python's hash randomization `getrandom()` call. Results:
+
+| Import | With PYTHONHASHSEED=0 | Without |
+|--------|----------------------|---------|
+| json | 1.8s ok | HANG |
+| csv | 1.9s ok | HANG |
+| re | 1.3s ok | HANG |
+| **sqlite3** | **1.9s ok (v3.27.2)** | HANG |
+| hashlib | 1.6s ok | HANG |
+| openpyxl | HANG (C-level getrandom via OpenSSL) | HANG |
+| bs4 | untested | HANG |
+
+**Key insight:** The sqlite3 CLI binary still hangs (calls getrandom from C), but Python's sqlite3 module works. The sqlite-query plugin should use `python3 -c "import sqlite3..."` instead of the `sqlite3` binary.
+
+**Default PYTHONHASHSEED=0 for all CheerpX Python spawns** — add to the runtime page's spawn opts automatically when cmd contains `python`.
+
 ## What This Does NOT Fix
 
-- **The underlying hang** — sqlite3/Python imports still won't work. The image needs rebuilding for that.
-- **Parallel execution** — queue stays serial. Multi-tab pool is a separate future enhancement.
-- **Network access** — Tailscale integration is separate.
+- **sqlite3 CLI binary** — calls getrandom from C, no Python env var helps
+- **openpyxl / any library triggering OpenSSL** — C-level getrandom calls
+- **Parallel execution** — queue stays serial
+- **Network access** — Tailscale integration is separate
+- **Image-level fix** — installing haveged or LD_PRELOAD getrandom stub would fix ALL hangs
 
 ## What This DOES Fix
 
