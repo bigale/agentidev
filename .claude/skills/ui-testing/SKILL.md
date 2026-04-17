@@ -200,6 +200,39 @@ node packages/bridge/scripts/sw-eval.mjs "(async () => {
 | `compute` | Client-side math | `_sourceForm`, `_targetForm`, `_formulas` |
 | `dispatch` | Fire-and-forget handler call | `_messageType`, `_messagePayload` |
 
+## Known Gotchas
+
+### SectionStack breaks buttons
+The renderer only walks `members`, not `sections[].items[]`. Buttons inside SectionStack become stubs without click handlers. If AutoTest returns null for a button that should exist, check if it's inside a SectionStack.
+
+### DynamicForm has getSelectedRecord AND getValues
+DynamicForm implements both — `getSelectedRecord` returns null unless a record was explicitly loaded. The `_payloadFrom` logic prefers `getValues` for forms. If a handler receives empty payload, this is likely why.
+
+### resolveRef only works in dashboard mode
+In plugin mode, the renderer's `componentRegistry` is scoped. Use `isc.AutoTest.getObject('//Button[ID="..."]')` or tree walk instead.
+
+### Tree walk fallback when AutoTest fails
+```javascript
+function findById(c, id) {
+  if (!c) return null;
+  if (c.ID === id) return c;
+  var kids = c.members || (c.getMembers && c.getMembers()) || [];
+  for (var i = 0; i < kids.length; i++) {
+    var found = findById(kids[i], id);
+    if (found) return found;
+  }
+  return null;
+}
+var root = isc.AutoTest.getObject('//VLayout[ID="csvRoot"]');
+var btn = findById(root, 'btnLoad');
+```
+
+### Extension reload kills CheerpX
+`chrome.runtime.reload()` detaches content scripts. Must reload both extension AND CheerpX tab (wait 25s+ for VM boot). Test CheerpX commands incrementally — one hung command permanently jams the spawn queue.
+
+### CDP targets reorder after reload
+The sandbox iframe may appear before or after the wrapper page. Always search by URL content rather than assuming index positions.
+
 ## User Request
 
 $ARGUMENTS
