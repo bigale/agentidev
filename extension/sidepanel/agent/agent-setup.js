@@ -11,8 +11,9 @@
  * Runs in the sidepanel document.
  */
 
-import { initProvider, getModel } from './agent-provider.js';
+import { initProvider, getModel, isUsingWebLLM } from './agent-provider.js';
 import { createTools } from './agent-tools.js';
+import { streamWebLLMCompletion } from './webllm-provider.js';
 
 let _agent = null;
 let _ready = false;

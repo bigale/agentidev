@@ -10,10 +10,13 @@
  * Runs in the sidepanel document (not the service worker).
  */
 
+import { isWebGPUAvailable, createWebLLMModel, WEBLLM_MODELS, DEFAULT_MODEL as WEBLLM_DEFAULT } from './webllm-provider.js';
+
 // Dynamic import to support lazy loading in the extension context
 let _getModel = null;
 let _cachedModel = null;
 let _providerStatus = null; // { provider, model, baseUrl, ready }
+let _isWebLLM = false; // true if using in-browser WebLLM
 
 const OLLAMA_BASE = 'http://localhost:11434/v1';
 const OLLAMA_TAG_API = 'http://localhost:11434/api/tags';
@@ -112,7 +115,25 @@ export async function initProvider(overrides = {}) {
     }
   }
 
-  // Priority 2: OpenAI-compatible with API key
+  // Priority 2: WebLLM (in-browser via WebGPU, no server needed)
+  if ((!config.provider || config.provider === 'webllm') && isWebGPUAvailable()) {
+    const modelAlias = config.model || WEBLLM_DEFAULT;
+    _cachedModel = createWebLLMModel(modelAlias);
+    _isWebLLM = true;
+    _providerStatus = {
+      provider: 'webllm',
+      model: modelAlias,
+      baseUrl: 'in-browser (WebGPU)',
+      ready: true,
+      availableModels: Object.keys(WEBLLM_MODELS),
+      note: 'First use downloads model weights (~500MB-4GB). Cached after.',
+    };
+    await saveConfig({ provider: 'webllm', model: modelAlias });
+    console.log('[AgentProvider] Using WebLLM:', modelAlias);
+    return { model: _cachedModel, status: _providerStatus };
+  }
+
+  // Priority 3: OpenAI-compatible with API key
   if (config.apiKey) {
     const provider = config.provider || 'openai';
     const modelName = config.model || DEFAULTS[provider] || DEFAULTS.openai;
@@ -134,9 +155,9 @@ export async function initProvider(overrides = {}) {
     return { model: _cachedModel, status: _providerStatus };
   }
 
-  // Priority 3: No provider available
+  // Priority 4: No provider available
   _providerStatus = { provider: null, model: null, ready: false };
-  console.warn('[AgentProvider] No LLM provider available. Install Ollama or configure an API key.');
+  console.warn('[AgentProvider] No LLM provider available. Options: Ollama (local), WebLLM (in-browser, needs WebGPU), or API key.');
   return { model: null, status: _providerStatus };
 }
 
@@ -152,6 +173,13 @@ export function getModel() {
  */
 export function getProviderStatus() {
   return _providerStatus;
+}
+
+/**
+ * Check if the current provider is WebLLM (in-browser).
+ */
+export function isUsingWebLLM() {
+  return _isWebLLM;
 }
 
 /**

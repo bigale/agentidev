@@ -16,7 +16,8 @@
  */
 
 import { initAgent, getAgent } from './agent-setup.js';
-import { getProviderStatus, setProviderConfig } from './agent-provider.js';
+import { getProviderStatus, setProviderConfig, isUsingWebLLM } from './agent-provider.js';
+import { isWebGPUAvailable, WEBLLM_MODELS } from './webllm-provider.js';
 
 let _container = null;
 let _messageList = null;
@@ -180,17 +181,18 @@ function showSettings() {
   const status = getProviderStatus();
   const currentProvider = status?.provider || 'none';
   const currentModel = status?.model || '';
+  const hasWebGPU = isWebGPUAvailable();
 
-  // Simple prompt-based settings (could be a modal later)
   const choice = prompt(
     'LLM Provider Settings\n\n' +
     'Current: ' + currentProvider + ' / ' + currentModel + '\n\n' +
     'Options:\n' +
-    '1. Ollama (local, free) — install from ollama.com\n' +
-    '2. OpenAI — enter API key\n' +
-    '3. Anthropic — enter API key\n\n' +
-    'Enter 1, 2, or 3:',
-    currentProvider === 'ollama' ? '1' : currentProvider === 'openai' ? '2' : '3'
+    '1. Ollama (local server, free) — install from ollama.com\n' +
+    '2. WebLLM (in-browser, WebGPU' + (hasWebGPU ? ' available' : ' NOT available') + ')\n' +
+    '3. OpenAI — enter API key\n' +
+    '4. Anthropic — enter API key\n\n' +
+    'Enter 1, 2, 3, or 4:',
+    currentProvider === 'ollama' ? '1' : currentProvider === 'webllm' ? '2' : currentProvider === 'openai' ? '3' : '4'
   );
 
   if (!choice) return;
@@ -201,13 +203,31 @@ function showSettings() {
       if (!status.ready) addMessage('system', 'Ollama not detected. Install from ollama.com and run `ollama pull llama3.2:3b`');
     });
   } else if (choice === '2') {
+    if (!hasWebGPU) {
+      addMessage('system', 'WebGPU is not available in this browser. Try Chrome 113+ or Edge.');
+      return;
+    }
+    const models = Object.keys(WEBLLM_MODELS);
+    const modelChoice = prompt(
+      'WebLLM Model (downloads on first use):\n\n' +
+      models.map((m, i) => `${i + 1}. ${m}`).join('\n') + '\n\n' +
+      'Enter number (default: 1 = phi-3-mini):',
+      '1'
+    );
+    const idx = parseInt(modelChoice || '1', 10) - 1;
+    const selectedModel = models[Math.max(0, Math.min(idx, models.length - 1))];
+    addMessage('system', 'Initializing WebLLM with ' + selectedModel + '. First load downloads model weights...');
+    setProviderConfig({ provider: 'webllm', model: selectedModel }).then(({ status }) => {
+      updateStatus(status.ready ? `webllm: ${status.model}` : 'WebLLM failed');
+    });
+  } else if (choice === '3') {
     const key = prompt('Enter your OpenAI API key:');
     if (key) {
       setProviderConfig({ provider: 'openai', apiKey: key }).then(({ status }) => {
         updateStatus(status.ready ? `openai: ${status.model}` : 'Failed');
       });
     }
-  } else if (choice === '3') {
+  } else if (choice === '4') {
     const key = prompt('Enter your Anthropic API key:');
     if (key) {
       setProviderConfig({ provider: 'anthropic', apiKey: key }).then(({ status }) => {
