@@ -74,7 +74,7 @@ async function saveConfig(config) {
  */
 async function ensureGetModel() {
   if (_getModel) return _getModel;
-  const mod = await import('../../lib/vendor/pi-ai/index.js');
+  const mod = await import('../../lib/vendor/pi-bundle.js');
   _getModel = mod.getModel;
   return _getModel;
 }

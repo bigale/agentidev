@@ -62,7 +62,7 @@ export async function initAgent() {
   // Import pi-agent-core dynamically (ESM, may be in node_modules)
   let Agent;
   try {
-    const mod = await import('../../lib/vendor/pi-agent-core/index.js');
+    const mod = await import('../../lib/vendor/pi-bundle.js');
     Agent = mod.Agent;
   } catch (e) {
     console.error('[AgentSetup] Failed to import pi-agent-core:', e.message);

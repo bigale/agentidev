@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Agent Integration Test</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "@sinclair/typebox": "../../lib/vendor/typebox/index.mjs",
+      "@mariozechner/pi-ai": "../../lib/vendor/pi-ai/index.js",
+      "@mariozechner/pi-agent-core": "../../lib/vendor/pi-agent-core/index.js",
+      "@mlc-ai/web-llm": "../../lib/vendor/web-llm/index.js",
+      "openai": "../../lib/vendor/openai-pkg/index.mjs",
+      "openai/": "../../lib/vendor/openai-pkg/",
+      "partial-json": "../../lib/vendor/partial-json/index.js"
+    }
+  }
+  </script>
+  <style>
+    body { background: #0d1117; color: #e6edf3; font-family: monospace; padding: 20px; font-size: 13px; }
+    .pass { color: #4CAF50; }
+    .fail { color: #f44336; }
+    .info { color: #4fc3f7; }
+    pre { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h2 style="color:#a8b4ff;">Agent Integration Test</h2>
+  <pre id="log">Loading tests...</pre>
+  <script type="module" src="test-runner.js"></script>
+</body>
+</html>

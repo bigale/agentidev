@@ -23,7 +23,7 @@ let Type = null;
 async function ensureType() {
   if (Type) return Type;
   try {
-    const mod = await import('../../lib/vendor/typebox/index.mjs');
+    const mod = await import('../../lib/vendor/pi-bundle.js');
     Type = mod.Type;
   } catch {
     // Fallback: define a minimal Type.Object / Type.String / etc.

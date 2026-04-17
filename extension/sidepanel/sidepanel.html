@@ -3,6 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <title>Agentidev</title>
+  <!-- Import map for pi-mono bare module specifiers -->
+  <script type="importmap">
+  {
+    "imports": {
+      "@sinclair/typebox": "../lib/vendor/typebox/index.mjs",
+      "@mariozechner/pi-ai": "../lib/vendor/pi-ai/index.js",
+      "@mariozechner/pi-agent-core": "../lib/vendor/pi-agent-core/index.js",
+      "@mlc-ai/web-llm": "../lib/vendor/web-llm/index.js",
+      "openai": "../lib/vendor/openai-pkg/index.mjs",
+      "openai/": "../lib/vendor/openai-pkg/",
+      "partial-json": "../lib/vendor/partial-json/index.js"
+    }
+  }
+  </script>
   <style>
     * {
       margin: 0;
