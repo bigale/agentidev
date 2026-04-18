@@ -10,6 +10,7 @@ import { init as initAgent } from './modes/agent-mode.js';
 import { mountAgentUI, unmountAgentUI } from './agent/agent-ui.js';
 import { init as initAuto, activate as activateAuto, deactivate as deactivateAuto } from './modes/auto-mode.js';
 import { init as initAF, activate as activateAF, deactivate as deactivateAF } from './modes/agentiface-mode.js';
+import { init as initDocs, activate as activateDocs, deactivate as deactivateDocs } from './modes/docs-mode.js';
 
 // Shared DOM refs
 const queryInput = document.getElementById('query-input');
@@ -19,6 +20,7 @@ const answerContainer = document.getElementById('answer-container');
 const extractContainer = document.getElementById('extract-container');
 const agentContainer = document.getElementById('agent-container');
 const automationContainer = document.getElementById('automation-container');
+const docsContainer = document.getElementById('docs-container');
 const agentifaceContainer = document.getElementById('agentiface-container');
 const settingsButton = document.getElementById('settings-button');
 
@@ -60,6 +62,12 @@ const modes = {
     activate: activateAuto,
     deactivate: deactivateAuto,
   },
+  docs: {
+    btn: document.getElementById('mode-docs'),
+    show: [docsContainer],
+    activate: activateDocs,
+    deactivate: deactivateDocs,
+  },
   agentiface: {
     btn: document.getElementById('mode-agentiface'),
     show: [agentifaceContainer],
@@ -68,7 +76,7 @@ const modes = {
   },
 };
 
-const allContainers = [queryInput, filtersDiv, resultsDiv, answerContainer, extractContainer, agentContainer, automationContainer, agentifaceContainer];
+const allContainers = [queryInput, filtersDiv, resultsDiv, answerContainer, extractContainer, agentContainer, automationContainer, docsContainer, agentifaceContainer];
 let currentMode = 'search';
 let currentFilter = 'all';
 let debounceTimer = null;
@@ -79,6 +87,7 @@ initQA();
 initExtract();
 initAgent();
 initAuto();
+initDocs();
 initAF();
 
 // ---- Stats polling ----

@@ -1,0 +1,10 @@
+{
+  "title": "Agentidev Documentation",
+  "sections": [
+    { "id": "getting-started", "title": "Getting Started", "file": "getting-started.md" },
+    { "id": "dashboard", "title": "Dashboard Guide", "file": "dashboard.md" },
+    { "id": "plugins", "title": "Plugin Development", "file": "plugins.md" },
+    { "id": "agent", "title": "Agent Guide", "file": "agent.md" },
+    { "id": "troubleshooting", "title": "Troubleshooting", "file": "troubleshooting.md" }
+  ]
+}
