@@ -63,15 +63,18 @@ async function loadIndex() {
 }
 
 function renderTOC() {
-  _tocEl.innerHTML = _sections.map(s =>
-    `<div class="docs-toc-item" data-id="${s.id}"
-      style="padding:5px 8px;margin-bottom:2px;border-radius:4px;cursor:pointer;font-size:12px;color:#8b949e;"
-      onmouseover="this.style.background='#161b22'" onmouseout="this.style.background=this.dataset.active?'#21262d':''"
-      onclick="this.dispatchEvent(new CustomEvent('doc-nav',{bubbles:true,detail:'${s.id}'}))"
-    >${s.title}</div>`
-  ).join('');
-
-  _tocEl.addEventListener('doc-nav', (e) => loadSection(e.detail));
+  _tocEl.innerHTML = '';
+  for (const s of _sections) {
+    const div = document.createElement('div');
+    div.className = 'docs-toc-item';
+    div.dataset.id = s.id;
+    div.textContent = s.title;
+    div.style.cssText = 'padding:5px 8px;margin-bottom:2px;border-radius:4px;cursor:pointer;font-size:12px;color:#8b949e;';
+    div.addEventListener('click', () => loadSection(s.id));
+    div.addEventListener('mouseover', () => { if (!div.dataset.active) div.style.background = '#161b22'; });
+    div.addEventListener('mouseout', () => { div.style.background = div.dataset.active ? '#21262d' : ''; });
+    _tocEl.appendChild(div);
+  }
 }
 
 async function loadSection(id) {
@@ -101,27 +104,26 @@ async function loadSection(id) {
 function handleSearch() {
   const query = _searchEl.value.toLowerCase().trim();
   if (!query) {
-    // Show all TOC items
+    // Show all TOC items, remove highlights
     _tocEl.querySelectorAll('.docs-toc-item').forEach(el => el.style.display = '');
+    if (_currentSection) loadSection(_currentSection); // reload to clear highlights
     return;
   }
-  // Filter TOC items by title match
-  _tocEl.querySelectorAll('.docs-toc-item').forEach(el => {
-    const title = el.textContent.toLowerCase();
-    el.style.display = title.includes(query) ? '' : 'none';
-  });
 
-  // Also search content if loaded
-  if (_contentEl.textContent.toLowerCase().includes(query)) {
-    // Highlight matches (simple)
+  // Show all TOC items (search matches content, not just titles)
+  _tocEl.querySelectorAll('.docs-toc-item').forEach(el => el.style.display = '');
+
+  // Highlight matches in current content
+  if (_contentEl.innerHTML) {
     const html = _contentEl.innerHTML;
-    // Remove old highlights
-    const clean = html.replace(/<mark class="doc-hl">/g, '').replace(/<\/mark>/g, '');
-    // Add new highlights (case-insensitive, outside tags)
+    const clean = html.replace(/<mark class="doc-hl"[^>]*>/g, '').replace(/<\/mark>/g, '');
     const re = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
     _contentEl.innerHTML = clean.replace(/>([^<]+)</g, (match, text) => {
       return '>' + text.replace(re, '<mark class="doc-hl" style="background:#4a3f00;color:#e6edf3;padding:1px 2px;border-radius:2px;">$1</mark>') + '<';
     });
+    // Scroll to first highlight
+    const firstMatch = _contentEl.querySelector('.doc-hl');
+    if (firstMatch) firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 }
 
