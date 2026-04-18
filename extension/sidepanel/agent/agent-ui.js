@@ -122,11 +122,11 @@ async function handleSend() {
   try {
     // Subscribe to agent events for streaming
     const unsubscribe = agent.subscribe(async (event) => {
-      // Streaming text display — pi-ai events have `partial` (accumulated message)
-      // on text_delta/text_end events, and `message` on the done event.
-      if (event.type === 'message_update' || event.type === 'text_delta' || event.type === 'text_end') {
+      // Streaming text — agent.subscribe fires 'message_update' with progressive
+      // partial text on event.partial.content or event.message.content
+      if (event.type === 'message_update') {
         const partial = event.partial || event.message;
-        if (partial && partial.content) {
+        if (partial && partial.role === 'assistant' && partial.content) {
           let newText = '';
           for (const block of partial.content) {
             if (block.type === 'text') newText += block.text || '';
@@ -137,9 +137,10 @@ async function handleSend() {
             _messageList.scrollTop = _messageList.scrollHeight;
           }
         }
+        updateStatus('Generating...');
       }
       if (event.type === 'tool_execution_start') {
-        const toolName = event.toolCall?.name || 'unknown';
+        const toolName = event.toolCall?.name || event.toolCall?.function?.name || 'unknown';
         addMessage('tool', '🔧 Calling: ' + toolName);
         updateStatus('Running tool: ' + toolName);
       }
@@ -149,6 +150,7 @@ async function handleSend() {
           const preview = result.content[0].text.substring(0, 300);
           addMessage('tool', '→ ' + preview + (result.content[0].text.length > 300 ? '...' : ''));
         }
+        updateStatus('Thinking...');
       }
     });
 
