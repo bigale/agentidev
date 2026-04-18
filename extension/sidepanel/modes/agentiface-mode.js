@@ -198,8 +198,15 @@ function handleGenerate() {
   const mode = hasConfig ? 'Modify' : 'Generate';
   const modelName = els.modelSelect?.selectedOptions[0]?.textContent || 'Sonnet';
   appendLog(`${mode}: "${prompt.length > 60 ? prompt.slice(0, 60) + '...' : prompt}"`);
-  appendLog(`Model: ${modelName} | Sending to bridge...`);
 
+  // Use agent-powered generation if available (Ollama/WebLLM),
+  // fall back to one-shot bridge claude -p spawn
+  if (modelName === 'Agent') {
+    handleAgentGenerate(prompt);
+    return;
+  }
+
+  appendLog(`Model: ${modelName} | Sending to bridge...`);
   setGenerating(true, hasConfig);
   chrome.runtime.sendMessage({
     type: 'SC_PLAYGROUND_GENERATE',
@@ -218,6 +225,85 @@ function handleGenerate() {
       showError(response?.error || 'Generation failed');
     }
   });
+}
+
+async function handleAgentGenerate(prompt) {
+  appendLog('Agent mode: using pi-mono agent loop');
+  setGenerating(true, hasConfig);
+
+  try {
+    const { initProvider, getModel } = await import('../agent/agent-provider.js');
+    const { Agent } = await import('../../lib/vendor/pi-bundle.js');
+
+    await initProvider();
+    const model = getModel();
+    if (!model) {
+      appendLog('No LLM provider available (install Ollama or enable WebLLM)', 'error');
+      setGenerating(false, hasConfig);
+      return;
+    }
+
+    // Create a focused UI-generation agent
+    const agent = new Agent({
+      initialState: {
+        systemPrompt: `You are a SmartClient UI generator. When given a description, call the sc_generate tool with a clear prompt. After generation, check if there are issues and report them. Be very brief in your responses — the UI is the output, not text.`,
+        model,
+        tools: [{
+          name: 'sc_generate',
+          label: 'Generate UI',
+          description: 'Generate a SmartClient dashboard config from a prompt',
+          parameters: { type: 'object', properties: { prompt: { type: 'string', description: 'UI description' } }, required: ['prompt'] },
+          execute: async (id, params) => {
+            return new Promise((resolve) => {
+              chrome.runtime.sendMessage({ type: 'SC_GENERATE_UI', prompt: params.prompt }, (r) => {
+                if (r?.success) {
+                  resolve({ content: [{ type: 'text', text: 'UI generated: ' + (r.config?.layout?._type || 'unknown') + ' with ' + (r.config?.dataSources?.length || 0) + ' DataSources' }], details: r });
+                } else {
+                  resolve({ content: [{ type: 'text', text: 'Generation failed: ' + (r?.error || 'unknown') }] });
+                }
+              });
+            });
+          },
+        }],
+        thinkingLevel: 'off',
+        toolExecution: 'sequential',
+      },
+      getApiKey: async () => model.apiKey || 'ollama',
+    });
+
+    // Subscribe to events for logging
+    agent.subscribe((event) => {
+      if (event.type === 'tool_execution_start') appendLog('Calling sc_generate...');
+      if (event.type === 'tool_execution_end') {
+        const result = event.result?.details;
+        if (result?.success) {
+          const ds = result.config?.dataSources?.length || 0;
+          const layout = result.config?.layout?._type || 'unknown';
+          appendLog(`Config: ${ds} DS, ${layout} layout`, 'success');
+        }
+      }
+      if (event.type === 'message_update') {
+        const partial = event.partial || event.message;
+        if (partial?.content) {
+          let text = '';
+          for (const b of partial.content) if (b.type === 'text') text += b.text;
+          if (text) appendLog(text.substring(0, 100));
+        }
+      }
+    });
+
+    const t0 = Date.now();
+    await agent.prompt(prompt);
+    const elapsed = Math.round((Date.now() - t0) / 1000);
+    appendLog(`Agent complete (${elapsed}s)`, 'success');
+    showError(null);
+
+  } catch (err) {
+    appendLog('Agent error: ' + err.message, 'error');
+    showError(err.message);
+  }
+
+  setGenerating(false, true);
 }
 
 function setGenerating(active, hasConfig) {
