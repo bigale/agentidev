@@ -43,6 +43,18 @@ export async function mountAgentUI(container) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   });
 
+  // Wire clear button
+  _container.querySelector('#agent-clear-btn').addEventListener('click', () => {
+    const agent = getAgent();
+    if (agent) {
+      // Reset agent state by clearing messages
+      agent.state.messages = [];
+    }
+    _messageList.innerHTML = '';
+    addMessage('system', 'Conversation cleared. Type a message to begin.');
+    _busy = false;
+  });
+
   // Wire settings button
   _container.querySelector('#agent-settings-btn').addEventListener('click', showSettings);
 
@@ -65,6 +77,7 @@ function buildHTML() {
       <div style="display:flex;align-items:center;padding:6px 10px;background:#1a1a2e;border-bottom:1px solid #333;">
         <span style="font-size:13px;font-weight:600;color:#a8b4ff;flex:1;">Agent</span>
         <span id="agent-status" style="font-size:11px;color:#888;margin-right:8px;"></span>
+        <button id="agent-clear-btn" style="background:none;border:1px solid #555;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;" title="Clear conversation">Clear</button>
         <button id="agent-settings-btn" style="background:none;border:1px solid #555;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">Settings</button>
       </div>
       <div id="agent-messages" style="flex:1;overflow-y:auto;padding:8px;background:#0d1117;"></div>
