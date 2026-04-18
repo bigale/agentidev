@@ -308,5 +308,67 @@ export async function createTools() {
         return textResult(scripts.length + ' scripts:\n' + formatted, { scripts });
       },
     },
+
+    // ---- SmartClient UI Generation (Phase D) ----
+
+    {
+      name: 'sc_generate',
+      label: 'Generate SmartClient UI',
+      description: 'Generate a SmartClient dashboard UI config from a natural language prompt. The config is a JSON object with dataSources and layout. Use this to create data-driven UIs with grids, forms, buttons. The generated config is rendered in the extension\'s sandbox iframe.',
+      parameters: T.Object({
+        prompt: T.String({ description: 'Natural language description of the UI to generate' }),
+      }),
+      execute: async (id, params) => {
+        const r = await sendToSW('SC_GENERATE_UI', { prompt: params.prompt });
+        if (!r.success) return textResult('Generation failed: ' + (r.error || 'unknown'), r);
+        // Validate the config
+        const config = r.config;
+        const issues = [];
+        if (!config.dataSources && !config.layout) issues.push('Missing both dataSources and layout');
+        if (config.layout && !config.layout._type) issues.push('Layout missing _type');
+        if (config.dataSources && !Array.isArray(config.dataSources)) issues.push('dataSources must be an array');
+        if (issues.length > 0) {
+          return textResult('Config generated but has issues:\n' + issues.join('\n') + '\n\nConfig preview:\n' + JSON.stringify(config).substring(0, 500), { config, issues });
+        }
+        return textResult('UI generated successfully.\n\nComponents: ' + (config.layout?._type || 'unknown') + '\nDataSources: ' + (config.dataSources?.length || 0) + '\n\nThe config has been rendered in the playground.', { config });
+      },
+    },
+    {
+      name: 'sc_validate',
+      label: 'Validate SC Config',
+      description: 'Validate a SmartClient config JSON object. Checks for required fields, allowed component types, and DataSource structure. Returns a list of issues or confirms the config is valid.',
+      parameters: T.Object({
+        config: T.String({ description: 'JSON string of the SmartClient config to validate' }),
+      }),
+      execute: async (id, params) => {
+        try {
+          const config = JSON.parse(params.config);
+          const ALLOWED = ['VLayout','HLayout','ListGrid','DynamicForm','Button','Label','TabSet','Tab','DetailViewer','SectionStack','HTMLFlow','Window','ToolStrip','ToolStripButton','PortalLayout','Portlet','Canvas','Progressbar','ImgButton','ToolStripSeparator','ToolStripMenuButton','Menu','ForgeListGrid'];
+          const issues = [];
+          if (!config.layout) issues.push('Missing layout');
+          if (config.layout && !config.layout._type) issues.push('Layout missing _type');
+          if (config.layout && !ALLOWED.includes(config.layout._type)) issues.push('Layout _type "' + config.layout._type + '" not in allowed list');
+          // Check dataSources
+          if (config.dataSources) {
+            for (const ds of config.dataSources) {
+              if (!ds.ID) issues.push('DataSource missing ID');
+              if (!ds.fields || !Array.isArray(ds.fields)) issues.push('DataSource ' + (ds.ID || '?') + ' missing fields array');
+            }
+          }
+          // Walk layout tree for invalid types
+          function walk(node, path) {
+            if (!node) return;
+            if (node._type && !ALLOWED.includes(node._type)) issues.push(path + ': unknown _type "' + node._type + '"');
+            if (node.members) node.members.forEach((m, i) => walk(m, path + '.members[' + i + ']'));
+            if (node.tabs) node.tabs.forEach((t, i) => { walk(t.pane, path + '.tabs[' + i + '].pane'); });
+          }
+          walk(config.layout, 'layout');
+          if (issues.length === 0) return textResult('Config is valid. ' + (config.dataSources?.length || 0) + ' DataSources, layout type: ' + config.layout?._type);
+          return textResult(issues.length + ' issues found:\n' + issues.map((s, i) => (i + 1) + '. ' + s).join('\n'));
+        } catch (e) {
+          return textResult('Invalid JSON: ' + e.message);
+        }
+      },
+    },
   ];
 }
