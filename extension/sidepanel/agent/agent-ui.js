@@ -122,15 +122,16 @@ async function handleSend() {
   try {
     // Subscribe to agent events for streaming
     const unsubscribe = agent.subscribe(async (event) => {
-      if (event.type === 'message_update') {
-        // Extract text from partial message
-        const partial = event.message;
+      // Streaming text display — pi-ai events have `partial` (accumulated message)
+      // on text_delta/text_end events, and `message` on the done event.
+      if (event.type === 'message_update' || event.type === 'text_delta' || event.type === 'text_end') {
+        const partial = event.partial || event.message;
         if (partial && partial.content) {
           let newText = '';
           for (const block of partial.content) {
             if (block.type === 'text') newText += block.text || '';
           }
-          if (newText !== fullText) {
+          if (newText && newText !== fullText) {
             fullText = newText;
             assistantDiv.textContent = fullText;
             _messageList.scrollTop = _messageList.scrollHeight;
@@ -156,14 +157,22 @@ async function handleSend() {
 
     unsubscribe();
 
-    // If streaming didn't populate, set final text
-    if (!fullText && agent.state.messages.length > 0) {
+    // Set final text from agent state messages (in case streaming didn't populate)
+    if (agent.state.messages.length > 0) {
       const lastMsg = agent.state.messages[agent.state.messages.length - 1];
       if (lastMsg.role === 'assistant' && lastMsg.content) {
+        let finalText = '';
         for (const block of lastMsg.content) {
-          if (block.type === 'text') fullText += block.text || '';
+          if (block.type === 'text') finalText += block.text || '';
         }
-        assistantDiv.textContent = fullText || '(no response)';
+        if (finalText && finalText !== fullText) {
+          fullText = finalText;
+          assistantDiv.textContent = fullText;
+        }
+      }
+      if (!fullText) {
+        assistantDiv.textContent = lastMsg.errorMessage || '(no response)';
+        if (lastMsg.errorMessage) assistantDiv.style.color = '#f44336';
       }
     }
   } catch (err) {

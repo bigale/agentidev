@@ -56,6 +56,9 @@ Guidelines:
  * Initialize the agent. Must be called once before use.
  * @returns {Promise<{agent: object, status: object}>}
  */
+// Allow provider changes to reset the agent
+globalThis._resetAgent = () => { _agent = null; _ready = false; };
+
 export async function initAgent() {
   if (_agent) return { agent: _agent, status: { ready: true } };
 
@@ -85,9 +88,14 @@ export async function initAgent() {
       model,
       tools,
       thinkingLevel: 'off',
-      toolExecution: 'sequential', // Tools run one at a time for clarity
+      toolExecution: 'sequential',
     },
   });
+
+  // pi-ai requires an API key even for Ollama (which doesn't validate it).
+  // The Agent constructor may drop unknown fields from initialState,
+  // so set it directly on the state object after construction.
+  _agent.state.apiKey = model.apiKey || 'ollama';
 
   // Wire transformContext for RAG injection
   _agent.state.transformContext = async (messages) => {

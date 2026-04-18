@@ -95,13 +95,26 @@ export async function initProvider(overrides = {}) {
     const ollama = await detectOllama();
     if (ollama.available) {
       const modelName = config.model || DEFAULTS.ollama;
-      // Check if the requested model is available
       const hasModel = ollama.models.some(m => m === modelName || m.startsWith(modelName.split(':')[0]));
       const actualModel = hasModel ? modelName : (ollama.models[0] || DEFAULTS.ollama);
 
-      _cachedModel = getModelFn('openai-completions', actualModel, {
+      // Create model object directly — getModel() is a registry lookup that
+      // only works for pre-registered models, not custom Ollama ones.
+      // apiKey: 'ollama' is a dummy — Ollama doesn't validate keys but
+      // pi-ai checks for one before making the request.
+      _cachedModel = {
+        id: actualModel,
+        name: actualModel,
+        api: 'openai-completions',
+        provider: 'ollama',
         baseUrl: OLLAMA_BASE,
-      });
+        apiKey: 'ollama',
+        reasoning: false,
+        input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 4096,
+        maxTokens: 2048,
+      };
       _providerStatus = {
         provider: 'ollama',
         model: actualModel,
@@ -137,18 +150,32 @@ export async function initProvider(overrides = {}) {
   if (config.apiKey) {
     const provider = config.provider || 'openai';
     const modelName = config.model || DEFAULTS[provider] || DEFAULTS.openai;
-    const baseUrl = config.baseUrl || (provider === 'openai' ? 'https://api.openai.com/v1' : undefined);
-
-    const modelOpts = { apiKey: config.apiKey };
-    if (baseUrl) modelOpts.baseUrl = baseUrl;
-
-    // Use openai-completions for OpenAI; anthropic-messages for Anthropic
     const api = provider === 'anthropic' ? 'anthropic-messages' : 'openai-completions';
-    _cachedModel = getModelFn(api, modelName, modelOpts);
+    const baseUrl = config.baseUrl || (provider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.anthropic.com');
+
+    // Try getModel for known models first, fall back to manual object
+    _cachedModel = getModelFn(provider, modelName);
+    if (!_cachedModel) {
+      _cachedModel = {
+        id: modelName,
+        name: modelName,
+        api,
+        provider,
+        baseUrl,
+        reasoning: false,
+        input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 4096,
+        headers: provider === 'anthropic'
+          ? { 'x-api-key': config.apiKey, 'anthropic-version': '2023-06-01' }
+          : { 'Authorization': 'Bearer ' + config.apiKey },
+      };
+    }
     _providerStatus = {
       provider,
       model: modelName,
-      baseUrl: baseUrl || 'default',
+      baseUrl,
       ready: true,
     };
     console.log('[AgentProvider] Using', provider + ':', modelName);
@@ -184,10 +211,14 @@ export function isUsingWebLLM() {
 
 /**
  * Update provider configuration and re-initialize.
+ * Also resets the agent if one exists (forces re-creation with new model).
  */
 export async function setProviderConfig(config) {
   await saveConfig(config);
   _cachedModel = null;
+  _isWebLLM = false;
   _providerStatus = null;
+  // Signal to agent-setup that the agent needs re-creation
+  if (typeof globalThis._resetAgent === 'function') globalThis._resetAgent();
   return initProvider(config);
 }
