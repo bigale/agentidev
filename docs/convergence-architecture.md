@@ -67,19 +67,32 @@ The agentidev extension is not starting from zero. Significant portions of the c
 - **CheerpJ runtime** — Java-to-WASM, library mode, BeanShell scripting
 - **Testing infrastructure** — ScriptClient.assert(), artifact registration, Assertions tab, Test Results portlet, 145 unit tests
 
+### Newly Built (Apr 2026)
+- **pi-mono agent loop** — LIVE. Agent runs in sidepanel with 14 tools, Ollama Llama 3.2 3B. Tool calling verified (plugin_list, network_fetch, exec_python). Self-corrects on tool failures. Progressive LLM chain: Ollama → WebLLM → cloud API.
+- **pi-bundle.js** — 981KB esbuild bundle of pi-ai + pi-agent-core + TypeBox + OpenAI SDK. Unused providers stubbed. Loads in Chrome extension pages.
+- **Dashboard enhancements** — Two-button Run (standalone vs Session), Assertions tab, Trace/Video toggles, Console/Network panels, Help window, timestamp formatting, Script History right-click
+- **Playwright native features** — tracing (auto-stop + artifact), video recording, console/network capture, trace viewer (show-trace in new tab)
+- **CheerpX spawn resilience** — Promise.race timeout, Ctrl+C on hang, PYTHONHASHSEED=0 auto-injection. Entropy starvation root cause identified.
+- **CSV Analyzer plugin** — pure SW-side JS parsing, filter/sort/limit queries, dynamic grid columns
+- **Windows compatibility** — junctions, npx.cmd, CDP port parsing, path escaping, bridge conflict detection, PowerShell trace zip
+- **SmartClient bundled** — 27MB LGPL runtime committed (5 skins, all modules)
+- **Setup script** — `node scripts/setup.mjs` handles forge junction, Playwright install, SmartClient check
+
 ### Partially Built (needs enhancement)
-- **LLM integration** — Agentiface one-shot pipeline (prompt → Claude Haiku → JSON → render). No loop, no self-correction, no streaming. pi-mono replaces this.
+- **Agentiface loop** — still one-shot (prompt → Claude Haiku → JSON → render). Phase D planned: agent-driven iteration with sc.proposeSpec → sc.validate → sc.render → sc.revise
 - **Service framework** — handlers ARE services (name-based dispatch, async, context-aware) but no formal Service class, no SIO validation, no correlation IDs
 - **Config-driven bootstrap** — manifest.json + index.json pattern exists for plugins but not for services/channels/connections in the Zato sense
+- **Agent streaming display** — text deltas empty from Ollama SSE (full text on done event works). Needs investigation of pi-ai openai-completions delta parsing.
 
 ### Not Yet Built
-- **pi-mono agent loop** — the brain that drives tool calling, context management, streaming
 - **Hono in Service Worker** — formal HTTP channel abstraction (currently hand-rolled message routing)
 - **XState actors** — routing/orchestration (currently flat handler map)
 - **Zod validation** — SIO for handler inputs/outputs (currently unvalidated)
 - **RxDB** — reactive collections with sync (currently raw IndexedDB via Dexie-like proxy)
 - **PICT orchestration** — Python wrapper for recursive model composition
 - **OpenAPI spec analyzer** — endpoint tree extraction for api-to-app generation
+- **WebLLM live inference** — bundle + provider ready, WebGPU detected, but untested with actual model download + chat
+- **CheerpX base image rebuild** — current debian_mini.ext2 has entropy starvation. Need haveged or getrandom stub for full Python/sqlite3 support
 
 ## Why pi-mono Is the Next Logical Step
 
