@@ -82,6 +82,9 @@ export async function initAgent() {
   const tools = await createTools();
 
   // Create agent
+  // getApiKey is a constructor option (not initialState) — it's called by
+  // the agent loop before each LLM request to resolve the API key.
+  // Ollama doesn't validate keys but pi-ai requires one.
   _agent = new Agent({
     initialState: {
       systemPrompt: SYSTEM_PROMPT,
@@ -90,12 +93,8 @@ export async function initAgent() {
       thinkingLevel: 'off',
       toolExecution: 'sequential',
     },
+    getApiKey: async (provider) => model.apiKey || 'ollama',
   });
-
-  // pi-ai requires an API key even for Ollama (which doesn't validate it).
-  // The Agent constructor may drop unknown fields from initialState,
-  // so set it directly on the state object after construction.
-  _agent.state.apiKey = model.apiKey || 'ollama';
 
   // Wire transformContext for RAG injection
   _agent.state.transformContext = async (messages) => {
