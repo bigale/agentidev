@@ -14577,6 +14577,9 @@ function getModel(provider, modelId) {
   const providerModels = modelRegistry.get(provider);
   return providerModels?.get(modelId);
 }
+function getProviders() {
+  return Array.from(modelRegistry.keys());
+}
 function calculateCost(model, usage) {
   usage.cost.input = model.cost.input / 1e6 * usage.input;
   usage.cost.output = model.cost.output / 1e6 * usage.output;
@@ -29297,5 +29300,7 @@ init_define_process_versions();
 export {
   Agent,
   Type,
-  getModel
+  getModel,
+  getProviders,
+  streamSimple8 as streamSimple
 };
