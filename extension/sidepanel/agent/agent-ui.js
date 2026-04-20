@@ -43,6 +43,18 @@ export async function mountAgentUI(container) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   });
 
+  // Wire stop button
+  const stopBtn = _container.querySelector('#agent-stop');
+  stopBtn.addEventListener('click', () => {
+    const agent = getAgent();
+    if (agent) {
+      agent.abort();
+      addMessage('system', 'Generation stopped.');
+      _busy = false;
+      setBusy(false);
+    }
+  });
+
   // Wire clear button
   _container.querySelector('#agent-clear-btn').addEventListener('click', () => {
     const agent = getAgent();
@@ -85,12 +97,21 @@ function buildHTML() {
         <textarea id="agent-input" rows="2" placeholder="Ask the agent anything..."
           style="flex:1;background:#0d1117;color:#e6edf3;border:1px solid #333;border-radius:4px;padding:6px 8px;font-size:13px;resize:none;font-family:inherit;"></textarea>
         <button id="agent-send" style="margin-left:6px;background:#1976d2;color:#fff;border:none;border-radius:4px;padding:6px 14px;cursor:pointer;font-size:13px;align-self:flex-end;">Send</button>
+        <button id="agent-stop" style="display:none;margin-left:4px;background:#c33;color:#fff;border:none;border-radius:4px;padding:6px 10px;cursor:pointer;font-size:16px;align-self:flex-end;line-height:1;" title="Stop generation">&#9632;</button>
       </div>
     </div>`;
 }
 
 function updateStatus(text) {
   if (_statusBar) _statusBar.textContent = text;
+}
+
+function setBusy(busy) {
+  const sendBtn = _container?.querySelector('#agent-send');
+  const stopBtn = _container?.querySelector('#agent-stop');
+  if (sendBtn) sendBtn.style.display = busy ? 'none' : '';
+  if (stopBtn) stopBtn.style.display = busy ? '' : 'none';
+  if (_input) _input.disabled = busy;
 }
 
 function addMessage(role, content) {
@@ -126,6 +147,7 @@ async function handleSend() {
 
   addMessage('user', text);
   _busy = true;
+  setBusy(true);
   updateStatus('Thinking...');
 
   // Create a streaming assistant message element
@@ -197,6 +219,7 @@ async function handleSend() {
   }
 
   _busy = false;
+  setBusy(false);
   const status = getProviderStatus();
   updateStatus(status ? `${status.provider}: ${status.model}` : 'Ready');
 }
