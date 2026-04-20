@@ -309,6 +309,62 @@ export async function createTools() {
       },
     },
 
+    // ---- Testing ----
+
+    {
+      name: 'test_plugin',
+      label: 'Test Plugin',
+      description: 'Test a plugin by creating a session, navigating to it, taking a snapshot, and verifying components rendered. Returns the accessibility tree so you can see what elements exist. Use the snapshot refs to plan click/fill actions.',
+      parameters: T.Object({
+        pluginId: T.String({ description: 'Plugin ID (e.g. "csv-analyzer" or a generated plugin ID like "proj_xxx")' }),
+      }),
+      execute: async (id, params) => {
+        const pluginId = params.pluginId;
+
+        // Step 1: Create a session
+        let sessionId;
+        try {
+          const sessResp = await sendToSW('BRIDGE_CREATE_SESSION', { name: 'test-' + pluginId.substring(0, 10) });
+          if (!sessResp?.session?.id) return textResult('Failed to create session: ' + JSON.stringify(sessResp));
+          sessionId = sessResp.session.id;
+        } catch (e) {
+          return textResult('Session creation failed: ' + e.message);
+        }
+
+        // Step 2: Navigate to the plugin
+        const extId = chrome.runtime.id;
+        const pluginUrl = `chrome-extension://${extId}/smartclient-app/wrapper.html?mode=${pluginId}`;
+        try {
+          await sendToSW('BRIDGE_SEND_COMMAND', { sessionId, command: 'goto ' + pluginUrl });
+        } catch (e) {
+          return textResult('Navigation failed: ' + e.message);
+        }
+
+        // Step 3: Wait for SmartClient to load
+        await new Promise(r => setTimeout(r, 5000));
+
+        // Step 4: Take a snapshot
+        let snapshot;
+        try {
+          const snapResp = await sendToSW('BRIDGE_TAKE_SNAPSHOT', { sessionId });
+          snapshot = snapResp?.yaml || 'No snapshot';
+        } catch (e) {
+          return textResult('Snapshot failed: ' + e.message);
+        }
+
+        // Step 5: Return results
+        const lines = snapshot.split('\n').length;
+        return textResult(
+          'Plugin test session created.\n' +
+          'Session: ' + sessionId + '\n' +
+          'URL: ' + pluginUrl + '\n' +
+          'Snapshot: ' + lines + ' lines\n\n' +
+          'Accessibility tree (first 2000 chars):\n' + snapshot.substring(0, 2000),
+          { sessionId, pluginUrl, snapshotLines: lines }
+        );
+      },
+    },
+
     // ---- SmartClient UI Generation (Phase D) ----
 
     {
