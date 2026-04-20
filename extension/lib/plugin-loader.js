@@ -117,6 +117,11 @@ export async function loadPlugins(handlers) {
     handlers['SC_UNPUBLISH_PLUGIN'] = async (msg) => unpublishPlugin(msg.id);
   }
 
+  // Test a plugin by opening it in the extension's own browser
+  if (!handlers['TEST_PLUGIN_IN_TAB']) {
+    handlers['TEST_PLUGIN_IN_TAB'] = async (msg) => testPluginInTab(msg.pluginId);
+  }
+
   return { loaded, failed };
 }
 
@@ -288,6 +293,100 @@ async function unpublishPlugin(id) {
   ]);
   _registry.delete(id);
   return { success: true };
+}
+
+/**
+ * Test a plugin by opening it in the extension's own browser tab.
+ * Uses chrome.tabs.create() so the extension is available (unlike Playwright
+ * sessions which spawn isolated browsers without extensions).
+ *
+ * Flow:
+ *  1. Verify the plugin exists in the registry
+ *  2. Open wrapper.html?mode=<pluginId> in a new tab
+ *  3. Wait for SmartClient to render
+ *  4. Inject a script to query the sandbox for component status
+ *  5. Return rendered component info
+ *
+ * @param {string} pluginId
+ * @returns {Promise<{success, tabId, url, title, components, error?}>}
+ */
+async function testPluginInTab(pluginId) {
+  if (!pluginId) return { error: 'pluginId is required' };
+
+  // Verify plugin exists
+  const entry = _registry.get(pluginId);
+  if (!entry) {
+    return { error: `plugin "${pluginId}" not found. Available: ${[..._registry.keys()].join(', ')}` };
+  }
+
+  const pluginUrl = chrome.runtime.getURL(
+    'smartclient-app/wrapper.html?mode=' + encodeURIComponent(pluginId)
+  );
+
+  // Open tab in background
+  let tab;
+  try {
+    tab = await chrome.tabs.create({ url: pluginUrl, active: false });
+  } catch (e) {
+    return { error: 'Failed to create tab: ' + e.message };
+  }
+
+  // Wait for tab to finish loading
+  await new Promise((resolve) => {
+    const listener = (tabId, info) => {
+      if (tabId === tab.id && info.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+    // Safety timeout
+    setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }, 10000);
+  });
+
+  // Wait for SmartClient to render (bridge.js → app.js → renderer)
+  await new Promise(r => setTimeout(r, 4000));
+
+  // Query the wrapper page for component status via port messaging.
+  // chrome.tabs.connect targets extension pages (unlike sendMessage which
+  // only reaches content scripts). bridge.js listens on 'wrapper-status' port.
+  let statusResult = null;
+  try {
+    statusResult = await new Promise((resolve) => {
+      const port = chrome.tabs.connect(tab.id, { name: 'wrapper-status' });
+      port.onMessage.addListener((msg) => {
+        try { port.disconnect(); } catch (_) {}
+        resolve(msg);
+      });
+      port.onDisconnect.addListener(() => {
+        resolve({ error: 'port disconnected: ' + (chrome.runtime.lastError?.message || 'unknown') });
+      });
+      port.postMessage({ type: 'GET_STATUS' });
+      // Safety timeout
+      setTimeout(() => {
+        try { port.disconnect(); } catch (_) {}
+        resolve({ error: 'status query timed out' });
+      }, 5000);
+    });
+  } catch (e) {
+    statusResult = { error: 'connect failed: ' + e.message };
+  }
+
+  console.log(`[PluginLoader] test_plugin ${pluginId}: tab=${tab.id}`, statusResult);
+
+  return {
+    success: !statusResult.error,
+    tabId: tab.id,
+    url: pluginUrl,
+    title: statusResult.title || '',
+    configLoaded: statusResult.configLoaded || false,
+    componentCount: statusResult.componentCount || 0,
+    components: statusResult.components || [],
+    error: statusResult.error || undefined,
+  };
 }
 
 /** Test/dev helper — wipe the registry so loadPlugins() reloads everything. */

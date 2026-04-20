@@ -198,6 +198,46 @@
       opacity: 1;
     }
 
+    /* Global Agent Selector */
+    .agent-selector-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+      padding: 4px 8px;
+      background: #f1f3f4;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .agent-selector-label {
+      color: #5f6368;
+      font-weight: 500;
+      flex-shrink: 0;
+    }
+    .agent-selector-dropdown {
+      flex: 1;
+      padding: 3px 6px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 12px;
+      background: white;
+      color: #202124;
+      cursor: pointer;
+    }
+    .agent-selector-dropdown:focus {
+      outline: none;
+      border-color: #1a73e8;
+    }
+    .agent-selector-status {
+      font-size: 10px;
+      color: #5f6368;
+      flex-shrink: 0;
+      max-width: 80px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     /* Q&A Mode Styles */
     .mode-selector {
       display: flex;
@@ -861,6 +901,19 @@
     <h1>🧠 Agentidev</h1>
     <button class="settings-button" id="settings-button" title="Settings" aria-label="Settings">⚙️</button>
 
+    <!-- Global Agent Selector -->
+    <div id="agent-selector-bar" class="agent-selector-bar">
+      <label for="global-agent-select" class="agent-selector-label">Agent:</label>
+      <select id="global-agent-select" class="agent-selector-dropdown">
+        <option value="ollama">Ollama (Local)</option>
+        <option value="webllm">WebLLM (In-Browser)</option>
+        <option value="sonnet">Sonnet 4.6 (Bridge)</option>
+        <option value="haiku">Haiku 4.5 (Bridge)</option>
+        <option value="opus">Opus 4.6 (Bridge)</option>
+      </select>
+      <span id="agent-selector-status" class="agent-selector-status"></span>
+    </div>
+
     <!-- Mode Selector -->
     <div class="mode-selector" role="toolbar" aria-label="Mode selector">
       <button id="mode-search" class="mode-btn active" aria-pressed="true">🔍 Search</button>
@@ -1256,15 +1309,7 @@
               <input type="checkbox" id="af-cap-skin" checked /> Skin Picker
             </label>
           </div>
-          <div class="af-model-row">
-            <label for="af-model-select">Model:</label>
-            <select id="af-model-select">
-              <option value="agent">Agent (Ollama/WebLLM)</option>
-              <option value="sonnet">Sonnet 4.6 (Bridge)</option>
-              <option value="haiku">Haiku 4.5 (Bridge)</option>
-              <option value="opus">Opus 4.6 (Bridge)</option>
-            </select>
-          </div>
+          <!-- Model selector moved to global agent bar above tabs -->
           <div class="af-skin-row">
             <label for="af-skin-select">Skin:</label>
             <select id="af-skin-select">

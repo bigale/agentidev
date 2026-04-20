@@ -41,7 +41,7 @@ export function init() {
     configSummary:  document.getElementById('af-config-summary'),
     capSkin:        document.getElementById('af-cap-skin'),
     skinSelect:     document.getElementById('af-skin-select'),
-    modelSelect:    document.getElementById('af-model-select'),
+    modelSelect:    document.getElementById('global-agent-select'),  // Global agent selector
     thinking:       document.getElementById('af-thinking'),
     thinkingLabel:  document.getElementById('af-thinking-label'),
     thinkingTimer:  document.getElementById('af-thinking-timer'),
@@ -107,12 +107,7 @@ export function init() {
     });
   });
 
-  els.modelSelect.addEventListener('change', () => {
-    chrome.runtime.sendMessage({
-      type: 'SC_PLAYGROUND_SET_MODEL',
-      model: els.modelSelect.value,
-    });
-  });
+  // Model selection handled by global agent selector in sidepanel.js
 
   els.promptInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -196,17 +191,18 @@ function handleGenerate() {
   els.promptInput.value = '';
 
   const mode = hasConfig ? 'Modify' : 'Generate';
-  const modelName = els.modelSelect?.selectedOptions[0]?.textContent || 'Sonnet';
+  const agentValue = els.modelSelect?.value || 'ollama';
+  const modelLabel = els.modelSelect?.selectedOptions[0]?.textContent || agentValue;
   appendLog(`${mode}: "${prompt.length > 60 ? prompt.slice(0, 60) + '...' : prompt}"`);
 
-  // Use agent-powered generation if available (Ollama/WebLLM),
-  // fall back to one-shot bridge claude -p spawn
-  if (modelName === 'Agent') {
+  // Use agent-powered generation if local LLM selected (Ollama/WebLLM),
+  // fall back to one-shot bridge claude -p spawn for cloud models
+  if (agentValue === 'ollama' || agentValue === 'webllm') {
     handleAgentGenerate(prompt);
     return;
   }
 
-  appendLog(`Model: ${modelName} | Sending to bridge...`);
+  appendLog(`Model: ${modelLabel} | Sending to bridge...`);
   setGenerating(true, hasConfig);
   chrome.runtime.sendMessage({
     type: 'SC_PLAYGROUND_GENERATE',
@@ -395,8 +391,8 @@ function setGenerating(active, hasConfig) {
 
 function startThinking() {
   if (!els.thinking) return;
-  const modelName = els.modelSelect ? els.modelSelect.selectedOptions[0]?.textContent || 'Sonnet' : 'Sonnet';
-  els.thinkingLabel.textContent = `${modelName} is thinking...`;
+  const modelLabel = els.modelSelect ? els.modelSelect.selectedOptions[0]?.textContent || 'Agent' : 'Agent';
+  els.thinkingLabel.textContent = `${modelLabel} is thinking...`;
   els.thinking.classList.add('active');
   thinkingStartTime = Date.now();
   els.thinkingTimer.textContent = '0s';
@@ -698,9 +694,7 @@ function updateUI(state) {
   if (state.skin && els.skinSelect) {
     els.skinSelect.value = state.skin;
   }
-  if (state.model && els.modelSelect) {
-    els.modelSelect.value = state.model;
-  }
+  // Model selection is now global (persisted by sidepanel.js); skip local restore
 
   // Inspector/template buttons (Phase 4a)
   if (els.inspectorBtn) {

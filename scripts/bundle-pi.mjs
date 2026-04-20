@@ -25,8 +25,8 @@ export { Type } from '@sinclair/typebox';
 // Agent core
 export { Agent } from '@mariozechner/pi-agent-core';
 
-// pi-ai: getModel from the registry (but we stub out unused providers)
-export { getModel } from '@mariozechner/pi-ai';
+// pi-ai: model registry + streaming
+export { getModel, streamSimple, getProviders } from '@mariozechner/pi-ai';
 `;
 
 // Plugin to stub out unused provider files and Node.js modules.

@@ -309,58 +309,263 @@ export async function createTools() {
       },
     },
 
+    {
+      name: 'script_save',
+      label: 'Save Script',
+      description: 'Save a script to the script library and sync to disk (~/.agentidev/scripts/). The script can then be launched from the dashboard or via script_launch. Use this to create CDP test scripts for plugins.',
+      parameters: T.Object({
+        name: T.String({ description: 'Script name (no extension, e.g. "test-my-plugin")' }),
+        source: T.String({ description: 'Full JavaScript source code of the script (.mjs)' }),
+      }),
+      execute: async (id, params) => {
+        const r = await sendToSW('SCRIPT_LIBRARY_SAVE', { name: params.name, source: params.source });
+        if (!r.success) return textResult('Save failed: ' + (r.error || 'unknown'), r);
+        return textResult('Script saved: ' + params.name + '.mjs (' + params.source.length + ' bytes). It will appear in the dashboard Scripts panel.', r);
+      },
+    },
+    {
+      name: 'script_launch',
+      label: 'Launch Script',
+      description: 'Launch a script by path. The script runs as a Node.js process and reports progress/assertions to the dashboard via the bridge. No session needed for CDP-based plugin tests.',
+      parameters: T.Object({
+        name: T.String({ description: 'Script name (e.g. "test-csv-analyzer")' }),
+      }),
+      execute: async (id, params) => {
+        // Resolve the script path from the library
+        const lib = await sendToSW('SCRIPT_LIBRARY_GET', { name: params.name });
+        const scriptPath = lib?.script?.originalPath || ('~/.agentidev/scripts/' + params.name + '.mjs');
+        const r = await sendToSW('SCRIPT_LAUNCH', { path: scriptPath });
+        if (!r.success) return textResult('Launch failed: ' + (r.error || 'unknown'), r);
+        return textResult('Script launched: ' + params.name + ' (scriptId: ' + (r.scriptId || 'unknown') + '). Check the dashboard for progress and assertions.', r);
+      },
+    },
+
     // ---- Testing ----
 
     {
       name: 'test_plugin',
       label: 'Test Plugin',
-      description: 'Test a plugin by creating a session, navigating to it, taking a snapshot, and verifying components rendered. Returns the accessibility tree so you can see what elements exist. Use the snapshot refs to plan click/fill actions.',
+      description: 'Test a plugin by opening it in a browser tab and checking that its SmartClient components rendered correctly. Returns the page title, component count, and a list of rendered components with their types and IDs. Does NOT use Playwright sessions — opens in the extension browser directly.',
       parameters: T.Object({
         pluginId: T.String({ description: 'Plugin ID (e.g. "csv-analyzer" or a generated plugin ID like "proj_xxx")' }),
       }),
       execute: async (id, params) => {
         const pluginId = params.pluginId;
 
-        // Step 1: Create a session
-        let sessionId;
         try {
-          const sessResp = await sendToSW('BRIDGE_CREATE_SESSION', { name: 'test-' + pluginId.substring(0, 10) });
-          if (!sessResp?.session?.id) return textResult('Failed to create session: ' + JSON.stringify(sessResp));
-          sessionId = sessResp.session.id;
+          const r = await sendToSW('TEST_PLUGIN_IN_TAB', { pluginId });
+
+          if (r.error) {
+            return textResult('Test failed: ' + r.error, r);
+          }
+
+          // Format component list
+          const compList = (r.components || []).map(c =>
+            `  - ${c.id} (${c.type})${c.visible ? '' : ' [hidden]'}`
+          ).join('\n');
+
+          return textResult(
+            'Plugin test results:\n' +
+            'Title: ' + (r.title || '(none)') + '\n' +
+            'Config loaded: ' + (r.configLoaded ? 'yes' : 'no') + '\n' +
+            'Components rendered: ' + (r.componentCount || 0) + '\n' +
+            'Tab ID: ' + r.tabId + '\n' +
+            'URL: ' + r.url + '\n\n' +
+            (compList ? 'Component tree:\n' + compList : 'No components detected.'),
+            { tabId: r.tabId, url: r.url, componentCount: r.componentCount, components: r.components }
+          );
         } catch (e) {
-          return textResult('Session creation failed: ' + e.message);
+          return textResult('Test failed: ' + e.message);
         }
+      },
+    },
 
-        // Step 2: Navigate to the plugin
-        const extId = chrome.runtime.id;
-        const pluginUrl = `chrome-extension://${extId}/smartclient-app/wrapper.html?mode=${pluginId}`;
-        try {
-          await sendToSW('BRIDGE_SEND_COMMAND', { sessionId, command: 'goto ' + pluginUrl });
-        } catch (e) {
-          return textResult('Navigation failed: ' + e.message);
-        }
+    {
+      name: 'generate_plugin_test',
+      label: 'Generate Plugin Test',
+      description: 'Generate a CDP test script for a plugin and save it to the script library. Specify which components to verify and which buttons to click. The generated test opens the plugin via CDP (port 9222), checks components in the sandbox iframe, and reports results to the dashboard. Use test_plugin first to see what components exist, then use this to create a full test.',
+      parameters: T.Object({
+        pluginId: T.String({ description: 'Plugin ID to test (e.g. "csv-analyzer")' }),
+        componentIds: T.Array(T.String(), { description: 'Component IDs to verify exist (e.g. ["loadForm", "btnLoad", "summaryGrid"])' }),
+        clicks: T.Optional(T.Array(T.Object({
+          buttonId: T.String({ description: 'Button ID to click (e.g. "btnLoad")' }),
+          waitMs: T.Optional(T.Integer({ description: 'Wait time after click in ms (default 5000)' })),
+          expectGrid: T.Optional(T.String({ description: 'Grid ID that should have rows after click' })),
+        }), { description: 'Buttons to click in order, with optional grid verification' })),
+        formValues: T.Optional(T.Array(T.Object({
+          formId: T.String({ description: 'DynamicForm ID' }),
+          field: T.String({ description: 'Field name' }),
+          value: T.String({ description: 'Value to set' }),
+        }), { description: 'Form values to set before clicking buttons' })),
+      }),
+      execute: async (id, params) => {
+        const { pluginId, componentIds, clicks = [], formValues = [] } = params;
+        const testName = 'test-' + pluginId;
 
-        // Step 3: Wait for SmartClient to load
-        await new Promise(r => setTimeout(r, 5000));
+        // Build the test script from template
+        const componentChecks = componentIds.map(cid =>
+          `      ${cid}: !!isc.AutoTest.getObject('//${cid.includes('Grid') ? 'ListGrid' : cid.includes('Form') ? 'DynamicForm' : cid.includes('btn') || cid.startsWith('btn') ? 'Button' : '*'}[ID="${cid}"]'),`
+        ).join('\n');
 
-        // Step 4: Take a snapshot
-        let snapshot;
-        try {
-          const snapResp = await sendToSW('BRIDGE_TAKE_SNAPSHOT', { sessionId });
-          snapshot = snapResp?.yaml || 'No snapshot';
-        } catch (e) {
-          return textResult('Snapshot failed: ' + e.message);
-        }
+        const componentAsserts = componentIds.map(cid =>
+          `  client.assert(components?.${cid} === true, '${cid} rendered');`
+        ).join('\n');
 
-        // Step 5: Return results
-        const lines = snapshot.split('\n').length;
+        const formSetSteps = formValues.map(fv =>
+          `    var f = isc.AutoTest.getObject('//DynamicForm[ID="${fv.formId}"]'); if(f) f.setValue('${fv.field}', '${fv.value.replace(/'/g, "\\'")}');`
+        ).join('\n');
+
+        const clickSteps = clicks.map((c, i) => {
+          const step = i + 3;
+          const waitMs = c.waitMs || 5000;
+          let gridCheck = '';
+          if (c.expectGrid) {
+            gridCheck = `
+    var grid = isc.AutoTest.getObject('//ListGrid[ID="${c.expectGrid}"]');
+    return { rows: grid ? grid.getTotalRows() : -1 };`;
+          } else {
+            gridCheck = `\n    return { clicked: true };`;
+          }
+          return `
+  await client.progress(${step}, TOTAL, 'Click ${c.buttonId}');
+  var click${i} = await cdpEval(targets.sandbox.webSocketDebuggerUrl, \`(async function() {
+    var btn = isc.AutoTest.getObject('//Button[ID="${c.buttonId}"]');
+    if (!btn) { var all = isc.Canvas._canvasList||[]; for(var j=0;j<all.length;j++) if(all[j].ID==="${c.buttonId}") { btn=all[j]; break; } }
+    if (btn) btn.click();
+    await new Promise(r => setTimeout(r, ${waitMs}));${gridCheck}
+  })()\`, ${waitMs + 5000});${c.expectGrid ? `
+  client.assert(click${i}?.rows > 0, '${c.expectGrid} has ' + (click${i}?.rows||0) + ' rows after clicking ${c.buttonId}');` : `
+  client.assert(click${i}?.clicked, '${c.buttonId} clicked');`}`;
+        }).join('\n');
+
+        const totalSteps = 2 + clicks.length + 1; // open + verify + clicks + summary
+
+        const source = `#!/usr/bin/env node
+/**
+ * Auto-generated plugin test for ${pluginId}.
+ * Generated by agentidev agent.
+ */
+import { ScriptClient } from '../packages/bridge/script-client.mjs';
+import http from 'http';
+import WebSocket from 'ws';
+import fs from 'fs';
+
+const CDP_PORT = 9222;
+const PLUGIN_MODE = '${pluginId}';
+const TOTAL = ${totalSteps};
+const client = new ScriptClient('${testName}', { totalSteps: TOTAL });
+
+async function getTargets() {
+  return JSON.parse(await new Promise((res, rej) => {
+    http.get('http://localhost:'+CDP_PORT+'/json', r => { let d=''; r.on('data',c=>d+=c); r.on('end',()=>res(d)); }).on('error', rej);
+  }));
+}
+async function cdpEval(wsUrl, expr, timeout=15000) {
+  const ws = new WebSocket(wsUrl);
+  await new Promise(r => ws.once('open', r));
+  const result = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('cdpEval timeout')), timeout);
+    const handler = raw => { const m=JSON.parse(raw.toString()); if(m.id===1){ws.off('message',handler);clearTimeout(timer);resolve(m);} };
+    ws.on('message', handler);
+    ws.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{expression:expr,returnByValue:true,awaitPromise:true}}));
+  });
+  ws.close();
+  if (result.result?.exceptionDetails) throw new Error(result.result.exceptionDetails.text||'eval error');
+  return result.result?.result?.value;
+}
+async function cdpScreenshot(wsUrl, path) {
+  const ws = new WebSocket(wsUrl); await new Promise(r => ws.once('open', r));
+  const result = await new Promise(resolve => {
+    const handler = raw => { const m=JSON.parse(raw.toString()); if(m.id===1){ws.off('message',handler);resolve(m);} };
+    ws.on('message', handler);
+    ws.send(JSON.stringify({id:1,method:'Page.captureScreenshot',params:{format:'png'}}));
+  });
+  ws.close();
+  if (result.result?.data) { fs.writeFileSync(path,Buffer.from(result.result.data,'base64')); return path; }
+  return null;
+}
+async function findPluginTargets(mode) {
+  const targets = await getTargets();
+  const page = targets.find(t => t.type==='page' && t.url.includes('mode='+mode));
+  if (!page) return null;
+  const idx = targets.indexOf(page);
+  for (const t of targets.slice(idx+1)) {
+    if (t.type==='iframe' && t.url.includes('app.html')) return {page,sandbox:t};
+    if (t.type==='page') break;
+  }
+  const iframes = targets.filter(t => t.type==='iframe' && t.url.includes('app.html'));
+  if (iframes.length>0) return {page,sandbox:iframes[iframes.length-1]};
+  return {page,sandbox:null};
+}
+
+try {
+  await client.connect();
+  // Step 1: Open plugin
+  await client.progress(1, TOTAL, 'Open plugin');
+  let targets = await findPluginTargets(PLUGIN_MODE);
+  if (!targets) {
+    const all = await getTargets();
+    const extId = all.find(t=>t.type==='service_worker'&&t.url.includes('chrome-extension://'))?.url.match(/chrome-extension:\\/\\/([^/]+)/)?.[1];
+    if (extId) {
+      await new Promise((res,rej) => { const req=http.request({method:'PUT',hostname:'localhost',port:CDP_PORT,path:'/json/new?'+encodeURI('chrome-extension://'+extId+'/smartclient-app/wrapper.html?mode='+PLUGIN_MODE)},r=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>res(d));}); req.on('error',rej); req.end(); });
+      await new Promise(r => setTimeout(r, 5000));
+      targets = await findPluginTargets(PLUGIN_MODE);
+    }
+  }
+  client.assert(targets!=null, 'Plugin tab found');
+  client.assert(targets?.sandbox!=null, 'Sandbox iframe found');
+  if (!targets?.sandbox) throw new Error('No sandbox iframe');
+
+  // Step 2: Verify components
+  await client.progress(2, TOTAL, 'Verify components');
+  let components = null;
+  for (let attempt=0; attempt<6; attempt++) {
+    await new Promise(r => setTimeout(r, 2000));
+    targets = await findPluginTargets(PLUGIN_MODE) || targets;
+    if (!targets?.sandbox) continue;
+    try {
+      components = await cdpEval(targets.sandbox.webSocketDebuggerUrl, \`(function(){
+        if(typeof isc==='undefined'||!isc.AutoTest) return null;
+        return {
+${componentChecks}
+        };
+      })()\`);
+      if (components && Object.values(components).some(v=>v)) break;
+    } catch(e) { /* retry */ }
+  }
+${componentAsserts}
+${formSetSteps ? '\n  // Set form values\n  await cdpEval(targets.sandbox.webSocketDebuggerUrl, \\`(function(){\\n' + formSetSteps + '\\n  })()\\`);' : ''}
+${clickSteps}
+
+  // Screenshot
+  const shotPath = '/tmp/${testName}.png';
+  await cdpScreenshot(targets.page.webSocketDebuggerUrl, shotPath);
+  await client.artifact({type:'screenshot',label:'Final state',filePath:shotPath,contentType:'image/png'});
+
+  // Summary
+  await client.progress(TOTAL, TOTAL, 'Complete');
+  const exitCode = client.summarize();
+  await client.complete({assertions:client.getAssertionSummary()});
+  process.exit(exitCode);
+} catch(err) {
+  client.assert(false, 'Fatal: '+err.message);
+  client.summarize();
+  await client.complete({assertions:client.getAssertionSummary()}).catch(()=>{});
+  process.exit(1);
+}
+`;
+
+        // Save via SW handler
+        const saveResult = await sendToSW('SCRIPT_LIBRARY_SAVE', { name: testName, source });
+        if (!saveResult.success) return textResult('Failed to save test: ' + (saveResult.error || 'unknown'));
+
         return textResult(
-          'Plugin test session created.\n' +
-          'Session: ' + sessionId + '\n' +
-          'URL: ' + pluginUrl + '\n' +
-          'Snapshot: ' + lines + ' lines\n\n' +
-          'Accessibility tree (first 2000 chars):\n' + snapshot.substring(0, 2000),
-          { sessionId, pluginUrl, snapshotLines: lines }
+          'Test script generated and saved: ' + testName + '.mjs\n' +
+          'Components to verify: ' + componentIds.join(', ') + '\n' +
+          'Click steps: ' + (clicks.length > 0 ? clicks.map(c => c.buttonId).join(' → ') : 'none') + '\n' +
+          'Total assertions: ~' + (2 + componentIds.length + clicks.length) + '\n\n' +
+          'Use script_launch("' + testName + '") to run it, or run from the dashboard.',
+          { testName, totalSteps }
         );
       },
     },

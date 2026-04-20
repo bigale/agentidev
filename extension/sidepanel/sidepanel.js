@@ -12,6 +12,41 @@ import { init as initAuto, activate as activateAuto, deactivate as deactivateAut
 import { init as initAF, activate as activateAF, deactivate as deactivateAF } from './modes/agentiface-mode.js';
 import { init as initDocs, activate as activateDocs, deactivate as deactivateDocs } from './modes/docs-mode.js';
 
+// ---- Global Agent Selector ----
+const AGENT_STORAGE_KEY = 'agentidev_active_agent';
+const globalAgentSelect = document.getElementById('global-agent-select');
+const agentSelectorStatus = document.getElementById('agent-selector-status');
+
+// Restore persisted agent selection
+chrome.storage.local.get(AGENT_STORAGE_KEY, (result) => {
+  const saved = result[AGENT_STORAGE_KEY];
+  if (saved && globalAgentSelect) {
+    globalAgentSelect.value = saved;
+  }
+});
+
+// Persist on change and notify listeners
+if (globalAgentSelect) {
+  globalAgentSelect.addEventListener('change', () => {
+    const value = globalAgentSelect.value;
+    chrome.storage.local.set({ [AGENT_STORAGE_KEY]: value });
+    // Dispatch custom event so mode modules can react
+    document.dispatchEvent(new CustomEvent('agent-changed', { detail: { agent: value } }));
+    // Also update the bridge's playground model (for AF mode bridge generation)
+    const bridgeModel = value === 'ollama' || value === 'webllm' ? 'agent' : value;
+    chrome.runtime.sendMessage({ type: 'SC_PLAYGROUND_SET_MODEL', model: bridgeModel });
+  });
+}
+
+/**
+ * Get the currently selected global agent value.
+ * Exposed on globalThis so mode modules can access it.
+ * @returns {string} One of: ollama, webllm, sonnet, haiku, opus
+ */
+globalThis.getActiveAgent = function() {
+  return globalAgentSelect?.value || 'ollama';
+};
+
 // Shared DOM refs
 const queryInput = document.getElementById('query-input');
 const filtersDiv = document.getElementById('filters');

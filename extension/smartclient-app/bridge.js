@@ -409,6 +409,52 @@ const BROADCAST_DS_MAP = {
   AUTO_BROADCAST_RUN_COMPLETE: 'ScriptRuns', // Invalidate ScriptRuns DS
 };
 
+// --- Status query handler (used by TEST_PLUGIN_IN_TAB) ---
+// Uses chrome.runtime.onConnect port messaging so the SW can target this
+// specific tab (chrome.tabs.sendMessage only reaches content scripts, not
+// extension pages).
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'wrapper-status') return;
+
+  port.onMessage.addListener((msg) => {
+    if (msg.type !== 'GET_STATUS') return;
+
+    const title = document.title;
+    const mode = urlParams.get('mode') || null;
+
+    // Ask the sandbox for its rendered component tree
+    const handler = (event) => {
+      if (event.data?.source === 'smartclient-status-response') {
+        window.removeEventListener('message', handler);
+        try {
+          port.postMessage({
+            title,
+            mode,
+            configLoaded: event.data.configLoaded,
+            componentCount: event.data.componentCount,
+            components: event.data.components,
+          });
+        } catch (e) { /* port may be disconnected */ }
+      }
+    };
+    window.addEventListener('message', handler);
+
+    try {
+      iframe.contentWindow.postMessage({ source: 'smartclient-get-status' }, '*');
+    } catch (e) {
+      window.removeEventListener('message', handler);
+      try { port.postMessage({ title, mode, error: 'postMessage failed: ' + e.message }); } catch (_) {}
+      return;
+    }
+
+    // Timeout if sandbox doesn't respond
+    setTimeout(() => {
+      window.removeEventListener('message', handler);
+      try { port.postMessage({ title, mode, error: 'sandbox did not respond within 3s' }); } catch (_) {}
+    }, 3000);
+  });
+});
+
 chrome.runtime.onMessage.addListener((message) => {
   // Streaming events from the cheerpx tab via the SW. We forward these
   // to the sandbox iframe so host.exec.spawnStream's per-stream listener

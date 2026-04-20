@@ -160,6 +160,46 @@ The `csv-analyzer` plugin demonstrates a pure-JS data tool:
 
 Key pattern: the extension SW is the "network card" — fetches data via `HOST_NETWORK_FETCH`. All processing happens in JS inside the handler. No CheerpX needed.
 
+## Testing Plugins
+
+Plugins can be tested end-to-end using CDP (Chrome DevTools Protocol) scripts that connect to the extension browser on port 9222. This is the standard pattern — Playwright sessions cannot access `chrome-extension://` URLs because they spawn separate browsers without the extension.
+
+### Quick Test (agent tool)
+
+The agent's `test_plugin` tool opens a plugin in the extension browser and verifies components rendered:
+
+```
+test_plugin("csv-analyzer")
+→ title: "CSV Analyzer — Agentidev", configLoaded: true, 59 components
+```
+
+### Full Test (CDP script)
+
+For comprehensive testing (load data, click buttons, verify results), write a CDP test script:
+
+```javascript
+import { ScriptClient } from '../packages/bridge/script-client.mjs';
+import http from 'http';
+import WebSocket from 'ws';
+
+const client = new ScriptClient('test-my-plugin', { totalSteps: 3 });
+await client.connect();
+
+// 1. Open plugin tab via CDP
+// PUT http://localhost:9222/json/new?chrome-extension://<extId>/wrapper.html?mode=my-plugin
+
+// 2. Find sandbox iframe target, evaluate SmartClient AutoTest API
+// cdpEval(sandbox.ws, `isc.AutoTest.getObject('//Button[ID="btnLoad"]').click()`)
+
+// 3. Verify results
+// cdpEval(sandbox.ws, `isc.AutoTest.getObject('//ListGrid[ID="myGrid"]').getTotalRows()`)
+
+client.assert(rows > 0, 'Grid has data');
+await client.complete({ assertions: client.getAssertionSummary() });
+```
+
+Save to `~/.agentidev/scripts/` and run from the dashboard. See `examples/test-csv-analyzer.mjs` for a complete reference implementation (16 assertions).
+
 ## Gotchas
 
 - **SectionStack breaks buttons**: renderer only walks `members`, not `sections[].items[]`. Use VLayout + Labels instead.

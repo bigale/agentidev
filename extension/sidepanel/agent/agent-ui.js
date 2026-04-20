@@ -16,8 +16,7 @@
  */
 
 import { initAgent, getAgent } from './agent-setup.js';
-import { getProviderStatus, setProviderConfig, isUsingWebLLM } from './agent-provider.js';
-import { isWebGPUAvailable, WEBLLM_MODELS } from './webllm-provider.js';
+import { getProviderStatus, setProviderConfig } from './agent-provider.js';
 
 let _container = null;
 let _messageList = null;
@@ -67,9 +66,6 @@ export async function mountAgentUI(container) {
     _busy = false;
   });
 
-  // Wire settings button
-  _container.querySelector('#agent-settings-btn').addEventListener('click', showSettings);
-
   // Initialize agent
   updateStatus('Initializing agent...');
   const { agent, status } = await initAgent();
@@ -79,8 +75,34 @@ export async function mountAgentUI(container) {
   } else {
     updateStatus('Not connected');
     addMessage('system', 'No LLM provider available. ' + (status.error || ''));
-    addMessage('system', 'Install Ollama (ollama.com) or click Settings to enter an API key.');
+    addMessage('system', 'Install Ollama (ollama.com) or select a different agent from the dropdown above.');
   }
+
+  // React to global agent selector changes
+  document.addEventListener('agent-changed', async (e) => {
+    const agent = e.detail?.agent;
+    if (!agent) return;
+    // Map global agent values to provider configs
+    if (agent === 'ollama') {
+      updateStatus('Switching to Ollama...');
+      const { status: s } = await setProviderConfig({ provider: 'ollama' });
+      updateStatus(s.ready ? `ollama: ${s.model}` : 'Ollama not available');
+    } else if (agent === 'webllm') {
+      updateStatus('Switching to WebLLM...');
+      const { status: s } = await setProviderConfig({ provider: 'webllm' });
+      updateStatus(s.ready ? `webllm: ${s.model}` : 'WebLLM not available');
+    }
+    // Bridge models (sonnet/haiku/opus) use the bridge server for AF generation
+    // but aren't available for the pi-mono agent loop. Fall back to Ollama.
+    if (agent === 'sonnet' || agent === 'haiku' || agent === 'opus') {
+      updateStatus('Switching to Ollama (bridge agent for AF)...');
+      const { status: s } = await setProviderConfig({ provider: 'ollama' });
+      updateStatus(s.ready ? `ollama: ${s.model}` : 'Ollama not available');
+      if (s.ready) {
+        addMessage('system', `Agent chat uses Ollama. ${agent.charAt(0).toUpperCase() + agent.slice(1)} is used for AF generation via bridge.`);
+      }
+    }
+  });
 }
 
 function buildHTML() {
@@ -90,7 +112,6 @@ function buildHTML() {
         <span style="font-size:13px;font-weight:600;color:#a8b4ff;flex:1;">Agent</span>
         <span id="agent-status" style="font-size:11px;color:#888;margin-right:8px;"></span>
         <button id="agent-clear-btn" style="background:none;border:1px solid #555;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;" title="Clear conversation">Clear</button>
-        <button id="agent-settings-btn" style="background:none;border:1px solid #555;color:#aaa;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">Settings</button>
       </div>
       <div id="agent-messages" style="flex:1;overflow-y:auto;padding:8px;background:#0d1117;"></div>
       <div style="display:flex;padding:8px;background:#1a1a2e;border-top:1px solid #333;">
@@ -136,7 +157,7 @@ function addMessage(role, content) {
 async function handleSend() {
   const agent = getAgent();
   if (!agent) {
-    addMessage('system', 'Agent not initialized. Check Settings.');
+    addMessage('system', 'Agent not initialized. Select a provider from the dropdown above.');
     return;
   }
   if (_busy) return;
@@ -222,66 +243,6 @@ async function handleSend() {
   setBusy(false);
   const status = getProviderStatus();
   updateStatus(status ? `${status.provider}: ${status.model}` : 'Ready');
-}
-
-function showSettings() {
-  const status = getProviderStatus();
-  const currentProvider = status?.provider || 'none';
-  const currentModel = status?.model || '';
-  const hasWebGPU = isWebGPUAvailable();
-
-  const choice = prompt(
-    'LLM Provider Settings\n\n' +
-    'Current: ' + currentProvider + ' / ' + currentModel + '\n\n' +
-    'Options:\n' +
-    '1. Ollama (local server, free) — install from ollama.com\n' +
-    '2. WebLLM (in-browser, WebGPU' + (hasWebGPU ? ' available' : ' NOT available') + ')\n' +
-    '3. OpenAI — enter API key\n' +
-    '4. Anthropic — enter API key\n\n' +
-    'Enter 1, 2, 3, or 4:',
-    currentProvider === 'ollama' ? '1' : currentProvider === 'webllm' ? '2' : currentProvider === 'openai' ? '3' : '4'
-  );
-
-  if (!choice) return;
-
-  if (choice === '1') {
-    setProviderConfig({ provider: 'ollama' }).then(({ status }) => {
-      updateStatus(status.ready ? `ollama: ${status.model}` : 'Ollama not available');
-      if (!status.ready) addMessage('system', 'Ollama not detected. Install from ollama.com and run `ollama pull llama3.2:3b`');
-    });
-  } else if (choice === '2') {
-    if (!hasWebGPU) {
-      addMessage('system', 'WebGPU is not available in this browser. Try Chrome 113+ or Edge.');
-      return;
-    }
-    const models = Object.keys(WEBLLM_MODELS);
-    const modelChoice = prompt(
-      'WebLLM Model (downloads on first use):\n\n' +
-      models.map((m, i) => `${i + 1}. ${m}`).join('\n') + '\n\n' +
-      'Enter number (default: 1 = phi-3-mini):',
-      '1'
-    );
-    const idx = parseInt(modelChoice || '1', 10) - 1;
-    const selectedModel = models[Math.max(0, Math.min(idx, models.length - 1))];
-    addMessage('system', 'Initializing WebLLM with ' + selectedModel + '. First load downloads model weights...');
-    setProviderConfig({ provider: 'webllm', model: selectedModel }).then(({ status }) => {
-      updateStatus(status.ready ? `webllm: ${status.model}` : 'WebLLM failed');
-    });
-  } else if (choice === '3') {
-    const key = prompt('Enter your OpenAI API key:');
-    if (key) {
-      setProviderConfig({ provider: 'openai', apiKey: key }).then(({ status }) => {
-        updateStatus(status.ready ? `openai: ${status.model}` : 'Failed');
-      });
-    }
-  } else if (choice === '4') {
-    const key = prompt('Enter your Anthropic API key:');
-    if (key) {
-      setProviderConfig({ provider: 'anthropic', apiKey: key }).then(({ status }) => {
-        updateStatus(status.ready ? `anthropic: ${status.model}` : 'Failed');
-      });
-    }
-  }
 }
 
 /**

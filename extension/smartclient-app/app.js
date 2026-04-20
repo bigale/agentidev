@@ -100,6 +100,32 @@ window.addEventListener('message', (event) => {
     }, '*');
     return;
   }
+
+  // Status query — returns rendered component tree info for testing/debugging
+  if (msg.source === 'smartclient-get-status') {
+    var components = [];
+    try {
+      var canvases = isc.Canvas._canvasList || [];
+      for (var i = 0; i < canvases.length; i++) {
+        var c = canvases[i];
+        if (!c || c.destroyed) continue;
+        components.push({
+          id: c.ID || c.getID(),
+          type: c.Class || (c.getClassName ? c.getClassName() : 'unknown'),
+          visible: c.isVisible ? c.isVisible() : true,
+        });
+      }
+    } catch (e) {
+      // isc not loaded yet
+    }
+    window.parent.postMessage({
+      source: 'smartclient-status-response',
+      configLoaded: !!_currentConfig,
+      componentCount: components.length,
+      components: components.slice(0, 50), // Cap at 50 to avoid huge messages
+    }, '*');
+    return;
+  }
 });
 
 // ---- AI response handling ----
