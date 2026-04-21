@@ -25,9 +25,10 @@ import { loadSpec, extractEndpoints, generatePictModel } from './spec-analyzer.m
 import { runAndParse, isPictAvailable } from './pict-runner.mjs';
 import { generateTestScript, generateWorkflowTest } from './test-generator.mjs';
 import { generateApp } from './app-generator.mjs';
-import { writeFileSync, mkdirSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { writeFileSync, mkdirSync, readFileSync } from 'fs';
+import { resolve, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
+import { homedir } from 'os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const EXAMPLES_DIR = resolve(__dirname, '..', '..', '..', 'examples');
@@ -110,11 +111,15 @@ try {
       console.log('\n' + analysis.model + '\n');
     }
 
-    // Save model as artifact
+    // Save PICT model as a persistent file artifact
+    const modelDir = resolve(__dirname, 'models');
+    mkdirSync(modelDir, { recursive: true });
+    const modelPath = resolve(modelDir, `${target.operationId}.pict`);
+    writeFileSync(modelPath, analysis.model, 'utf-8');
     await client.artifact({
       type: 'text',
-      label: `PICT: ${target.operationId}`,
-      content: analysis.model,
+      label: `PICT Model: ${target.operationId}`,
+      filePath: modelPath,
       contentType: 'text/plain',
     });
 
@@ -122,9 +127,20 @@ try {
     const pictOpts = { order, caseSensitive: true };
     if (seedArg) pictOpts.seed = parseInt(seedArg, 10);
 
-    const { rows } = runAndParse(analysis.model, pictOpts);
+    const { headers, rows } = runAndParse(analysis.model, pictOpts);
     console.log('  PICT cases:', rows.length);
     client.assert(rows.length > 0, target.operationId + ': ' + rows.length + ' PICT cases');
+
+    // Save TSV output as artifact
+    const tsvContent = [headers.join('\t'), ...rows.map(r => headers.map(h => r[h]).join('\t'))].join('\n');
+    const tsvPath = resolve(modelDir, `${target.operationId}.tsv`);
+    writeFileSync(tsvPath, tsvContent, 'utf-8');
+    await client.artifact({
+      type: 'text',
+      label: `PICT Output: ${target.operationId} (${rows.length} rows)`,
+      filePath: tsvPath,
+      contentType: 'text/tab-separated-values',
+    });
 
     if (dryRun) {
       for (let i = 0; i < Math.min(3, rows.length); i++) {
@@ -141,6 +157,24 @@ try {
     });
     writeFileSync(outputPath, scriptSource, 'utf-8');
     console.log('  Output:', outputPath, `(${rows.length} cases, ${scriptSource.length} bytes)`);
+
+    // Save generated test as artifact (viewable in dashboard Artifacts tab)
+    await client.artifact({
+      type: 'text',
+      label: `Test Script: ${target.operationId} (${rows.length} cases)`,
+      filePath: outputPath,
+      contentType: 'application/javascript',
+    });
+
+    // Auto-register generated test in the bridge script library
+    // so it appears in the dashboard Scripts panel and can be re-run with one click
+    const testName = `test-petstore-${target.operationId}`;
+    try {
+      await client._sendRequest('BRIDGE_SCRIPT_SAVE', { name: testName, source: scriptSource });
+      console.log('  Registered in script library:', testName);
+    } catch (e) {
+      console.warn('  Script library registration failed (non-fatal):', e.message);
+    }
 
     generated.push({
       operationId: target.operationId,
@@ -160,6 +194,23 @@ try {
     const workflowPath = resolve(outputDir, 'test-petstore-pet-workflow.mjs');
     writeFileSync(workflowPath, workflowSource, 'utf-8');
     console.log('\n  Workflow test:', workflowPath);
+
+    // Register workflow test in script library
+    try {
+      await client._sendRequest('BRIDGE_SCRIPT_SAVE', { name: 'test-petstore-pet-workflow', source: workflowSource });
+      console.log('  Registered in script library: test-petstore-pet-workflow');
+    } catch (e) {
+      console.warn('  Script library registration failed (non-fatal):', e.message);
+    }
+
+    // Save workflow script as artifact
+    await client.artifact({
+      type: 'text',
+      label: 'Workflow Test: POST->GET->DELETE',
+      filePath: workflowPath,
+      contentType: 'application/javascript',
+    });
+
     generated.push({
       operationId: 'pet-workflow',
       method: 'CRUD',
@@ -167,7 +218,7 @@ try {
       cases: 6,
       outputPath: workflowPath,
     });
-    client.assert(true, 'Workflow test generated');
+    client.assert(true, 'Workflow test generated + registered');
   }
 
   // Build app from spec
