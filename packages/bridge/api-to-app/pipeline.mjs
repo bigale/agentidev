@@ -1,34 +1,35 @@
 #!/usr/bin/env node
 /**
  * api-to-app Pipeline — orchestrates the full flow:
- *   OpenAPI spec → PICT model → combinatorial rows → test script
+ *   OpenAPI spec → PICT models → combinatorial rows → test scripts
  *
- * Runs as a bridge script with progress reporting to the dashboard.
+ * Supports single endpoint, multi-endpoint, and workflow modes.
  *
  * Usage:
  *   node packages/bridge/api-to-app/pipeline.mjs [options]
  *
  * Options:
- *   --spec=<path>       Path to OpenAPI spec (default: specs/petstore-v3.json)
- *   --endpoint=<op>     Operation ID or "METHOD /path" (default: findPetsByStatus)
- *   --base-url=<url>    API base URL (default: https://petstore3.swagger.io/api/v3)
- *   --output=<path>     Output test script path (default: auto-generated)
+ *   --spec=<path>       Path to OpenAPI spec (default: specs/petstore-v2.json)
+ *   --endpoint=<op>     Operation ID (default: findPetsByStatus). Use "all" for multi.
+ *   --base-url=<url>    API base URL (default: https://petstore.swagger.io/v2)
+ *   --output=<dir>      Output directory (default: examples/)
  *   --order=<n>         PICT combinatorial order (default: 2 = pairwise)
  *   --seed=<n>          PICT random seed for reproducibility
- *   --run               Also launch the generated test after creating it
- *   --dry-run           Print PICT model and rows but don't generate test script
+ *   --workflow           Also generate a CRUD workflow test (POST → GET → DELETE)
+ *   --run               Launch generated tests after creating them
+ *   --dry-run           Print PICT models and rows, don't generate scripts
  */
 
 import { ScriptClient } from '../script-client.mjs';
 import { loadSpec, extractEndpoints, generatePictModel } from './spec-analyzer.mjs';
 import { runAndParse, isPictAvailable } from './pict-runner.mjs';
-import { generateTestScript } from './test-generator.mjs';
-import { writeFileSync } from 'fs';
+import { generateTestScript, generateWorkflowTest } from './test-generator.mjs';
+import { writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const TOTAL_STEPS = 5;
+const EXAMPLES_DIR = resolve(__dirname, '..', '..', '..', 'examples');
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -38,146 +39,166 @@ const getArg = (name, def) => {
 };
 const hasFlag = (name) => args.includes(`--${name}`);
 
-const specPath = getArg('spec', resolve(__dirname, 'specs/petstore-v3.json'));
+const specPath = getArg('spec', resolve(__dirname, 'specs/petstore-v2.json'));
 const targetEndpoint = getArg('endpoint', 'findPetsByStatus');
-const baseUrl = getArg('base-url', 'https://petstore3.swagger.io/api/v3');
+const baseUrl = getArg('base-url', 'https://petstore.swagger.io/v2');
+const outputDir = getArg('output', EXAMPLES_DIR);
 const order = parseInt(getArg('order', '2'), 10);
-const seed = getArg('seed', undefined);
+const seedArg = getArg('seed', undefined);
 const dryRun = hasFlag('dry-run');
 const runAfter = hasFlag('run');
+const doWorkflow = hasFlag('workflow');
 
-const client = new ScriptClient('api-to-app-pipeline', { totalSteps: TOTAL_STEPS });
+// Target endpoints for "all" mode
+const PET_ENDPOINTS = ['findPetsByStatus', 'addPet', 'getPetById', 'deletePet'];
+
+const isMulti = targetEndpoint === 'all';
+const targetIds = isMulti ? PET_ENDPOINTS : [targetEndpoint];
+const totalSteps = targetIds.length + (doWorkflow ? 1 : 0) + 2; // prereqs + endpoints + workflow + summary
+
+const client = new ScriptClient('api-to-app-pipeline', { totalSteps });
 
 try {
   await client.connect();
   console.log('api-to-app Pipeline');
   console.log('===================\n');
 
-  // Step 1: Check prerequisites
-  await client.progress(1, TOTAL_STEPS, 'Check prerequisites');
+  // Step 1: Prerequisites
+  await client.progress(1, totalSteps, 'Check prerequisites');
   if (!isPictAvailable()) {
     throw new Error('PICT binary not found. Install from https://github.com/microsoft/pict');
   }
-  console.log('  PICT: available');
 
-  // Step 2: Load and analyze spec
-  await client.progress(2, TOTAL_STEPS, 'Analyze OpenAPI spec');
-  console.log('  Spec:', specPath);
+  // Step 2: Load spec
+  await client.progress(2, totalSteps, 'Analyze OpenAPI spec');
   const spec = loadSpec(specPath);
-  console.log('  Title:', spec.info?.title, 'v' + spec.info?.version);
+  console.log('  Spec:', spec.info?.title, 'v' + spec.info?.version);
 
   const endpoints = extractEndpoints(spec);
   console.log('  Endpoints:', endpoints.length);
+  mkdirSync(outputDir, { recursive: true });
 
-  // Find target endpoint by operationId or method+path
-  const target = endpoints.find(ep =>
-    ep.operationId === targetEndpoint ||
-    `${ep.method} ${ep.path}` === targetEndpoint
-  );
-  if (!target) {
-    const available = endpoints.map(ep => ep.operationId || `${ep.method} ${ep.path}`).join(', ');
-    throw new Error(`Endpoint "${targetEndpoint}" not found. Available: ${available}`);
-  }
-  console.log('  Target:', target.method, target.path, `(${target.operationId})`);
-  console.log('  Parameters:', target.parameters.length);
+  const generated = [];
 
-  // Step 3: Generate PICT model and run
-  await client.progress(3, TOTAL_STEPS, 'Generate PICT model');
-  const analysis = generatePictModel(target, spec);
-  console.log('\n--- PICT Model ---');
-  console.log(analysis.model);
-  console.log('--- End Model ---\n');
+  // Steps 3+: Process each target endpoint
+  for (let idx = 0; idx < targetIds.length; idx++) {
+    const opId = targetIds[idx];
+    const stepNum = idx + 3;
+    await client.progress(stepNum, totalSteps, opId);
 
-  // Save model as artifact
-  await client.artifact({
-    type: 'text',
-    label: 'PICT Model',
-    content: analysis.model,
-    contentType: 'text/plain',
-  });
+    const target = endpoints.find(ep =>
+      ep.operationId === opId || `${ep.method} ${ep.path}` === opId
+    );
+    if (!target) {
+      console.log(`  SKIP: "${opId}" not found in spec`);
+      client.assert(false, opId + ' not found in spec');
+      continue;
+    }
 
-  // Run PICT
-  const pictOptions = { order, caseSensitive: true };
-  if (seed) pictOptions.seed = parseInt(seed, 10);
+    console.log(`\n  === ${target.method} ${target.path} (${target.operationId}) ===`);
+    console.log('  Parameters:', target.parameters.length,
+      target.parameters.find(p => p.in === 'body') ? '+ body' : '');
 
-  const { headers, rows } = runAndParse(analysis.model, pictOptions);
-  console.log(`  PICT generated ${rows.length} test cases (order=${order})`);
-  console.log('  Headers:', headers.join(', '));
+    // Generate PICT model
+    const analysis = generatePictModel(target, spec);
+    console.log('  PICT params:', Object.keys(analysis.paramMeta).length);
 
-  // Show first few rows
-  for (let i = 0; i < Math.min(3, rows.length); i++) {
-    console.log(`  Row ${i + 1}:`, JSON.stringify(rows[i]));
-  }
-  if (rows.length > 3) console.log(`  ... and ${rows.length - 3} more`);
+    if (dryRun) {
+      console.log('\n' + analysis.model + '\n');
+    }
 
-  // Save TSV as artifact
-  const tsvContent = [headers.join('\t'), ...rows.map(r => headers.map(h => r[h]).join('\t'))].join('\n');
-  await client.artifact({
-    type: 'text',
-    label: 'PICT Output (' + rows.length + ' rows)',
-    content: tsvContent,
-    contentType: 'text/tab-separated-values',
-  });
-
-  if (dryRun) {
-    console.log('\n  --dry-run: skipping test generation');
-    await client.progress(TOTAL_STEPS, TOTAL_STEPS, 'Complete (dry run)');
-    await client.complete({ rows: rows.length, dryRun: true });
-    process.exit(0);
-  }
-
-  // Step 4: Generate test script
-  await client.progress(4, TOTAL_STEPS, 'Generate test script');
-  const outputPath = getArg('output',
-    resolve(__dirname, '..', '..', '..', 'examples',
-      `test-petstore-${target.operationId || 'endpoint'}.mjs`));
-
-  const scriptSource = generateTestScript(analysis, rows, {
-    baseUrl,
-    importPath: '../packages/bridge/script-client.mjs',
-  });
-
-  writeFileSync(outputPath, scriptSource, 'utf-8');
-  console.log(`  Test script written: ${outputPath} (${scriptSource.length} bytes)`);
-  console.log(`  Test cases: ${rows.length}`);
-
-  // Save script as artifact
-  await client.artifact({
-    type: 'text',
-    label: 'Generated Test Script',
-    content: scriptSource,
-    contentType: 'application/javascript',
-  });
-
-  // Step 5: Summary
-  await client.progress(5, TOTAL_STEPS, 'Complete');
-  console.log('\nPipeline complete:');
-  console.log(`  Endpoint:   ${target.method} ${target.path}`);
-  console.log(`  Parameters: ${Object.keys(analysis.paramMeta).length}`);
-  console.log(`  PICT rows:  ${rows.length}`);
-  console.log(`  Output:     ${outputPath}`);
-
-  if (runAfter) {
-    console.log('\n  --run: launching generated test...');
-    // The test script is at outputPath — launch it
-    const { execFile } = await import('child_process');
-    const child = execFile('node', [outputPath], (err, stdout, stderr) => {
-      if (stdout) process.stdout.write(stdout);
-      if (stderr) process.stderr.write(stderr);
+    // Save model as artifact
+    await client.artifact({
+      type: 'text',
+      label: `PICT: ${target.operationId}`,
+      content: analysis.model,
+      contentType: 'text/plain',
     });
-    child.stdout?.pipe(process.stdout);
-    child.stderr?.pipe(process.stderr);
-    await new Promise(resolve => child.on('close', resolve));
+
+    // Run PICT
+    const pictOpts = { order, caseSensitive: true };
+    if (seedArg) pictOpts.seed = parseInt(seedArg, 10);
+
+    const { rows } = runAndParse(analysis.model, pictOpts);
+    console.log('  PICT cases:', rows.length);
+    client.assert(rows.length > 0, target.operationId + ': ' + rows.length + ' PICT cases');
+
+    if (dryRun) {
+      for (let i = 0; i < Math.min(3, rows.length); i++) {
+        console.log('  Row', i + 1 + ':', JSON.stringify(rows[i]));
+      }
+      continue;
+    }
+
+    // Generate test script
+    const outputPath = resolve(outputDir, `test-petstore-${target.operationId}.mjs`);
+    const scriptSource = generateTestScript(analysis, rows, {
+      baseUrl,
+      importPath: '../packages/bridge/script-client.mjs',
+    });
+    writeFileSync(outputPath, scriptSource, 'utf-8');
+    console.log('  Output:', outputPath, `(${rows.length} cases, ${scriptSource.length} bytes)`);
+
+    generated.push({
+      operationId: target.operationId,
+      method: target.method,
+      path: target.path,
+      cases: rows.length,
+      outputPath,
+    });
   }
 
-  client.assert(rows.length > 0, 'PICT generated ' + rows.length + ' test cases');
-  client.assert(scriptSource.length > 0, 'Test script generated (' + scriptSource.length + ' bytes)');
+  // Workflow test
+  if (doWorkflow && !dryRun) {
+    await client.progress(totalSteps - 1, totalSteps, 'Generate workflow');
+    const workflowSource = generateWorkflowTest(null, baseUrl, {
+      importPath: '../packages/bridge/script-client.mjs',
+    });
+    const workflowPath = resolve(outputDir, 'test-petstore-pet-workflow.mjs');
+    writeFileSync(workflowPath, workflowSource, 'utf-8');
+    console.log('\n  Workflow test:', workflowPath);
+    generated.push({
+      operationId: 'pet-workflow',
+      method: 'CRUD',
+      path: '/pet/*',
+      cases: 6,
+      outputPath: workflowPath,
+    });
+    client.assert(true, 'Workflow test generated');
+  }
+
+  // Summary
+  await client.progress(totalSteps, totalSteps, 'Complete');
+  console.log('\n\nPipeline summary:');
+  for (const g of generated) {
+    console.log(`  ${g.method.padEnd(6)} ${g.path.padEnd(25)} ${g.cases} cases → ${g.outputPath.split('/').pop()}`);
+  }
+  client.assert(generated.length > 0, generated.length + ' test scripts generated');
+
+  // Run generated tests
+  if (runAfter && generated.length > 0) {
+    console.log('\n  Running generated tests...\n');
+    const { execFileSync } = await import('child_process');
+    for (const g of generated) {
+      console.log(`  --- ${g.operationId} ---`);
+      try {
+        const output = execFileSync('node', [g.outputPath], {
+          encoding: 'utf-8',
+          timeout: 60000,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        console.log(output);
+      } catch (err) {
+        console.log(err.stdout || '');
+        console.error(err.stderr || err.message);
+      }
+    }
+  }
+
   const exitCode = client.summarize();
   await client.complete({
     assertions: client.getAssertionSummary(),
-    endpoint: `${target.method} ${target.path}`,
-    rows: rows.length,
-    output: outputPath,
+    generated: generated.map(g => ({ ...g, outputPath: g.outputPath.split('/').pop() })),
   });
   process.exit(exitCode);
 
