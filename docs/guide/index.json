@@ -6,6 +6,7 @@
     { "id": "plugins", "title": "Plugin Development", "file": "plugins.md" },
     { "id": "agent", "title": "Agent Guide", "file": "agent.md" },
     { "id": "api-to-app", "title": "API-to-App Pipeline", "file": "api-to-app.md" },
+    { "id": "glossary", "title": "Glossary", "file": "glossary.md" },
     { "id": "troubleshooting", "title": "Troubleshooting", "file": "troubleshooting.md" }
   ]
 }
