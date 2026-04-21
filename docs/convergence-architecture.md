@@ -84,15 +84,24 @@ The agentidev extension is not starting from zero. Significant portions of the c
 - **Config-driven bootstrap** — manifest.json + index.json pattern exists for plugins but not for services/channels/connections in the Zato sense
 - **Agent streaming display** — text deltas empty from Ollama SSE (full text on done event works). Needs investigation of pi-ai openai-completions delta parsing.
 
+### Built (Apr 20-21 2026 sprint)
+- **Transport abstraction** — pluggable dispatch: chrome.runtime (extension) or WebSocket (CLI/server). Agent tools have zero chrome.* dependencies.
+- **api-to-app pipeline** — LIVE. Spec analyzer, PICT runner, test generator, app generator, multi-level orchestration. 4 Petstore endpoints, 127 test cases, 93.7% pass against live API.
+- **Multi-level PICT** — L0 endpoint selection with TSV seed flow to L1 per-endpoint models. 553 expanded cases.
+- **CDP plugin testing** — test_plugin (quick component check), generate_plugin_test (full CDP test with assertions + screenshots). test-csv-analyzer.mjs: 16/16 pass.
+- **Global agent selector** — persistent dropdown above tabs, syncs Agent chat + AF mode
+- **Web UI (enterprise tier)** — bridge serves agent chat at http://localhost:9876/. Same protocol, no extension needed.
+- **Zod schema validation** — 12 handler schemas in handler-schemas.mjs, non-blocking validation on message dispatch
+- **App generator** — SmartClient plugin configs from OpenAPI specs (DataSources, ListGrids, DynamicForms, handlers)
+- **Agent tools** — expanded to 21 tools: script_save, script_launch, generate_plugin_test, api_to_app
+
 ### Not Yet Built
 - **Hono in Service Worker** — formal HTTP channel abstraction (currently hand-rolled message routing)
 - **XState actors** — routing/orchestration (currently flat handler map)
-- **Zod validation** — SIO for handler inputs/outputs (currently unvalidated)
 - **RxDB** — reactive collections with sync (currently raw IndexedDB via Dexie-like proxy)
-- **PICT orchestration** — Python wrapper for recursive model composition
-- **OpenAPI spec analyzer** — endpoint tree extraction for api-to-app generation
 - **WebLLM live inference** — bundle + provider ready, WebGPU detected, but untested with actual model download + chat
 - **CheerpX base image rebuild** — current debian_mini.ext2 has entropy starvation. Need haveged or getrandom stub for full Python/sqlite3 support
+- **LLM build driver** — agent-driven red-green TDD loop: feed failing tests + spec to LLM, generate implementation
 
 ## Why pi-mono Is the Next Logical Step
 
@@ -108,32 +117,13 @@ pi-mono fills the single biggest gap: **the agent loop**. Everything else is inf
 
 ### The integration path
 
-**Phase A: pi-ai provider layer** (~1-2 days)
-- Install @mariozechner/pi-ai
-- Create agentidev provider config: Ollama → WebLLM → cloud fallback
-- Replace Agentiface hand-rolled Haiku call with pi-ai streaming
-- Verify streaming works in sidepanel context
-
-**Phase B: Agent tools — wrap Host capabilities** (~2-3 days)
-- TypeBox schemas for each Host capability
-- AgentTool wrappers: browse_*, memory_*, exec_*, fs_*, ui_*, schedule_*
-- Tools dispatch over WebSocket to bridge or call Host directly
-- beforeToolCall hook → existing pause/resume/cancel mechanism
-
-**Phase C: Agent loop + chat UI** (~2-3 days)
-- Drop ChatPanel into sidepanel tab (replacing Q&A)
-- Wire agent to tool registry
-- transformContext injects top-k vector search results per turn
-- System prompt: specialized agentidev expert
-
-**Phase D: Agentiface loop upgrade** (~1-2 days)
-- Replace one-shot with: sc.proposeSpec → sc.validateSpec → sc.renderPreview → sc.revise
-- Agent sees errors and iterates (2-3 revision loop)
-
-**Phase E: WebLLM in-browser inference** (~2-3 days)
-- Phi-3 Mini 3.8B q4 as default in-browser model
-- Offscreen document for WebGPU inference
-- Graceful degradation chain: Ollama → WebLLM → cloud → prompt user
+**Phase A: pi-ai provider layer** — DONE
+**Phase B: Agent tools** — DONE (21 tools including api-to-app, plugin testing, script management)
+**Phase C: Agent loop + chat UI** — DONE (sidepanel chat, streaming, RAG injection)
+**Phase D: Agentiface loop upgrade** — DONE (agent-powered generation in AF mode)
+**Phase E: WebLLM in-browser inference** — PARTIAL (provider ready, untested with model download)
+**Phase F: Transport abstraction** — DONE (pluggable dispatch, enterprise web UI)
+**Phase G: api-to-app pipeline** — DONE (spec → PICT → tests → app, multi-level, Zod validation)
 
 ### After pi-mono: the convergence becomes possible
 
