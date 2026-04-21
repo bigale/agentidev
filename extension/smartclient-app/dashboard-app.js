@@ -3028,6 +3028,17 @@ function renderArtifactPreview(preview, artifact, data) {
         + '</div>'
       );
       break;
+    case 'text':
+      // Text artifacts: PICT models, TSV outputs, generated scripts, etc.
+      var textColor = '#ccc';
+      if (artifact.contentType === 'application/javascript') textColor = '#a8b4ff';
+      else if (artifact.contentType === 'text/tab-separated-values') textColor = '#7ee787';
+      preview.setContents(
+        '<pre style="padding:6px;font-size:11px;font-family:monospace;white-space:pre-wrap;word-break:break-word;'
+        + 'color:' + textColor + ';margin:0;max-height:300px;overflow:auto;">'
+        + escapeHtmlDash(data) + '</pre>'
+      );
+      break;
     case 'video':
       // Video — serve via asset server and embed <video> player
       if (artifact.diskPath) {

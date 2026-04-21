@@ -2504,16 +2504,26 @@ async function startServer() {
           sendTo(ws, buildError('diskPath required', msg.id));
           return;
         }
-        // Security: only allow reading from ARTIFACTS_DIR
+        // Security: allow reading from artifacts dir, repo root, and scripts dir
         const resolved = pathResolve(diskPath);
-        if (!resolved.startsWith(ARTIFACTS_DIR)) {
-          sendTo(ws, buildError('Access denied: path outside artifacts directory', msg.id));
+        const allowedRoots = [ARTIFACTS_DIR, REPO_ROOT, SCRIPTS_DIR];
+        if (!allowedRoots.some(root => resolved.startsWith(root))) {
+          sendTo(ws, buildError('Access denied: path outside allowed directories', msg.id));
           return;
         }
         try {
           const fileData = await readFile(resolved);
-          const base64 = fileData.toString('base64');
-          sendTo(ws, buildReply(msg, { success: true, data: `data:image/png;base64,${base64}` }));
+          // Detect if file is text or binary based on extension
+          const ext = resolved.split('.').pop().toLowerCase();
+          const textExts = new Set(['pict', 'tsv', 'csv', 'txt', 'md', 'json', 'mjs', 'js', 'py', 'sh', 'yaml', 'yml', 'html', 'css', 'xml', 'log']);
+          if (textExts.has(ext)) {
+            sendTo(ws, buildReply(msg, { success: true, data: fileData.toString('utf-8') }));
+          } else {
+            // Binary: base64 with appropriate mime type
+            const mimeMap = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webm: 'video/webm', zip: 'application/zip' };
+            const mime = mimeMap[ext] || 'application/octet-stream';
+            sendTo(ws, buildReply(msg, { success: true, data: `data:${mime};base64,${fileData.toString('base64')}` }));
+          }
         } catch (err) {
           sendTo(ws, buildError(`Cannot read artifact: ${err.message}`, msg.id));
         }
