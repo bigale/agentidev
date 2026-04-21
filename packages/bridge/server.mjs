@@ -732,10 +732,36 @@ async function startServer() {
   // bridge being reached from Windows via localhost forwarding, or a stale process).
   await checkPortConflict(PORT);
 
-  const wss = new WebSocketServer({ port: PORT });
+  // Create HTTP server for web UI + WebSocket upgrade on the same port.
+  // HTTP requests serve the web UI; WebSocket upgrades are handled by wss.
+  const WEB_UI_DIR = pathResolve(__dirname, 'web-ui');
+  const httpServer = http.createServer(async (req, res) => {
+    // Serve web UI static files
+    const urlPath = req.url === '/' ? '/index.html' : req.url.split('?')[0];
+    const filePath = pathResolve(WEB_UI_DIR, '.' + urlPath);
 
-  console.log(`[Bridge] WebSocket server listening on ws://localhost:${PORT}`);
-  console.log(`[Bridge] Waiting for connections (extension, Claude Code)...`);
+    // Security: don't serve files outside web-ui directory
+    if (!filePath.startsWith(WEB_UI_DIR)) {
+      res.writeHead(403); res.end('Forbidden'); return;
+    }
+
+    try {
+      const content = await readFile(filePath);
+      const ext = filePath.split('.').pop();
+      const mimeTypes = { html: 'text/html', js: 'application/javascript', css: 'text/css', json: 'application/json', png: 'image/png', svg: 'image/svg+xml' };
+      res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+      res.end(content);
+    } catch {
+      res.writeHead(404); res.end('Not Found');
+    }
+  });
+
+  const wss = new WebSocketServer({ server: httpServer });
+  httpServer.listen(PORT, () => {
+    console.log(`[Bridge] Server listening on http://localhost:${PORT} (HTTP + WebSocket)`);
+    console.log(`[Bridge] Web UI: http://localhost:${PORT}/`);
+    console.log(`[Bridge] Waiting for connections (extension, Claude Code, web-ui)...`);
+  });
 
   // Health check interval
   const healthTimer = setInterval(() => {
@@ -3718,8 +3744,10 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
 
     clearInterval(healthTimer);
     wss.close(() => {
-      console.log('[Bridge] Server closed');
-      process.exit(0);
+      httpServer.close(() => {
+        console.log('[Bridge] Server closed');
+        process.exit(0);
+      });
     });
   }
 

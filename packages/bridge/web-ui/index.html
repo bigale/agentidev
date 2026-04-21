@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Agentidev</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      height: 100vh; display: flex; flex-direction: column;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0d1117; color: #e6edf3;
+    }
+    header {
+      padding: 10px 16px; background: #161b22; border-bottom: 1px solid #30363d;
+      display: flex; align-items: center; gap: 12px;
+    }
+    header h1 { font-size: 16px; color: #a8b4ff; flex: 1; }
+    .status { font-size: 11px; color: #8b949e; }
+    .status.connected { color: #3fb950; }
+    #messages {
+      flex: 1; overflow-y: auto; padding: 12px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .msg {
+      padding: 10px 14px; border-radius: 8px; font-size: 13px;
+      line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+      max-width: 85%;
+    }
+    .msg.user { background: #1f3a5f; align-self: flex-end; }
+    .msg.assistant { background: #1a1a2e; border: 1px solid #30363d; align-self: flex-start; }
+    .msg.system { color: #8b949e; font-size: 11px; align-self: center; text-align: center; }
+    .msg.tool {
+      background: #0d2818; color: #7ee787; border: 1px solid #1a4d2e;
+      font-family: monospace; font-size: 11px; align-self: flex-start;
+    }
+    .input-bar {
+      padding: 10px; background: #161b22; border-top: 1px solid #30363d;
+      display: flex; gap: 8px;
+    }
+    #input {
+      flex: 1; background: #0d1117; color: #e6edf3; border: 1px solid #30363d;
+      border-radius: 6px; padding: 8px 12px; font-size: 13px; resize: none;
+      font-family: inherit;
+    }
+    #input:focus { outline: none; border-color: #388bfd; }
+    button {
+      background: #238636; color: #fff; border: none; border-radius: 6px;
+      padding: 8px 16px; font-size: 13px; cursor: pointer; align-self: flex-end;
+    }
+    button:hover { background: #2ea043; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    button.danger { background: #da3633; }
+    button.secondary { background: #30363d; }
+    .tools-bar {
+      padding: 6px 16px; background: #161b22; border-bottom: 1px solid #30363d;
+      display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .tool-chip {
+      padding: 3px 8px; background: #21262d; border: 1px solid #30363d;
+      border-radius: 4px; font-size: 10px; color: #8b949e; cursor: pointer;
+    }
+    .tool-chip:hover { border-color: #388bfd; color: #c9d1d9; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Agentidev</h1>
+    <span id="status" class="status">Connecting...</span>
+  </header>
+
+  <div class="tools-bar">
+    <span class="tool-chip" onclick="quickCmd('session_list')">Sessions</span>
+    <span class="tool-chip" onclick="quickCmd('script_list')">Scripts</span>
+    <span class="tool-chip" onclick="quickCmd('plugin_list')">Plugins</span>
+    <span class="tool-chip" onclick="quickCmd('api_to_app', {endpoint:'all', workflow:true, build:true})">API-to-App</span>
+  </div>
+
+  <div id="messages">
+    <div class="msg system">Connecting to bridge server...</div>
+  </div>
+
+  <div class="input-bar">
+    <textarea id="input" rows="2" placeholder="Send a command or message..."></textarea>
+    <button id="sendBtn" onclick="handleSend()">Send</button>
+    <button class="secondary" onclick="clearChat()">Clear</button>
+  </div>
+
+  <script>
+    const messagesDiv = document.getElementById('messages');
+    const input = document.getElementById('input');
+    const statusEl = document.getElementById('status');
+    const sendBtn = document.getElementById('sendBtn');
+
+    let ws = null;
+    let msgCounter = 0;
+    const pending = new Map();
+
+    // ---- WebSocket connection ----
+
+    function connect() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(protocol + '//' + location.host);
+
+      ws.onopen = () => {
+        // Identify as web-ui client
+        ws.send(JSON.stringify({
+          id: 'web_identify_' + Date.now(),
+          type: 'BRIDGE_IDENTIFY',
+          source: 'web-ui',
+          timestamp: Date.now(),
+          payload: { role: 'claude', name: 'web-ui' },
+        }));
+        statusEl.textContent = 'Connected';
+        statusEl.className = 'status connected';
+        addMessage('system', 'Connected to bridge server. Type a command or use the quick actions above.');
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+
+        // Route responses to pending requests.
+        // Bridge replies use inReplyTo OR the original type as the response type.
+        if (msg.inReplyTo && pending.has(msg.inReplyTo)) {
+          const { resolve } = pending.get(msg.inReplyTo);
+          pending.delete(msg.inReplyTo);
+          resolve(msg.payload || msg);
+          return;
+        }
+        // Fallback: match by type — bridge echoes the request type in the reply
+        for (const [id, p] of pending) {
+          if (p.type === msg.type) {
+            pending.delete(id);
+            p.resolve(msg.payload || msg);
+            return;
+          }
+        }
+
+        // Broadcast messages (script updates, etc.)
+        if (msg.type && msg.type.startsWith('AUTO_BROADCAST_')) {
+          // Silent — could add a feed panel later
+          return;
+        }
+      };
+
+      ws.onclose = () => {
+        statusEl.textContent = 'Disconnected';
+        statusEl.className = 'status';
+        addMessage('system', 'Disconnected. Reconnecting in 3s...');
+        setTimeout(connect, 3000);
+      };
+
+      ws.onerror = () => {
+        statusEl.textContent = 'Error';
+        statusEl.className = 'status';
+      };
+    }
+
+    function dispatch(type, payload = {}) {
+      return new Promise((resolve, reject) => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          reject(new Error('Not connected'));
+          return;
+        }
+        const id = 'web_' + Date.now() + '_' + (++msgCounter);
+        const timer = setTimeout(() => {
+          pending.delete(id);
+          reject(new Error('Timeout: ' + type));
+        }, 30000);
+
+        const typeMap = {
+          'BRIDGE_LIST_SESSIONS': 'BRIDGE_SESSION_LIST',
+          'BRIDGE_CREATE_SESSION': 'BRIDGE_SESSION_CREATE',
+          'SCRIPT_LAUNCH': 'BRIDGE_SCRIPT_LAUNCH',
+          'SCRIPT_LIBRARY_LIST': 'BRIDGE_SCRIPT_LIST',
+          'SCRIPT_LIBRARY_SAVE': 'BRIDGE_SCRIPT_SAVE',
+          'SC_GENERATE_UI': 'BRIDGE_SC_GENERATE_UI',
+          'BRIDGE_SEARCH_VECTORDB': 'BRIDGE_SEARCH_VECTORDB',
+        };
+
+        const bridgeType = typeMap[type] || type;
+        pending.set(id, {
+          resolve: (r) => { clearTimeout(timer); resolve(r); },
+          reject,
+          type: bridgeType,
+        });
+
+        ws.send(JSON.stringify({
+          id,
+          type: bridgeType,
+          source: 'web-ui',
+          timestamp: Date.now(),
+          payload,
+        }));
+      });
+    }
+
+    // ---- Chat UI ----
+
+    function addMessage(role, content) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + role;
+      div.textContent = content;
+      messagesDiv.appendChild(div);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      return div;
+    }
+
+    async function handleSend() {
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+
+      addMessage('user', text);
+
+      // Parse as command: TYPE {json payload} or natural language
+      const cmdMatch = text.match(/^(\w+)\s*(\{.*\})?$/s);
+      if (cmdMatch) {
+        const type = cmdMatch[1].toUpperCase();
+        let payload = {};
+        if (cmdMatch[2]) {
+          try { payload = JSON.parse(cmdMatch[2]); } catch (e) {
+            addMessage('system', 'Invalid JSON: ' + e.message);
+            return;
+          }
+        }
+        await executeCommand(type, payload);
+      } else {
+        // Natural language — try vector search for context
+        addMessage('system', 'Dispatching: BRIDGE_SEARCH_VECTORDB');
+        try {
+          const results = await dispatch('BRIDGE_SEARCH_VECTORDB', {
+            query: text, sources: ['browsing', 'reference'], topK: 3,
+          });
+          if (results?.results?.length > 0) {
+            const formatted = results.results.map((r, i) =>
+              (i + 1) + '. ' + (r.title || 'Untitled') + '\n   ' + (r.content || '').substring(0, 200)
+            ).join('\n\n');
+            addMessage('assistant', 'Found ' + results.results.length + ' relevant results:\n\n' + formatted);
+          } else {
+            addMessage('assistant', 'No results found. Try a specific command like: BRIDGE_SESSION_LIST');
+          }
+        } catch (e) {
+          addMessage('tool', 'Error: ' + e.message);
+        }
+      }
+    }
+
+    async function executeCommand(type, payload) {
+      addMessage('tool', 'Dispatching: ' + type);
+      try {
+        const result = await dispatch(type, payload);
+        const formatted = JSON.stringify(result, null, 2);
+        const preview = formatted.length > 2000 ? formatted.substring(0, 2000) + '\n... (truncated)' : formatted;
+        addMessage('assistant', preview);
+      } catch (e) {
+        addMessage('tool', 'Error: ' + e.message);
+      }
+    }
+
+    async function quickCmd(name, extraPayload = {}) {
+      const typeMap = {
+        session_list: 'BRIDGE_SESSION_LIST',
+        script_list: 'BRIDGE_SCRIPT_LIST',
+        plugin_list: null, // Extension-only — not available via bridge
+        api_to_app: 'BRIDGE_SCRIPT_LAUNCH',
+      };
+
+      const type = typeMap[name];
+      if (type === null) {
+        addMessage('system', name + ' is only available in the extension. Use the bridge commands directly.');
+        return;
+      }
+      if (!type) return;
+
+      if (name === 'api_to_app') {
+        addMessage('user', 'Launch api-to-app pipeline');
+        const args = ['--endpoint=all', '--workflow', '--build', '--seed=42'];
+        await executeCommand('SCRIPT_LAUNCH', {
+          path: 'packages/bridge/api-to-app/pipeline.mjs',
+          args,
+        });
+        return;
+      }
+
+      addMessage('user', name);
+      await executeCommand(type, extraPayload);
+    }
+
+    function clearChat() {
+      messagesDiv.innerHTML = '';
+      addMessage('system', 'Chat cleared. Connected to bridge.');
+    }
+
+    // ---- Key bindings ----
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    });
+
+    // ---- Boot ----
+    connect();
+  </script>
+</body>
+</html>
