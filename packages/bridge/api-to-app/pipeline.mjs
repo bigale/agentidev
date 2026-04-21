@@ -24,6 +24,7 @@ import { ScriptClient } from '../script-client.mjs';
 import { loadSpec, extractEndpoints, generatePictModel } from './spec-analyzer.mjs';
 import { runAndParse, isPictAvailable } from './pict-runner.mjs';
 import { generateTestScript, generateWorkflowTest } from './test-generator.mjs';
+import { generateApp } from './app-generator.mjs';
 import { writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -48,13 +49,15 @@ const seedArg = getArg('seed', undefined);
 const dryRun = hasFlag('dry-run');
 const runAfter = hasFlag('run');
 const doWorkflow = hasFlag('workflow');
+const doBuild = hasFlag('build');
+const entityName = getArg('entity', 'Pet');
 
 // Target endpoints for "all" mode
 const PET_ENDPOINTS = ['findPetsByStatus', 'addPet', 'getPetById', 'deletePet'];
 
 const isMulti = targetEndpoint === 'all';
 const targetIds = isMulti ? PET_ENDPOINTS : [targetEndpoint];
-const totalSteps = targetIds.length + (doWorkflow ? 1 : 0) + 2; // prereqs + endpoints + workflow + summary
+const totalSteps = targetIds.length + (doWorkflow ? 1 : 0) + (doBuild ? 1 : 0) + 2;
 
 const client = new ScriptClient('api-to-app-pipeline', { totalSteps });
 
@@ -167,13 +170,61 @@ try {
     client.assert(true, 'Workflow test generated');
   }
 
+  // Build app from spec
+  if (doBuild && !dryRun) {
+    console.log('\n  === Build: Generate SmartClient App ===');
+    try {
+      const result = generateApp(specPath, {
+        baseUrl,
+        entity: entityName,
+        operations: isMulti ? PET_ENDPOINTS : [targetEndpoint],
+      });
+      console.log('  Entity:', result.stats.entity);
+      console.log('  Fields:', result.stats.fields);
+      console.log('  Operations:', Object.entries(result.stats.operations).filter(([,v]) => v).map(([k]) => k).join(', '));
+
+      // Write config + handlers as artifacts
+      const configJson = JSON.stringify(result.config, null, 2);
+      await client.artifact({
+        type: 'text',
+        label: 'Generated App Config',
+        content: configJson,
+        contentType: 'application/json',
+      });
+      await client.artifact({
+        type: 'text',
+        label: 'Generated Handlers',
+        content: result.handlers,
+        contentType: 'application/javascript',
+      });
+
+      // Save config to a file for review
+      const configPath = resolve(outputDir, `app-${result.pluginId}-config.json`);
+      writeFileSync(configPath, configJson, 'utf-8');
+      console.log('  Config:', configPath);
+      console.log('  Plugin ID:', result.pluginId);
+      client.assert(true, 'App generated: ' + result.pluginId + ' (' + result.stats.fields + ' fields)');
+
+      generated.push({
+        operationId: result.pluginId,
+        method: 'APP',
+        path: '/' + entityName.toLowerCase() + '/*',
+        cases: result.stats.fields,
+        outputPath: configPath,
+      });
+    } catch (err) {
+      console.error('  Build failed:', err.message);
+      client.assert(false, 'App generation failed: ' + err.message);
+    }
+  }
+
   // Summary
   await client.progress(totalSteps, totalSteps, 'Complete');
   console.log('\n\nPipeline summary:');
   for (const g of generated) {
-    console.log(`  ${g.method.padEnd(6)} ${g.path.padEnd(25)} ${g.cases} cases → ${g.outputPath.split('/').pop()}`);
+    console.log(`  ${g.method.padEnd(6)} ${g.path.padEnd(25)} ${String(g.cases).padStart(3)} cases → ${g.outputPath.split('/').pop()}`);
   }
-  client.assert(generated.length > 0, generated.length + ' test scripts generated');
+  client.assert(generated.length > 0, generated.length + ' artifacts generated');
 
   // Run generated tests
   if (runAfter && generated.length > 0) {

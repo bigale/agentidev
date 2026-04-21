@@ -559,6 +559,47 @@ ${clickSteps}
       },
     },
 
+    // ---- API-to-App Pipeline ----
+
+    {
+      name: 'api_to_app',
+      label: 'API Test Generator',
+      description: 'Generate combinatorial API test scripts from an OpenAPI spec using PICT. Analyzes the spec, generates PICT models for endpoint parameters, runs PICT to produce pairwise test cases, and creates runnable test scripts. Use --endpoint=all for all pet CRUD endpoints, or specify an operationId. Results appear on the dashboard.',
+      parameters: T.Object({
+        spec: T.Optional(T.String({ description: 'Path to OpenAPI spec JSON file (default: petstore-v2)' })),
+        endpoint: T.Optional(T.String({ description: 'Operation ID (e.g. "findPetsByStatus", "addPet", "getPetById", "deletePet") or "all" for all pet endpoints. Default: "all"' })),
+        baseUrl: T.Optional(T.String({ description: 'API base URL (default: https://petstore.swagger.io/v2)' })),
+        workflow: T.Optional(T.Boolean({ description: 'Also generate a CRUD workflow test (default: true)' })),
+        build: T.Optional(T.Boolean({ description: 'Also generate a SmartClient app from the spec (default: false)' })),
+        run: T.Optional(T.Boolean({ description: 'Run the generated tests after creating them (default: false)' })),
+      }),
+      execute: async (id, params) => {
+        const pipelinePath = 'packages/bridge/api-to-app/pipeline.mjs';
+        const args = [];
+        if (params.spec) args.push('--spec=' + params.spec);
+        args.push('--endpoint=' + (params.endpoint || 'all'));
+        if (params.baseUrl) args.push('--base-url=' + params.baseUrl);
+        if (params.workflow !== false) args.push('--workflow');
+        if (params.build) args.push('--build');
+        args.push('--seed=42'); // Deterministic for reproducibility
+        if (params.run) args.push('--run');
+
+        try {
+          const r = await sendToSW('SCRIPT_LAUNCH', { path: pipelinePath, args });
+          if (!r.success) return textResult('Pipeline launch failed: ' + (r.error || 'unknown'), r);
+          return textResult(
+            'api-to-app pipeline launched (scriptId: ' + (r.scriptId || r.launchId || 'unknown') + ')\n' +
+            'Args: ' + args.join(' ') + '\n' +
+            'Check the dashboard Scripts panel for progress, PICT models, and generated test scripts.\n' +
+            'Generated tests will appear in examples/test-petstore-*.mjs',
+            r
+          );
+        } catch (e) {
+          return textResult('Pipeline launch failed: ' + e.message);
+        }
+      },
+    },
+
     // ---- SmartClient UI Generation (Phase D) ----
 
     {
