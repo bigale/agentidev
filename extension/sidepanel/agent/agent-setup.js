@@ -14,6 +14,7 @@
 import { initProvider, getModel, isUsingWebLLM } from './agent-provider.js';
 import { createTools } from './agent-tools.js';
 import { streamWebLLMCompletion } from './webllm-provider.js';
+import { dispatch } from './transport.js';
 
 let _agent = null;
 let _ready = false;
@@ -134,16 +135,10 @@ export async function initAgent() {
         if (typeof userText !== 'string' || userText.length < 5) break;
 
         try {
-          const results = await new Promise((resolve, reject) => {
-            chrome.runtime.sendMessage({
-              type: 'BRIDGE_SEARCH_VECTORDB',
-              query: userText,
-              sources: ['browsing', 'reference'],
-              topK: 3,
-            }, (resp) => {
-              if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
-              else resolve(resp);
-            });
+          const results = await dispatch('BRIDGE_SEARCH_VECTORDB', {
+            query: userText,
+            sources: ['browsing', 'reference'],
+            topK: 3,
           });
 
           if (results?.results?.length > 0) {

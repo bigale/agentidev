@@ -1,9 +1,9 @@
 /**
  * Agent tools — typed wrappers around agentidev's SW handlers.
  *
- * Each tool dispatches to the service worker via chrome.runtime.sendMessage
- * and returns structured results for the agent loop. TypeBox schemas define
- * the parameter shapes that the LLM will fill.
+ * Each tool dispatches via the transport abstraction (transport.js) which
+ * routes to chrome.runtime.sendMessage (extension) or bridge WebSocket
+ * (CLI/server). TypeBox schemas define the parameter shapes the LLM fills.
  *
  * Tools are grouped by capability surface:
  *   browse_*   — Playwright session commands
@@ -15,6 +15,11 @@
  *   plugin_*   — plugin management
  *   script_*   — automation scripts
  */
+
+import { dispatch as sendToSW, autoDetect, getTransportMode } from './transport.js';
+
+// Auto-detect transport on load (extension or none)
+autoDetect();
 
 // TypeBox imported from the pi-ai re-export for convenience
 // (pi-ai bundles @sinclair/typebox)
@@ -38,22 +43,6 @@ async function ensureType() {
     };
   }
   return Type;
-}
-
-/**
- * Send a message to the SW and return the response.
- * Wraps chrome.runtime.sendMessage with error handling.
- */
-function sendToSW(type, payload = {}) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ type, ...payload }, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-      } else {
-        resolve(response || {});
-      }
-    });
-  });
 }
 
 /**
