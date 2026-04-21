@@ -78,3 +78,6 @@ twinspires-races.txt
 nul
 .specstory/
 .npmrc
+
+# Wiki checkout (synced via scripts/sync-wiki.mjs)
+.wiki/

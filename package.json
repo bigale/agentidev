@@ -27,7 +27,9 @@
     "dev:stop": "bash packages/bridge/start-dev.sh --stop",
     "ai:sync": "node packages/ai-context/sync.mjs",
     "ai:check": "node packages/ai-context/sync.mjs --check",
-    "ai:adapt": "node packages/ai-context/adapt.mjs"
+    "ai:adapt": "node packages/ai-context/adapt.mjs",
+    "wiki:sync": "node scripts/sync-wiki.mjs",
+    "wiki:dry-run": "node scripts/sync-wiki.mjs --dry-run"
   },
   "repository": {
     "type": "git",
