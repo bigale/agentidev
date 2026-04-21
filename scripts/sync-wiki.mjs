@@ -37,8 +37,15 @@ const EXTRA_DOCS = [
   { source: 'docs/convergence-architecture.md', title: 'Convergence Architecture' },
 ];
 
-// Map guide file names to wiki page names (Title-Case, no extension)
-function toWikiName(filename) {
+// Map guide section to wiki page filename.
+// GitHub wiki URLs use the filename (minus .md), so "Dashboard-Guide.md" → /wiki/Dashboard-Guide
+function toWikiName(section) {
+  // Use the title as the wiki page name (spaces → hyphens)
+  return section.title.replace(/\s+/g, '-');
+}
+
+function toWikiNameFromFile(filename) {
+  // Fallback for extra docs: title-case the kebab-case filename
   return filename
     .replace('.md', '')
     .split('-')
@@ -46,13 +53,13 @@ function toWikiName(filename) {
     .join('-');
 }
 
-// Transform internal links: [text](file.md) → [[Wiki-Page-Name]]
+// Transform internal links: [text](file.md) → [[Display|Page-Name]]
 function transformLinks(content, fileMap) {
   return content.replace(/\[([^\]]+)\]\(([^)]+\.md)\)/g, (match, text, href) => {
     const base = basename(href, '.md');
     const wikiName = fileMap[base];
-    if (wikiName) return `[[${wikiName}|${text}]]`;
-    return match; // Leave external links alone
+    if (wikiName) return `[[${text}|${wikiName}]]`;
+    return match;
   });
 }
 
@@ -79,11 +86,11 @@ if (!existsSync(WIKI_DIR)) {
 const fileMap = {};
 for (const section of INDEX.sections) {
   const base = section.file.replace('.md', '');
-  fileMap[base] = toWikiName(section.file);
+  fileMap[base] = toWikiName(section);
 }
 for (const extra of EXTRA_DOCS) {
   const base = basename(extra.source, '.md');
-  fileMap[base] = toWikiName(basename(extra.source));
+  fileMap[base] = toWikiNameFromFile(basename(extra.source));
 }
 
 console.log('File map:', Object.entries(fileMap).map(([k, v]) => `${k} → ${v}`).join(', '));
@@ -92,7 +99,7 @@ console.log('File map:', Object.entries(fileMap).map(([k, v]) => `${k} → ${v}`
 const pages = [];
 for (const section of INDEX.sections) {
   const sourcePath = join(GUIDE_DIR, section.file);
-  const wikiName = toWikiName(section.file);
+  const wikiName = toWikiName(section);
   const destPath = join(WIKI_DIR, wikiName + '.md');
 
   let content = readFileSync(sourcePath, 'utf-8');
@@ -111,7 +118,7 @@ for (const section of INDEX.sections) {
 for (const extra of EXTRA_DOCS) {
   const sourcePath = join(ROOT, extra.source);
   if (!existsSync(sourcePath)) { console.log(`  SKIP: ${extra.source} not found`); continue; }
-  const wikiName = toWikiName(basename(extra.source));
+  const wikiName = toWikiNameFromFile(basename(extra.source));
   const destPath = join(WIKI_DIR, wikiName + '.md');
 
   let content = readFileSync(sourcePath, 'utf-8');
@@ -133,11 +140,11 @@ AI-powered browser automation, semantic memory, and agentic UI generation platfo
 
 ## Guides
 
-${INDEX.sections.map(s => `- [[${toWikiName(s.file)}|${s.title}]]`).join('\n')}
+${INDEX.sections.map(s => `- [[${s.title}|${toWikiName(s)}]]`).join('\n')}
 
 ## Architecture
 
-${EXTRA_DOCS.map(d => `- [[${toWikiName(basename(d.source))}|${d.title}]]`).join('\n')}
+${EXTRA_DOCS.map(d => `- [[${d.title}|${toWikiNameFromFile(basename(d.source))}]]`).join('\n')}
 
 ---
 
@@ -155,10 +162,10 @@ if (DRY_RUN) {
 const sidebarContent = `**Agentidev**
 
 **Guides**
-${INDEX.sections.map(s => `- [[${toWikiName(s.file)}|${s.title}]]`).join('\n')}
+${INDEX.sections.map(s => `- [[${s.title}|${toWikiName(s)}]]`).join('\n')}
 
 **Architecture**
-${EXTRA_DOCS.map(d => `- [[${toWikiName(basename(d.source))}|${d.title}]]`).join('\n')}
+${EXTRA_DOCS.map(d => `- [[${d.title}|${toWikiNameFromFile(basename(d.source))}]]`).join('\n')}
 
 ---
 [Main Repo](https://github.com/bigale/agentidev)
