@@ -28,6 +28,7 @@ import { actionToCommandArgs } from './cli-commands.mjs';
 import { initDB, saveRun, saveArtifact, upsertStore, exportAll } from './db.mjs';
 import { initEmbeddings, isEmbeddingReady } from './embeddings.mjs';
 import { initVectorDB, addPage as vectorAddPage, search as vectorSearch, getStats as vectorGetStats } from './vectordb.mjs';
+import { validatePayload } from './handler-schemas.mjs';
 
 const DEFAULT_PORT = 9876;
 const HEALTH_INTERVAL = 30000; // 30s ping/pong
@@ -1439,6 +1440,13 @@ async function startServer() {
         sendTo(requesterWs, relayed);
       }
       return;
+    }
+
+    // Validate payload against Zod schema (if one exists for this message type).
+    // Non-blocking: logs a warning but still processes the message.
+    const validation = validatePayload(msg.type, msg.payload || {});
+    if (!validation.valid) {
+      console.warn(`[Bridge] Schema validation warning for ${msg.type}:`, validation.error);
     }
 
     switch (msg.type) {
