@@ -158,10 +158,12 @@ var FORMATTERS = {
   timestamp: function (value) {
     if (!value) return '';
     var d = new Date(value);
+    var mon = (d.getMonth() + 1).toString();
+    var day = d.getDate().toString();
     var h = d.getHours().toString().padStart(2, '0');
     var m = d.getMinutes().toString().padStart(2, '0');
     var s = d.getSeconds().toString().padStart(2, '0');
-    return h + ':' + m + ':' + s;
+    return mon + '/' + day + ' ' + h + ':' + m + ':' + s;
   },
   elapsed: function (value) {
     if (!value) return '';
