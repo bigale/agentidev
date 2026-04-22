@@ -602,6 +602,8 @@ function openMonacoWindow(scriptName, source) {
     height: Math.round(window.innerHeight * 0.75),
     autoCenter: true,
     canDragResize: true,
+    dragAppearance: 'target',
+    resizeFrom: ['L', 'R', 'T', 'B', 'TL', 'TR', 'BL', 'BR'],
     isModal: false,
     showMinimizeButton: true,
     showMaximizeButton: true,
