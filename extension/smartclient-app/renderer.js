@@ -358,6 +358,94 @@ var ACTION_MAP = {
       });
     };
   },
+  /**
+   * fetchUrlAndLoadGrid — calls HOST_NETWORK_FETCH with a URL template,
+   * parses the JSON response, and loads the array into a grid.
+   * Used by storage-backed plugins that can't register SW handlers.
+   *
+   * Config:
+   *   _action: "fetchUrlAndLoadGrid"
+   *   _fetchUrl: "https://petstore.swagger.io/v2/pet/findByStatus"
+   *   _fetchParams: { "status": "available" }  // or _payloadFrom for form values
+   *   _payloadFrom: "filterForm"   // form ID to read query param values from
+   *   _targetGrid: "mainGrid"
+   *   _statusCanvas: "fetchStatus"
+   *   _dynamicFields: true
+   *   _flattenObjects: true  // flatten nested objects for grid display
+   */
+  'fetchUrlAndLoadGrid': function (component, node) {
+    component.click = function () {
+      var grid = resolveRef(node._targetGrid);
+      var status = node._statusCanvas ? resolveRef(node._statusCanvas) : null;
+      if (!grid) return;
+      if (status && status.setContents) status.setContents('<em style="color:#888;">Loading...</em>');
+
+      // Build query params from form or static config
+      var params = Object.assign({}, node._fetchParams || {});
+      if (node._payloadFrom) {
+        var source = resolveRef(node._payloadFrom);
+        if (source && source.getValues) Object.assign(params, source.getValues() || {});
+      }
+
+      // Build URL with query string (GET) or body (POST/PUT)
+      var url = node._fetchUrl || '';
+      var fetchInit = {};
+      var method = (node._fetchMethod || 'GET').toUpperCase();
+
+      if (method === 'GET') {
+        var qs = Object.entries(params).filter(function (e) { return e[1] != null && e[1] !== ''; })
+          .map(function (e) { return encodeURIComponent(e[0]) + '=' + encodeURIComponent(e[1]); }).join('&');
+        if (qs) url += (url.includes('?') ? '&' : '?') + qs;
+      } else {
+        fetchInit = {
+          method: method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params),
+        };
+      }
+
+      _rendererDispatchAsync('HOST_NETWORK_FETCH', { url: url, init: fetchInit, as: 'json' }, node._timeoutMs || 15000).then(function (response) {
+        if (!response || !response.ok) {
+          var errMsg = 'API returned ' + (response && response.status ? response.status : 'error');
+          if (status && status.setContents) status.setContents('<span style="color:#f44336;">' + escapeHtml(errMsg) + '</span>');
+          return;
+        }
+        var data = response.json;
+        if (!Array.isArray(data)) data = [data];
+
+        // Flatten nested objects for grid display
+        if (node._flattenObjects) {
+          data = data.map(function (item) {
+            var flat = {};
+            for (var k in item) {
+              var v = item[k];
+              if (v && typeof v === 'object' && !Array.isArray(v)) {
+                flat[k] = v.name || v.title || JSON.stringify(v);
+              } else if (Array.isArray(v)) {
+                flat[k] = v.length + ' items';
+              } else {
+                flat[k] = v;
+              }
+            }
+            return flat;
+          });
+        }
+
+        if (node._dynamicFields && data.length > 0) {
+          var cols = Object.keys(data[0]);
+          grid.setFields(cols.map(function (c) { return { name: c, title: c, width: '*' }; }));
+        }
+        grid.setData(data);
+        if (status && status.setContents) {
+          status.setContents('<span style="color:#4CAF50;">' + data.length + ' records loaded</span>');
+        }
+      }).catch(function (err) {
+        if (status && status.setContents) {
+          status.setContents('<span style="color:#f44336;">' + escapeHtml(err.message || String(err)) + '</span>');
+        }
+      });
+    };
+  },
   'streamSpawnAndAppend': function (component, node) {
     component.click = function () {
       var target = resolveRef(node._targetCanvas);
