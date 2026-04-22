@@ -107,9 +107,12 @@ Actions wire buttons to handler calls:
 |--------|---------|-----------|
 | `dispatchAndDisplay` | Call handler, show result in target | `_messageType`, `_messagePayload`, `_targetCanvas`, `_resultFormatter` |
 | `fetchAndLoadGrid` | Call handler, load array into grid | `_messageType`, `_targetGrid`, `_payloadFrom`, `_dynamicFields` |
+| `fetchUrlAndLoadGrid` | Call URL directly (no handler), load into grid | `_fetchUrl`, `_fetchMethod`, `_payloadFrom`, `_targetGrid`, `_flattenObjects` |
 | `streamSpawnAndAppend` | Stream CheerpX output | `_cmd`, `_args`, `_targetCanvas` |
 | `dispatch` | Fire-and-forget handler call | `_messageType`, `_messagePayload` |
 | `new/save/delete/select` | CRUD on DataSources | `_targetForm`, `_targetGrid` |
+
+`fetchUrlAndLoadGrid` is for storage-backed plugins (published from api-to-app pipeline) that can't register SW handlers. It calls `HOST_NETWORK_FETCH` directly with the API URL.
 
 ### Reading Form Values
 
