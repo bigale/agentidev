@@ -579,7 +579,31 @@ function initMonacoEditor() {
       }).observe(host);
     }
 
-    // Strategy 3: Periodic check — catches portlet drag/reflow that
+    // Strategy 3: Hook into Portlet maximize/restore.
+    // When a Portlet is maximized, SmartClient reparents it (moves it in the DOM),
+    // which breaks Monaco's internal DOM reference tracking. We need to force
+    // Monaco to re-measure after the DOM settles.
+    var sourcePortlet = sourceCanvas.parentElement;
+    while (sourcePortlet && sourcePortlet.Class !== 'Portlet') {
+      sourcePortlet = sourcePortlet.parentElement;
+    }
+    if (sourcePortlet) {
+      var origMaximize = sourcePortlet.maximize;
+      var origRestore = sourcePortlet.restore;
+      sourcePortlet.maximize = function () {
+        origMaximize.apply(this, arguments);
+        // Delay to let SmartClient finish reparenting
+        setTimeout(syncMonacoSize, 100);
+        setTimeout(syncMonacoSize, 500);
+      };
+      sourcePortlet.restore = function () {
+        origRestore.apply(this, arguments);
+        setTimeout(syncMonacoSize, 100);
+        setTimeout(syncMonacoSize, 500);
+      };
+    }
+
+    // Strategy 4: Periodic check — catches portlet drag/reflow that
     // SmartClient doesn't fire resized for. Runs every 2s, lightweight.
     var _lastW = 0, _lastH = 0;
     setInterval(function () {
