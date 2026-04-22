@@ -547,14 +547,17 @@ function loadMonacoEditor() {
 
 function initMonacoEditor() {
   // Monaco now lives in a standalone Window, not the portlet.
-  // This function just wires the source viewer's double-click to open the editor.
-  var viewer = resolveRef('sourceViewer');
-  if (!viewer) return;
-
-  // Double-click the source viewer to open Monaco editor Window
-  viewer.doubleClick = function () {
-    if (_dashState.currentSource) openMonacoWindow(_loadedScriptName, _dashState.currentSource);
-  };
+  // Wire the Edit button to open the Monaco Window.
+  var editBtn = resolveRef('btnEditSource');
+  if (editBtn) {
+    editBtn.click = function () {
+      if (_dashState.currentSource) {
+        openMonacoWindow(_loadedScriptName, _dashState.currentSource);
+      } else {
+        isc.say('Select a script first.');
+      }
+    };
+  }
 }
 
 /**
