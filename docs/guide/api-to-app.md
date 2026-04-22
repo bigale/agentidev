@@ -2,19 +2,39 @@
 
 Generate combinatorial API test suites from OpenAPI specs using PICT (Pairwise Independent Combinatorial Testing).
 
-## Quick Start
+## Dashboard Workflow
+
+The pipeline runs from the SmartClient dashboard like any other script:
+
+1. **Select** `api-to-app-pipeline` in the Scripts panel
+2. **Click Run** — pipeline appears in Script History with live progress
+3. **Click the run** in Script History to see details
+4. **Assertions tab** — shows PICT case counts per endpoint
+5. **Artifacts tab** — PICT models (.pict), TSV outputs, generated test scripts all render inline
+6. **Scripts panel** — generated test scripts auto-register (test-petstore-findPetsByStatus, etc.)
+7. **Select a generated test** and click Run to execute the API tests
+8. **Assertions tab** — shows per-case pass/fail results in real-time
+
+To generate AND run tests in one shot, add `--run` to the script args (via the dashboard scheduler or the Args field).
+
+### Scheduling
+
+Use the dashboard Schedules panel to run the pipeline on a cron schedule. Add `--run` to the args so generated tests execute automatically:
+
+- Script: `api-to-app-pipeline`
+- Args: `--endpoint=all --workflow --run --seed=42`
+- Cron: `0 6 * * *` (daily at 6am)
+
+## Quick Start (CLI)
 
 ```bash
 # Generate tests for one endpoint
 node packages/bridge/api-to-app/pipeline.mjs \
   --endpoint=findPetsByStatus --seed=42
 
-# Generate tests for all pet endpoints + workflow
+# Generate + run tests for all endpoints
 node packages/bridge/api-to-app/pipeline.mjs \
-  --endpoint=all --workflow --seed=42
-
-# Run a generated test
-node examples/test-petstore-findPetsByStatus.mjs
+  --endpoint=all --workflow --run --seed=42
 ```
 
 ## What It Does
@@ -24,7 +44,9 @@ The pipeline reads an OpenAPI spec and for each endpoint:
 1. **Analyzes** parameters, body schema, auth, content types
 2. **Generates** a PICT model with valid values + negative (`~`) values per parameter
 3. **Runs PICT** to produce a minimal pairwise covering array (every pair of values tested)
-4. **Generates** a ScriptClient test script that exercises the API and reports to the dashboard
+4. **Generates** a ScriptClient test script and registers it in the script library
+5. **Saves** PICT models and TSV outputs as persistent artifacts
+6. **Optionally runs** the generated tests (`--run` flag)
 
 ## Pipeline Options
 

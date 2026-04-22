@@ -54,25 +54,27 @@ All modules are in `packages/bridge/api-to-app/`. Specs cached in `specs/`, gene
 
 ### pipeline.mjs (bridge script)
 
-CLI-driven orchestrator. Reports progress to dashboard via ScriptClient.
+Dashboard-integrated orchestrator. Reports progress, assertions, and artifacts via ScriptClient. Uses dynamic imports to work from any location (repo or `~/.agentidev/scripts/` copy).
 
 ```bash
-# Single endpoint
-node packages/bridge/api-to-app/pipeline.mjs \
-  --spec=packages/bridge/api-to-app/specs/petstore-v2.json \
-  --endpoint=findPetsByStatus \
-  --base-url=https://petstore.swagger.io/v2 \
-  --seed=42
-
-# All pet endpoints + workflow
+# Generate tests (view in dashboard Artifacts tab)
 node packages/bridge/api-to-app/pipeline.mjs \
   --endpoint=all --workflow --seed=42
 
-# Dry run (print models, no file output)
-node packages/bridge/api-to-app/pipeline.mjs --endpoint=addPet --dry-run
+# Generate AND run tests in one shot
+node packages/bridge/api-to-app/pipeline.mjs \
+  --endpoint=all --workflow --run --seed=42
 ```
 
-Options: `--spec`, `--endpoint` (operationId or "all"), `--base-url`, `--output`, `--order`, `--seed`, `--workflow`, `--run`, `--dry-run`
+Options: `--spec`, `--endpoint` (operationId or "all"), `--base-url`, `--output`, `--order`, `--seed`, `--workflow`, `--build`, `--run`, `--dry-run`
+
+### Dashboard workflow
+
+1. Select `api-to-app-pipeline` in Scripts panel → Run
+2. Pipeline appears in Script History with live progress
+3. Artifacts tab: PICT models, TSV outputs, generated test scripts (rendered inline)
+4. Generated tests auto-register in Scripts panel for one-click re-run
+5. Schedule with `--run` flag for automated generate+test on a cron
 
 ## PICT Model Generation
 

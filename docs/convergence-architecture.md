@@ -68,7 +68,7 @@ The agentidev extension is not starting from zero. Significant portions of the c
 - **Testing infrastructure** — ScriptClient.assert(), artifact registration, Assertions tab, Test Results portlet, 145 unit tests
 
 ### Newly Built (Apr 2026)
-- **pi-mono agent loop** — LIVE. Agent runs in sidepanel with 14 tools, Ollama Llama 3.2 3B. Tool calling verified (plugin_list, network_fetch, exec_python). Self-corrects on tool failures. Progressive LLM chain: Ollama → WebLLM → cloud API.
+- **pi-mono agent loop** — LIVE. Agent runs in sidepanel with 21 tools, Ollama Llama 3.2 3B. Tool calling verified. Progressive LLM chain: Ollama → WebLLM → cloud API. Global agent selector above tabs.
 - **pi-bundle.js** — 981KB esbuild bundle of pi-ai + pi-agent-core + TypeBox + OpenAI SDK. Unused providers stubbed. Loads in Chrome extension pages.
 - **Dashboard enhancements** — Two-button Run (standalone vs Session), Assertions tab, Trace/Video toggles, Console/Network panels, Help window, timestamp formatting, Script History right-click
 - **Playwright native features** — tracing (auto-stop + artifact), video recording, console/network capture, trace viewer (show-trace in new tab)
