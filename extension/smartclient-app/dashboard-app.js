@@ -115,7 +115,7 @@ function loadDashboard() {
           dispatchActionAsync('SCRIPT_RUN_GET', { scriptId: scriptId }).then(function (resp) {
             var artifacts = (resp && resp.success && resp.artifacts) ? resp.artifacts : [];
             var artifactsGrid = resolveRef('artifactsGrid');
-            if (artifactsGrid) artifactsGrid.setData(artifacts);
+            if (artifactsGrid) { artifactsGrid.setData(artifacts); ensureArtifactGridEvents(artifactsGrid); }
           });
         }
       } else {
@@ -2904,18 +2904,9 @@ function handleArchiveRunSelect(record) {
     var artifactsGrid = resolveRef('artifactsGrid');
     if (artifactsGrid) {
       artifactsGrid.setData(artifacts);
-      // Apply formatters
-      artifactsGrid.formatCellValue = function (value, record, rowNum, colNum) {
-        var fieldName = this.getFieldName(colNum);
-        if (fieldName === 'timestamp' && typeof value === 'number') {
-          return new Date(value).toLocaleTimeString();
-        }
-        if (fieldName === 'size' && typeof value === 'number') {
-          if (value < 1024) return value + 'B';
-          return Math.round(value / 1024) + 'KB';
-        }
-        return value == null ? '' : value;
-      };
+      // Wire event handlers every time data is loaded (grid may have been
+      // recreated by SmartClient when the tab was shown for the first time)
+      ensureArtifactGridEvents(artifactsGrid);
     }
 
     // Switch to Artifacts tab if there are artifacts (and no assertions already showing)
@@ -2929,8 +2920,19 @@ function handleArchiveRunSelect(record) {
 // ---- Artifacts grid ----
 
 function wireArtifactsGrid() {
+  // Initial wiring attempt — may fail if grid is in a hidden tab.
+  // ensureArtifactGridEvents() is also called every time data is loaded.
   var grid = resolveRef('artifactsGrid');
-  if (!grid) return;
+  if (grid) ensureArtifactGridEvents(grid);
+}
+
+/**
+ * Wire event handlers on the artifacts grid. Called every time artifact
+ * data is loaded (handles grid recreation when tab is first shown).
+ */
+function ensureArtifactGridEvents(grid) {
+  if (!grid || grid._artifactEventsWired) return;
+  grid._artifactEventsWired = true;
 
   grid.recordClick = function (viewer, record) {
     if (!record) return;
@@ -2942,7 +2944,33 @@ function wireArtifactsGrid() {
     openArtifactViewer(record);
   };
 
-  // Apply formatters
+  // Right-click context menu
+  grid.cellContextClick = function (record) {
+    if (!record) return false;
+    var ct = record.contentType || '';
+    var label = record.label || '';
+    var isTsv = ct === 'text/tab-separated-values' || label.toLowerCase().includes('tsv') || label.toLowerCase().includes('output');
+    var isViewable = record.type === 'text' || ct.startsWith('text/') || ct === 'application/javascript' || label.includes('Model');
+
+    var menuItems = [
+      { title: 'Preview', click: function () { loadArtifactPreview(record); } },
+    ];
+    if (isViewable && !isTsv) {
+      menuItems.push({ title: 'Open in Code Viewer', click: function () { openArtifactViewer(record); } });
+    }
+    if (isTsv) {
+      menuItems.push({ title: 'Open in Data Grid', click: function () { openArtifactViewer(record); } });
+    }
+    if (record.diskPath) {
+      menuItems.push({ isSeparator: true });
+      menuItems.push({ title: 'Path: ' + (record.diskPath || '').split('/').pop(), enabled: false });
+    }
+
+    isc.Menu.create({ data: menuItems }).showContextMenu();
+    return false;
+  };
+
+  // Formatters
   grid.formatCellValue = function (value, record, rowNum, colNum) {
     var fieldName = this.getFieldName(colNum);
     if (fieldName === 'timestamp' && typeof value === 'number') {
