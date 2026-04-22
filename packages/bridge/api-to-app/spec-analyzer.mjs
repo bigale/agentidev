@@ -82,9 +82,10 @@ export function generatePictModel(endpoint, spec) {
   lines.push(`# Generated from OpenAPI spec: ${spec.info?.title || 'unknown'}`);
   lines.push('');
 
-  // ---- Query / Path / Header parameters ----
+  // ---- Query / Path / Header / FormData parameters ----
   for (const param of endpoint.parameters) {
     if (param.in === 'body') continue; // Handled below as body schema
+    if (param.in === 'formData' && param.type === 'file') continue; // File uploads can't be PICT-modeled
     const schema = param.schema
       ? resolveSchema(param.schema, spec)
       : param.items

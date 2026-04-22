@@ -68,10 +68,12 @@ const doBuild = hasFlag('build');
 const entityName = getArg('entity', 'Pet');
 
 // Target endpoints for "all" mode
-const PET_ENDPOINTS = ['findPetsByStatus', 'addPet', 'getPetById', 'deletePet'];
+const PET_ENDPOINTS = ['findPetsByStatus', 'addPet', 'updatePet', 'getPetById', 'deletePet', 'uploadFile'];
+const ORDER_ENDPOINTS = ['placeOrder', 'getOrderById', 'deleteOrder', 'getInventory'];
+const ALL_ENDPOINTS = [...PET_ENDPOINTS, ...ORDER_ENDPOINTS];
 
 const isMulti = targetEndpoint === 'all';
-const targetIds = isMulti ? PET_ENDPOINTS : [targetEndpoint];
+const targetIds = isMulti ? ALL_ENDPOINTS : [targetEndpoint];
 const totalSteps = targetIds.length + (doWorkflow ? 1 : 0) + (doBuild ? 1 : 0) + 2;
 
 const client = new ScriptClient('api-to-app-pipeline', { totalSteps });
