@@ -3085,6 +3085,16 @@ async function startServer() {
         break;
       }
 
+      case MSG.BRIDGE_PUBLISH_PLUGIN: {
+        // Relay plugin publish to the extension client.
+        // The extension's bridge-client receives this broadcast and calls SC_PUBLISH_PLUGIN.
+        const pluginPayload = msg.payload || {};
+        console.log(`[Bridge] Relaying PUBLISH_PLUGIN: ${pluginPayload.projectId || pluginPayload.name || 'unknown'}`);
+        broadcast(buildMessage(MSG.BRIDGE_PUBLISH_PLUGIN, pluginPayload));
+        sendTo(ws, buildReply(msg, { success: true, relayed: true }));
+        break;
+      }
+
       case MSG.BRIDGE_SC_GENERATE_UI: {
         const { prompt, currentConfig, projectDescription, templatePrompt } = msg.payload || {};
         if (!prompt || !prompt.trim()) {

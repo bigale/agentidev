@@ -305,11 +305,9 @@ try {
       writeFileSync(configPath, JSON.stringify(appResult.config, null, 2), 'utf-8');
       console.log('  Config saved:', configPath);
 
-      // Broadcast publish request to extension (if connected)
-      // The extension's bridge-handlers.js picks up relayed broadcasts.
+      // Publish plugin via bridge relay → extension
       try {
-        await client._sendRequest('BRIDGE_BROADCAST', {
-          type: 'SC_PUBLISH_PLUGIN',
+        await client._sendRequest('BRIDGE_PUBLISH_PLUGIN', {
           name: appResult.manifest.name,
           projectId: appResult.pluginId,
           description: appResult.manifest.description,
@@ -317,7 +315,7 @@ try {
         }, 5000);
         console.log('  Published plugin:', appResult.pluginId);
       } catch (e) {
-        console.log('  Plugin config saved (auto-publish not available — open from Agentiface)');
+        console.log('  Plugin publish relay failed (non-fatal):', e.message);
       }
 
       // Save config as artifact

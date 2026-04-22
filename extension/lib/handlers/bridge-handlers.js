@@ -248,6 +248,22 @@ export function register(handlers) {
     const result = await bridgeClient.getScriptSource(msg.path);
     return { success: true, ...result };
   };
+
+  // Bridge relay: when a script publishes a plugin via BRIDGE_PUBLISH_PLUGIN,
+  // the bridge broadcasts it, bridge-client fires onPublishPlugin, and we
+  // call the SC_PUBLISH_PLUGIN handler directly (since the SW can't sendMessage
+  // to its own onMessage listener).
+  bridgeClient.onPublishPlugin(async (data) => {
+    console.log(`[Background] Plugin publish relay: ${data?.name || data?.projectId || 'unknown'}`);
+    if (handlers['SC_PUBLISH_PLUGIN']) {
+      try {
+        const result = await handlers['SC_PUBLISH_PLUGIN'](data);
+        console.log(`[Background] Plugin published via relay: ${result?.id || 'unknown'}`);
+      } catch (err) {
+        console.warn('[Background] Plugin publish relay failed:', err.message);
+      }
+    }
+  });
 }
 
 /**

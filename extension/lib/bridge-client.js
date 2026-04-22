@@ -41,6 +41,7 @@ const callbacks = {
   onRunComplete: [],
   onArtifact: [],
   onIdbRestore: [],
+  onPublishPlugin: [],
 };
 
 /**
@@ -746,6 +747,10 @@ export function onIndexContent(cb) {
  * Register callback for IDB restore broadcasts from the bridge.
  * @param {function} cb - Callback({ stores }) where stores is { storeName: records[] }
  */
+export function onPublishPlugin(cb) {
+  callbacks.onPublishPlugin.push(cb);
+}
+
 export function onIdbRestore(cb) {
   callbacks.onIdbRestore.push(cb);
 }
@@ -834,6 +839,12 @@ function _handleBroadcast(msg) {
       break;
     case 'BRIDGE_SCRIPT_RUN_COMPLETE':
       _fireCallbacks('onRunComplete', msg.payload);
+      break;
+    case 'BRIDGE_PUBLISH_PLUGIN':
+      // Relay from bridge: publish a plugin. Fire callback so bridge-handlers
+      // can call the SC_PUBLISH_PLUGIN handler directly (chrome.runtime.sendMessage
+      // from the SW doesn't fire the SW's own onMessage listener).
+      _fireCallbacks('onPublishPlugin', msg.payload);
       break;
     case 'BRIDGE_SCRIPT_ARTIFACT':
       _fireCallbacks('onArtifact', msg.payload);

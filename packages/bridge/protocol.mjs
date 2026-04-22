@@ -116,6 +116,7 @@ export const MSG = {
 
   // SmartClient AI (route through Claude Code)
   BRIDGE_SC_GENERATE_UI: 'BRIDGE_SC_GENERATE_UI',            // generate SmartClient UI config via claude -p
+  BRIDGE_PUBLISH_PLUGIN: 'BRIDGE_PUBLISH_PLUGIN',            // publish plugin config (relayed to extension)
   BRIDGE_SC_CLONE_PAGE: 'BRIDGE_SC_CLONE_PAGE',              // clone a live page to SmartClient config via snapshot+screenshot+network
   BRIDGE_SC_DELETE_CLONE_ARTIFACTS: 'BRIDGE_SC_DELETE_CLONE_ARTIFACTS', // delete persisted clone artifacts by cloneId
 
