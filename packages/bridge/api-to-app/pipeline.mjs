@@ -44,6 +44,7 @@ const { loadSpec, extractEndpoints, generatePictModel } = await import(pathToFil
 const { runAndParse, isPictAvailable } = await import(pathToFileURL(resolve(REAL_DIR, 'pict-runner.mjs')).href);
 const { generateTestScript, generateWorkflowTest } = await import(pathToFileURL(resolve(REAL_DIR, 'test-generator.mjs')).href);
 const { generateApp } = await import(pathToFileURL(resolve(REAL_DIR, 'app-generator.mjs')).href);
+const { generateAppFromPict } = await import(pathToFileURL(resolve(REAL_DIR, 'app-from-pict.mjs')).href);
 
 const EXAMPLES_DIR = resolve(REPO_ROOT, 'examples');
 
@@ -65,6 +66,7 @@ const dryRun = hasFlag('dry-run');
 const runAfter = hasFlag('run');
 const doWorkflow = hasFlag('workflow');
 const doBuild = hasFlag('build');
+const doFullLoop = hasFlag('full-loop');
 const entityName = getArg('entity', 'Pet');
 
 // Target endpoints for "all" mode
@@ -74,7 +76,7 @@ const ALL_ENDPOINTS = [...PET_ENDPOINTS, ...ORDER_ENDPOINTS];
 
 const isMulti = targetEndpoint === 'all';
 const targetIds = isMulti ? ALL_ENDPOINTS : [targetEndpoint];
-const totalSteps = targetIds.length + (doWorkflow ? 1 : 0) + (doBuild ? 1 : 0) + 2;
+const totalSteps = targetIds.length + (doWorkflow ? 1 : 0) + (doBuild || doFullLoop ? 1 : 0) + (doFullLoop ? 1 : 0) + 2;
 
 const client = new ScriptClient('api-to-app-pipeline', { totalSteps });
 
@@ -282,6 +284,69 @@ try {
     } catch (err) {
       console.error('  Build failed:', err.message);
       client.assert(false, 'App generation failed: ' + err.message);
+    }
+  }
+
+  // Full loop: generate PICT-informed app and publish as plugin
+  if (doFullLoop && !dryRun) {
+    console.log('\n  === Full Loop: Generate + Publish PICT-Informed App ===');
+    try {
+      const modelDir = resolve(REAL_DIR, 'models');
+      const appResult = generateAppFromPict({
+        specPath,
+        modelsDir: modelDir,
+        baseUrl,
+        entity: entityName,
+      });
+
+      // Save config file for manual plugin loading
+      const configPath = resolve(outputDir, 'app-' + appResult.pluginId + '-config.json');
+      writeFileSync(configPath, JSON.stringify(appResult.config, null, 2), 'utf-8');
+      console.log('  Config saved:', configPath);
+
+      // Broadcast publish request to extension (if connected)
+      // The extension's bridge-handlers.js picks up relayed broadcasts.
+      try {
+        await client._sendRequest('BRIDGE_BROADCAST', {
+          type: 'SC_PUBLISH_PLUGIN',
+          name: appResult.manifest.name,
+          projectId: appResult.pluginId,
+          description: appResult.manifest.description,
+          config: appResult.config,
+        }, 5000);
+        console.log('  Published plugin:', appResult.pluginId);
+      } catch (e) {
+        console.log('  Plugin config saved (auto-publish not available — open from Agentiface)');
+      }
+
+      // Save config as artifact
+      const configJson = JSON.stringify(appResult.config, null, 2);
+      await client.artifact({
+        type: 'text',
+        label: 'App Config: ' + appResult.pluginId,
+        data: configJson,
+        contentType: 'application/json',
+      });
+
+      // Save handlers as artifact
+      await client.artifact({
+        type: 'text',
+        label: 'App Handlers: ' + appResult.pluginId,
+        data: appResult.handlers,
+        contentType: 'application/javascript',
+      });
+
+      client.assert(true, 'Plugin published: ' + appResult.pluginId);
+      generated.push({
+        operationId: appResult.pluginId,
+        method: 'PLUGIN',
+        path: '/' + entityName.toLowerCase() + '-app',
+        cases: Object.keys(appResult.config.layout.members).length,
+        outputPath: appResult.pluginId,
+      });
+    } catch (err) {
+      console.error('  Full loop build failed:', err.message);
+      client.assert(false, 'Plugin generation failed: ' + err.message);
     }
   }
 

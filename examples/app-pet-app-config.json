@@ -1,0 +1,168 @@
+{
+  "dataSources": [],
+  "layout": {
+    "_type": "VLayout",
+    "width": "100%",
+    "height": "100%",
+    "padding": 12,
+    "membersMargin": 6,
+    "members": [
+      {
+        "_type": "Label",
+        "height": 35,
+        "contents": "<span style=\"font-size:18px;color:#a8b4ff;font-weight:600\">Pet Explorer</span>"
+      },
+      {
+        "_type": "Label",
+        "height": 18,
+        "contents": "<span style=\"font-size:11px;color:#666\">API: https://petstore.swagger.io/v2 | PICT-tested endpoints</span>"
+      },
+      {
+        "_type": "DynamicForm",
+        "ID": "filterForm",
+        "height": 35,
+        "numCols": 4,
+        "fields": [
+          {
+            "name": "status",
+            "title": "Status",
+            "type": "select",
+            "defaultValue": "available",
+            "valueMap": {
+              "available": "available",
+              "pending": "pending",
+              "sold": "sold"
+            }
+          }
+        ]
+      },
+      {
+        "_type": "HLayout",
+        "height": 30,
+        "membersMargin": 8,
+        "members": [
+          {
+            "_type": "Button",
+            "ID": "btnFetch",
+            "title": "Fetch Pets",
+            "width": 120,
+            "_action": "fetchAndLoadGrid",
+            "_messageType": "PET_LIST",
+            "_payloadFrom": "filterForm",
+            "_targetGrid": "mainGrid",
+            "_statusCanvas": "fetchStatus",
+            "_dynamicFields": true,
+            "_timeoutMs": 15000
+          },
+          {
+            "_type": "HTMLFlow",
+            "ID": "fetchStatus",
+            "width": "*",
+            "height": 24,
+            "contents": "<span style=\"color:#888;font-size:11px\">Click Fetch to load data</span>"
+          }
+        ]
+      },
+      {
+        "_type": "ListGrid",
+        "ID": "mainGrid",
+        "width": "100%",
+        "height": "*",
+        "canEdit": false,
+        "alternateRecordStyles": true,
+        "emptyMessage": "Click Fetch to load pets",
+        "fields": [
+          {
+            "name": "category",
+            "title": "Category",
+            "width": 90
+          },
+          {
+            "name": "name",
+            "title": "Name",
+            "width": "*"
+          },
+          {
+            "name": "photoUrls",
+            "title": "PhotoUrls",
+            "width": 100
+          },
+          {
+            "name": "tags",
+            "title": "Tags",
+            "width": 100
+          },
+          {
+            "name": "status",
+            "title": "Status",
+            "width": 90,
+            "valueMap": {
+              "available": "available",
+              "pending": "pending",
+              "sold": "sold"
+            }
+          }
+        ]
+      },
+      {
+        "_type": "Label",
+        "height": 25,
+        "contents": "<span style=\"font-size:13px;color:#aaa;font-weight:600\">Create Pet</span>"
+      },
+      {
+        "_type": "DynamicForm",
+        "ID": "createForm",
+        "height": 60,
+        "numCols": 4,
+        "fields": [
+          {
+            "name": "name",
+            "title": "Name",
+            "required": true,
+            "type": "select",
+            "valueMap": {
+              "doggie": "doggie",
+              "cat_42": "cat_42"
+            }
+          },
+          {
+            "name": "status",
+            "title": "Status",
+            "required": false,
+            "type": "select",
+            "valueMap": {
+              "available": "available",
+              "pending": "pending",
+              "sold": "sold"
+            }
+          }
+        ]
+      },
+      {
+        "_type": "HLayout",
+        "height": 30,
+        "membersMargin": 8,
+        "members": [
+          {
+            "_type": "Button",
+            "ID": "btnCreate",
+            "title": "Create",
+            "width": 80,
+            "_action": "fetchAndLoadGrid",
+            "_messageType": "PET_CREATE",
+            "_payloadFrom": "createForm",
+            "_targetGrid": "mainGrid",
+            "_statusCanvas": "createStatus",
+            "_timeoutMs": 15000
+          },
+          {
+            "_type": "HTMLFlow",
+            "ID": "createStatus",
+            "width": "*",
+            "height": 24
+          }
+        ]
+      }
+    ]
+  }
+}
