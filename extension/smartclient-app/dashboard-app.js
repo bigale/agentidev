@@ -579,43 +579,40 @@ function initMonacoEditor() {
       }).observe(host);
     }
 
-    // Strategy 3: Hook into Portlet maximize/restore.
-    // When a Portlet is maximized, SmartClient reparents it (moves it in the DOM),
-    // which breaks Monaco's internal DOM reference tracking. We need to force
-    // Monaco to re-measure after the DOM settles.
-    var sourcePortlet = sourceCanvas.parentElement;
-    while (sourcePortlet && sourcePortlet.Class !== 'Portlet') {
-      sourcePortlet = sourcePortlet.parentElement;
-    }
-    if (sourcePortlet) {
-      var origMaximize = sourcePortlet.maximize;
-      var origRestore = sourcePortlet.restore;
-      sourcePortlet.maximize = function () {
-        origMaximize.apply(this, arguments);
-        // Delay to let SmartClient finish reparenting
-        setTimeout(syncMonacoSize, 100);
-        setTimeout(syncMonacoSize, 500);
-      };
-      sourcePortlet.restore = function () {
-        origRestore.apply(this, arguments);
-        setTimeout(syncMonacoSize, 100);
-        setTimeout(syncMonacoSize, 500);
-      };
+    // Strategy 3: MutationObserver on the host div's parent chain.
+    // When Portlet is maximized, SmartClient reparents it — the host div
+    // moves in the DOM. Detect this and force Monaco to re-layout.
+    if (typeof MutationObserver !== 'undefined') {
+      new MutationObserver(function () {
+        // Host div was moved or parent structure changed
+        setTimeout(syncMonacoSize, 50);
+        setTimeout(syncMonacoSize, 300);
+      }).observe(host.parentElement || host, { childList: true, subtree: false, attributes: true, attributeFilter: ['style'] });
     }
 
-    // Strategy 4: Periodic check — catches portlet drag/reflow that
-    // SmartClient doesn't fire resized for. Runs every 2s, lightweight.
-    var _lastW = 0, _lastH = 0;
+    // Strategy 4: Frequent polling as safety net.
+    // Checks both SmartClient Canvas dimensions AND the host div's actual
+    // rendered size. Catches maximize, restore, drag resize, and any other
+    // layout change that events miss.
     setInterval(function () {
-      if (!sourceCanvas || !_monacoEditor) return;
-      var w = sourceCanvas.getWidth();
-      var h = sourceCanvas.getHeight();
-      if (w !== _lastW || h !== _lastH) {
-        _lastW = w;
-        _lastH = h;
+      if (!_monacoEditor) return;
+      var cw = sourceCanvas ? sourceCanvas.getWidth() : 0;
+      var ch = sourceCanvas ? sourceCanvas.getHeight() : 0;
+      var hw = host.clientWidth;
+      var hh = host.clientHeight;
+      // If Canvas has size but host doesn't match, or host collapsed to 0
+      if (cw > 0 && ch > 0 && (hw !== cw || hh !== ch)) {
         syncMonacoSize();
+      } else if (hw === 0 || hh === 0) {
+        // Host collapsed — try to recover from parent dimensions
+        var parent = host.parentElement;
+        if (parent && parent.clientWidth > 0 && parent.clientHeight > 0) {
+          host.style.width = parent.clientWidth + 'px';
+          host.style.height = parent.clientHeight + 'px';
+          _monacoEditor.layout();
+        }
       }
-    }, 2000);
+    }, 500);
   }
 
   _monacoEditor = monaco.editor.create(host, {
