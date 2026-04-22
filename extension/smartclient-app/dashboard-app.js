@@ -25,7 +25,10 @@ var _dashState = {
 };
 
 // ---- Monaco editor state ----
+// Monaco now lives in a standalone SmartClient Window (not the Source portlet).
+// The portlet shows a read-only <pre> viewer. Double-clicking opens Monaco.
 var _monacoEditor = null;
+var _monacoEditorWindow = null;  // SmartClient Window hosting Monaco
 var _monacoDecorations = null;
 var _v8Decorations = null;
 var _checkpointLines = {};       // { name: lineNumber }
@@ -255,7 +258,7 @@ function loadDashboard() {
   if (tbAuth) {
     tbAuth.click = function () {
       if (!_loadedScriptName || !_dashState.connected) return;
-      var source = _monacoEditor ? _monacoEditor.getValue() : '';
+      var source = _monacoEditor ? _monacoEditor.getValue() : (_dashState.currentSource || '');
       var url = findFirstGotoUrl(source);
       if (url) {
         startAuthCapture(_loadedScriptName, url);
@@ -543,116 +546,146 @@ function loadMonacoEditor() {
 }
 
 function initMonacoEditor() {
-  var host = document.getElementById('monaco-host');
-  if (!host || typeof monaco === 'undefined') return;
+  // Monaco now lives in a standalone Window, not the portlet.
+  // This function just wires the source viewer's double-click to open the editor.
+  var viewer = resolveRef('sourceViewer');
+  if (!viewer) return;
 
-  // Size the host div from the SmartClient Canvas dimensions.
-  // Monaco turns white if the host div collapses to 0x0 during SmartClient
-  // layout operations (portlet resize, drag, column reflow). We use multiple
-  // strategies to keep dimensions synced:
-  //   1. SmartClient Canvas.resized callback
-  //   2. ResizeObserver on the host div
-  //   3. Periodic safety check (catches cases both above miss)
-  var sourceCanvas = resolveRef('sourcePanel');
+  // Double-click the source viewer to open Monaco editor Window
+  viewer.doubleClick = function () {
+    if (_dashState.currentSource) openMonacoWindow(_loadedScriptName, _dashState.currentSource);
+  };
+}
 
-  function syncMonacoSize() {
-    if (!sourceCanvas || !_monacoEditor) return;
-    var nw = sourceCanvas.getWidth();
-    var nh = sourceCanvas.getHeight();
-    if (nw > 0 && nh > 0) {
-      host.style.width = nw + 'px';
-      host.style.height = nh + 'px';
-      _monacoEditor.layout();
-    }
+/**
+ * Update the read-only source viewer in the Source portlet.
+ */
+function updateSourceViewer(source) {
+  var viewer = resolveRef('sourceViewer');
+  if (!viewer) return;
+
+  // Basic JS syntax highlighting
+  var highlighted = escapeHtmlDash(source)
+    .replace(/(\/\/.*)/g, '<span style="color:#6a9955">$1</span>')
+    .replace(/\b(import|from|export|const|let|var|function|async|await|return|if|else|for|try|catch|throw|new|class|extends)\b/g, '<span style="color:#569cd6">$1</span>');
+
+  viewer.setContents(
+    '<pre id="source-pre" style="padding:8px;margin:0;font-size:12px;line-height:1.5;'
+    + 'font-family:Consolas,Monaco,monospace;background:#1e1e1e;color:#d4d4d4;'
+    + 'white-space:pre-wrap;word-break:break-word;min-height:100%;cursor:pointer;" '
+    + 'title="Double-click to open editor">'
+    + highlighted + '</pre>'
+  );
+}
+
+/**
+ * Open Monaco editor in a standalone SmartClient Window.
+ * The Window is an overlay — not affected by PortalLayout resize/maximize.
+ */
+function openMonacoWindow(scriptName, source) {
+  // If already open, just focus it
+  if (_monacoEditorWindow && !_monacoEditorWindow.destroyed) {
+    if (_monacoEditor) _monacoEditor.setValue(source || '');
+    _monacoEditorWindow.show();
+    _monacoEditorWindow.bringToFront();
+    return;
   }
 
-  if (sourceCanvas) {
-    syncMonacoSize();
-
-    // Strategy 1: SmartClient Canvas resize callback
-    sourceCanvas.resized = syncMonacoSize;
-
-    // Strategy 2: ResizeObserver on the host div itself
-    if (typeof ResizeObserver !== 'undefined') {
-      new ResizeObserver(function () {
-        if (_monacoEditor) _monacoEditor.layout();
-      }).observe(host);
-    }
-
-    // Strategy 3: MutationObserver on the host div's parent chain.
-    // When Portlet is maximized, SmartClient reparents it — the host div
-    // moves in the DOM. Detect this and force Monaco to re-layout.
-    if (typeof MutationObserver !== 'undefined') {
-      new MutationObserver(function () {
-        // Host div was moved or parent structure changed
-        setTimeout(syncMonacoSize, 50);
-        setTimeout(syncMonacoSize, 300);
-      }).observe(host.parentElement || host, { childList: true, subtree: false, attributes: true, attributeFilter: ['style'] });
-    }
-
-    // Strategy 4: Frequent polling as safety net.
-    // Checks both SmartClient Canvas dimensions AND the host div's actual
-    // rendered size. Catches maximize, restore, drag resize, and any other
-    // layout change that events miss.
-    setInterval(function () {
-      if (!_monacoEditor) return;
-      var cw = sourceCanvas ? sourceCanvas.getWidth() : 0;
-      var ch = sourceCanvas ? sourceCanvas.getHeight() : 0;
-      var hw = host.clientWidth;
-      var hh = host.clientHeight;
-      // If Canvas has size but host doesn't match, or host collapsed to 0
-      if (cw > 0 && ch > 0 && (hw !== cw || hh !== ch)) {
-        syncMonacoSize();
-      } else if (hw === 0 || hh === 0) {
-        // Host collapsed — try to recover from parent dimensions
-        var parent = host.parentElement;
-        if (parent && parent.clientWidth > 0 && parent.clientHeight > 0) {
-          host.style.width = parent.clientWidth + 'px';
-          host.style.height = parent.clientHeight + 'px';
-          _monacoEditor.layout();
-        }
+  // Create the Window with a Canvas host for Monaco
+  var hostId = 'monaco-win-host-' + Date.now();
+  _monacoEditorWindow = isc.Window.create({
+    title: (scriptName || 'Source') + ' — Editor',
+    width: Math.round(window.innerWidth * 0.7),
+    height: Math.round(window.innerHeight * 0.75),
+    autoCenter: true,
+    canDragResize: true,
+    isModal: false,
+    showMinimizeButton: true,
+    showMaximizeButton: true,
+    items: [
+      isc.Canvas.create({
+        ID: 'monacoWindowCanvas',
+        width: '100%',
+        height: '100%',
+        redrawOnResize: false,
+        overflow: 'hidden',
+        contents: '<style>'
+          + '.monaco-bp-active { background: url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'14\' height=\'14\'%3E%3Ccircle cx=\'7\' cy=\'7\' r=\'5\' fill=\'%23e05252\'/%3E%3C/svg%3E") center/12px no-repeat; }'
+          + '.monaco-bp-inactive { background: url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'14\' height=\'14\'%3E%3Ccircle cx=\'7\' cy=\'7\' r=\'5\' fill=\'none\' stroke=\'%23555\' stroke-width=\'1.5\'/%3E%3C/svg%3E") center/12px no-repeat; }'
+          + '.monaco-bp-current { background: url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'14\' height=\'14\'%3E%3Cpolygon points=\'2,3 12,7 2,11\' fill=\'%23f9ab00\'/%3E%3C/svg%3E") center/12px no-repeat; }'
+          + '.monaco-line-current { background: rgba(249, 171, 0, 0.12) !important; }'
+          + '</style>'
+          + '<div id="' + hostId + '" style="width:100%;height:100%;"></div>',
+      }),
+    ],
+    closeClick: function () {
+      // Sync edits back to the source viewer and state
+      if (_monacoEditor && _loadedScriptName) {
+        _dashState.currentSource = _monacoEditor.getValue();
+        updateSourceViewer(_dashState.currentSource);
       }
-    }, 500);
-  }
-
-  _monacoEditor = monaco.editor.create(host, {
-    value: '// Select a script from the Scripts grid to view source',
-    language: 'javascript',
-    theme: 'vs-dark',
-    readOnly: false,
-    minimap: { enabled: false },
-    lineNumbers: 'on',
-    glyphMargin: true,
-    folding: true,
-    wordWrap: 'off',
-    scrollBeyondLastLine: false,
-    fontSize: 12,
-    lineHeight: 18,
-    renderLineHighlight: 'none',
-    automaticLayout: false, // We handle layout explicitly via syncMonacoSize
-    contextmenu: false,
-    overviewRulerLanes: 0,
+      this.hide();
+      return false; // hide, don't destroy
+    },
   });
+  _monacoEditorWindow.show();
 
-  // Create decoration collections
-  _monacoDecorations = _monacoEditor.createDecorationsCollection([]);
-  _v8Decorations = _monacoEditor.createDecorationsCollection([]);
+  // Create Monaco inside the Window after it's drawn
+  setTimeout(function () {
+    var host = document.getElementById(hostId);
+    if (!host || typeof monaco === 'undefined') return;
 
-  // Glyph margin click → breakpoint toggle
-  _monacoEditor.onMouseDown(function (e) {
-    if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
-      var line = e.target.position ? e.target.position.lineNumber : null;
-      if (!line) return;
-      handleGlyphClick(line);
+    // Size from the Canvas
+    var canvas = resolveRef('monacoWindowCanvas');
+    if (canvas) {
+      host.style.width = canvas.getWidth() + 'px';
+      host.style.height = canvas.getHeight() + 'px';
+      canvas.resized = function () {
+        host.style.width = canvas.getWidth() + 'px';
+        host.style.height = canvas.getHeight() + 'px';
+        if (_monacoEditor) _monacoEditor.layout();
+      };
     }
-  });
 
-  // Ctrl+S → save
-  _monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
-    if (_loadedScriptName && _monacoEditor) {
-      fileSave();
-    }
-  });
+    _monacoEditor = monaco.editor.create(host, {
+      value: source || '',
+      language: 'javascript',
+      theme: 'vs-dark',
+      readOnly: false,
+      minimap: { enabled: false },
+      lineNumbers: 'on',
+      glyphMargin: true,
+      folding: true,
+      wordWrap: 'off',
+      scrollBeyondLastLine: false,
+      fontSize: 12,
+      lineHeight: 18,
+      renderLineHighlight: 'none',
+      automaticLayout: true, // Safe in a Window (no PortalLayout reparenting)
+      contextmenu: false,
+      overviewRulerLanes: 0,
+    });
+
+    // Decoration collections
+    _monacoDecorations = _monacoEditor.createDecorationsCollection([]);
+    _v8Decorations = _monacoEditor.createDecorationsCollection([]);
+
+    // Glyph margin click → breakpoint toggle
+    _monacoEditor.onMouseDown(function (e) {
+      if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) {
+        var line = e.target.position ? e.target.position.lineNumber : null;
+        if (!line) return;
+        handleGlyphClick(line);
+      }
+    });
+
+    // Ctrl+S → save
+    _monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
+      if (_loadedScriptName && _monacoEditor) {
+        fileSave();
+      }
+    });
+  }, 300);
 }
 
 // ---- Script loading ----
@@ -668,6 +701,12 @@ function loadScriptIntoEditor(name) {
     }
 
     var source = response.script.source || '';
+    _dashState.currentSource = source;
+
+    // Update the read-only source viewer in the portlet
+    updateSourceViewer(source);
+
+    // If Monaco Window is open, update it too
     if (_monacoEditor) {
       _monacoEditor.setValue(source);
     }
@@ -2743,13 +2782,14 @@ function assignRecipeToScript() {
 // ---- File > Save / Save As ----
 
 function fileSave() {
-  if (!_loadedScriptName || !_monacoEditor) {
+  var source = _monacoEditor ? _monacoEditor.getValue() : _dashState.currentSource;
+  if (!_loadedScriptName || !source) {
     isc.say('No script loaded.');
     return;
   }
   dispatchActionAsync('SCRIPT_LIBRARY_SAVE', {
     name: _loadedScriptName,
-    source: _monacoEditor.getValue(),
+    source: source,
     recipeId: toRecipeId(_dashState.recipeId),
   }).then(function (resp) {
     if (resp && resp.success) {
@@ -2762,7 +2802,7 @@ function fileSave() {
 }
 
 function fileSaveAs() {
-  if (!_monacoEditor) {
+  if (!_monacoEditor && !_dashState.currentSource) {
     isc.say('No script loaded.');
     return;
   }
@@ -2803,7 +2843,7 @@ function fileSaveAs() {
 
       dispatchActionAsync('SCRIPT_LIBRARY_SAVE', {
         name: newName,
-        source: _monacoEditor.getValue(),
+        source: _monacoEditor ? _monacoEditor.getValue() : (_dashState.currentSource || ''),
         recipeId: toRecipeId(_dashState.recipeId),
       }).then(function (resp) {
         if (resp && resp.success) {
