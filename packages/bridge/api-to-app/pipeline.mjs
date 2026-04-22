@@ -20,18 +20,32 @@
  *   --dry-run           Print PICT models and rows, don't generate scripts
  */
 
-import { ScriptClient } from '../script-client.mjs';
-import { loadSpec, extractEndpoints, generatePictModel } from './spec-analyzer.mjs';
-import { runAndParse, isPictAvailable } from './pict-runner.mjs';
-import { generateTestScript, generateWorkflowTest } from './test-generator.mjs';
-import { generateApp } from './app-generator.mjs';
 import { writeFileSync, mkdirSync, readFileSync } from 'fs';
 import { resolve, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
+import { pathToFileURL } from 'url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const EXAMPLES_DIR = resolve(__dirname, '..', '..', '..', 'examples');
+// Resolve the real module directory — handles being run from ~/.agentidev/scripts/
+// or from the repo directly. The sibling modules (spec-analyzer, pict-runner, etc.)
+// live alongside pipeline.mjs in packages/bridge/api-to-app/.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Detect if we're running from a copy (scripts dir) vs the real location
+const REAL_DIR = resolve(__dirname).includes('api-to-app')
+  ? __dirname
+  : resolve(process.env.AGENTIDEV_ROOT || resolve(homedir(), 'repos', 'agentidev'), 'packages', 'bridge', 'api-to-app');
+const REPO_ROOT = resolve(REAL_DIR, '..', '..', '..');
+
+// Dynamic imports from the real directory so copies in ~/.agentidev/scripts/ work
+const { ScriptClient } = await import(pathToFileURL(resolve(REAL_DIR, '..', 'script-client.mjs')).href);
+const { loadSpec, extractEndpoints, generatePictModel } = await import(pathToFileURL(resolve(REAL_DIR, 'spec-analyzer.mjs')).href);
+const { runAndParse, isPictAvailable } = await import(pathToFileURL(resolve(REAL_DIR, 'pict-runner.mjs')).href);
+const { generateTestScript, generateWorkflowTest } = await import(pathToFileURL(resolve(REAL_DIR, 'test-generator.mjs')).href);
+const { generateApp } = await import(pathToFileURL(resolve(REAL_DIR, 'app-generator.mjs')).href);
+
+const EXAMPLES_DIR = resolve(REPO_ROOT, 'examples');
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -41,7 +55,7 @@ const getArg = (name, def) => {
 };
 const hasFlag = (name) => args.includes(`--${name}`);
 
-const specPath = getArg('spec', resolve(__dirname, 'specs/petstore-v2.json'));
+const specPath = getArg('spec', resolve(REAL_DIR, 'specs/petstore-v2.json'));
 const targetEndpoint = getArg('endpoint', 'findPetsByStatus');
 const baseUrl = getArg('base-url', 'https://petstore.swagger.io/v2');
 const outputDir = getArg('output', EXAMPLES_DIR);
