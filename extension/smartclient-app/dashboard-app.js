@@ -546,22 +546,52 @@ function initMonacoEditor() {
   var host = document.getElementById('monaco-host');
   if (!host || typeof monaco === 'undefined') return;
 
-  // Size the host div from the SmartClient Canvas dimensions
+  // Size the host div from the SmartClient Canvas dimensions.
+  // Monaco turns white if the host div collapses to 0x0 during SmartClient
+  // layout operations (portlet resize, drag, column reflow). We use multiple
+  // strategies to keep dimensions synced:
+  //   1. SmartClient Canvas.resized callback
+  //   2. ResizeObserver on the host div
+  //   3. Periodic safety check (catches cases both above miss)
   var sourceCanvas = resolveRef('sourcePanel');
-  if (sourceCanvas) {
-    var w = sourceCanvas.getWidth();
-    var h = sourceCanvas.getHeight();
-    host.style.width = w + 'px';
-    host.style.height = h + 'px';
 
-    // Re-size when SmartClient resizes the Canvas
-    sourceCanvas.resized = function () {
-      var nw = sourceCanvas.getWidth();
-      var nh = sourceCanvas.getHeight();
+  function syncMonacoSize() {
+    if (!sourceCanvas || !_monacoEditor) return;
+    var nw = sourceCanvas.getWidth();
+    var nh = sourceCanvas.getHeight();
+    if (nw > 0 && nh > 0) {
       host.style.width = nw + 'px';
       host.style.height = nh + 'px';
-      if (_monacoEditor) _monacoEditor.layout();
-    };
+      _monacoEditor.layout();
+    }
+  }
+
+  if (sourceCanvas) {
+    syncMonacoSize();
+
+    // Strategy 1: SmartClient Canvas resize callback
+    sourceCanvas.resized = syncMonacoSize;
+
+    // Strategy 2: ResizeObserver on the host div itself
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(function () {
+        if (_monacoEditor) _monacoEditor.layout();
+      }).observe(host);
+    }
+
+    // Strategy 3: Periodic check — catches portlet drag/reflow that
+    // SmartClient doesn't fire resized for. Runs every 2s, lightweight.
+    var _lastW = 0, _lastH = 0;
+    setInterval(function () {
+      if (!sourceCanvas || !_monacoEditor) return;
+      var w = sourceCanvas.getWidth();
+      var h = sourceCanvas.getHeight();
+      if (w !== _lastW || h !== _lastH) {
+        _lastW = w;
+        _lastH = h;
+        syncMonacoSize();
+      }
+    }, 2000);
   }
 
   _monacoEditor = monaco.editor.create(host, {
@@ -578,7 +608,7 @@ function initMonacoEditor() {
     fontSize: 12,
     lineHeight: 18,
     renderLineHighlight: 'none',
-    automaticLayout: true,
+    automaticLayout: false, // We handle layout explicitly via syncMonacoSize
     contextmenu: false,
     overviewRulerLanes: 0,
   });
