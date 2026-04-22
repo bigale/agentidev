@@ -2937,6 +2937,11 @@ function wireArtifactsGrid() {
     loadArtifactPreview(record);
   };
 
+  grid.recordDoubleClick = function (viewer, record) {
+    if (!record) return;
+    openArtifactViewer(record);
+  };
+
   // Apply formatters
   grid.formatCellValue = function (value, record, rowNum, colNum) {
     var fieldName = this.getFieldName(colNum);
@@ -3068,6 +3073,131 @@ function renderArtifactPreview(preview, artifact, data) {
         preview.setContents('<div style="padding:8px;color:#888;font-size:11px;">Binary artifact (' + (artifact.size ? Math.round(artifact.size / 1024) + ' KB' : 'unknown size') + ')</div>');
       }
   }
+}
+
+// ---- Artifact viewer windows (double-click) ----
+
+function openArtifactViewer(artifact) {
+  var ct = artifact.contentType || '';
+  var label = artifact.label || '';
+  var isTsv = ct === 'text/tab-separated-values' || label.toLowerCase().includes('tsv') || label.toLowerCase().includes('output');
+  var isCode = ct === 'application/javascript' || ct === 'text/plain' || label.includes('.pict') || label.includes('Model');
+
+  // Fetch data first, then open the appropriate viewer
+  function getData(callback) {
+    if (artifact.data) { callback(artifact.data); return; }
+    if (!artifact.diskPath) { callback(null); return; }
+    dispatchActionAsync('SCRIPT_ARTIFACT_GET', { diskPath: artifact.diskPath }, 15000).then(function (resp) {
+      callback(resp && resp.success ? resp.data : null);
+    }).catch(function () { callback(null); });
+  }
+
+  getData(function (data) {
+    if (!data) return;
+    if (isTsv) {
+      openTsvGridViewer(label, data);
+    } else if (isCode) {
+      openCodeViewer(label, data, ct);
+    }
+  });
+}
+
+/**
+ * Open a read-only code viewer in a SmartClient Window.
+ * Uses a styled <pre> with syntax-aware coloring (not Monaco — avoids the resize bug).
+ */
+function openCodeViewer(title, content, contentType) {
+  // Determine language for coloring
+  var isJS = contentType === 'application/javascript' || title.includes('Script') || title.includes('.mjs');
+  var isPict = title.includes('PICT') || title.includes('.pict') || title.includes('Model');
+
+  // Basic syntax highlighting via regex
+  var highlighted = escapeHtmlDash(content);
+  if (isJS) {
+    // Highlight JS keywords, strings, comments
+    highlighted = highlighted
+      .replace(/(\/\/.*)/g, '<span style="color:#6a9955">$1</span>')
+      .replace(/\b(import|from|export|const|let|var|function|async|await|return|if|else|for|try|catch|throw|new)\b/g, '<span style="color:#569cd6">$1</span>')
+      .replace(/&#x27;([^&#]*?)&#x27;/g, '<span style="color:#ce9178">&#x27;$1&#x27;</span>');
+  } else if (isPict) {
+    // Highlight PICT: comments, negatives, constraints
+    highlighted = highlighted
+      .replace(/(#.*)/g, '<span style="color:#6a9955">$1</span>')
+      .replace(/(~\w+)/g, '<span style="color:#f44747">$1</span>')
+      .replace(/\b(IF|THEN|ELSE|AND|OR|NOT|IN|LIKE)\b/g, '<span style="color:#569cd6">$1</span>');
+  }
+
+  var win = isc.Window.create({
+    title: title,
+    width: 700,
+    height: 500,
+    canDragResize: true,
+    centerInPage: true,
+    autoCenter: true,
+    isModal: false,
+    showMinimizeButton: true,
+    items: [
+      isc.HTMLFlow.create({
+        width: '100%',
+        height: '100%',
+        overflow: 'auto',
+        contents: '<pre style="padding:10px;margin:0;font-size:12px;line-height:1.5;'
+          + 'font-family:Consolas,Monaco,monospace;background:#1e1e1e;color:#d4d4d4;'
+          + 'white-space:pre-wrap;word-break:break-word;min-height:100%;">'
+          + highlighted + '</pre>',
+      }),
+    ],
+  });
+  win.show();
+}
+
+/**
+ * Open a TSV data viewer in a SmartClient Window with a ListGrid.
+ * Auto-infers columns from the TSV header row.
+ */
+function openTsvGridViewer(title, tsvContent) {
+  var lines = tsvContent.trim().split('\n');
+  if (lines.length < 2) return;
+
+  var headers = lines[0].split('\t');
+  var rows = [];
+  for (var i = 1; i < lines.length; i++) {
+    var values = lines[i].split('\t');
+    var row = {};
+    for (var j = 0; j < headers.length; j++) {
+      row[headers[j]] = values[j] || '';
+    }
+    rows.push(row);
+  }
+
+  var fields = headers.map(function (h) {
+    return { name: h, title: h, width: h.length < 8 ? 80 : '*' };
+  });
+
+  var win = isc.Window.create({
+    title: title + ' (' + rows.length + ' rows)',
+    width: 800,
+    height: 450,
+    canDragResize: true,
+    centerInPage: true,
+    autoCenter: true,
+    isModal: false,
+    showMinimizeButton: true,
+    items: [
+      isc.ListGrid.create({
+        width: '100%',
+        height: '100%',
+        canEdit: false,
+        alternateRecordStyles: true,
+        data: rows,
+        fields: fields,
+        showFilterEditor: true,
+        autoFitFieldWidths: true,
+        autoFitWidthApproach: 'both',
+      }),
+    ],
+  });
+  win.show();
 }
 
 // Global hook for screenshot viewer (called from inline onclick in HTMLFlow)
