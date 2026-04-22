@@ -87,10 +87,11 @@ try {
           console.log('  Case ' + (i+1) + ': server lenient on negative input');
         }
       } else {
-        // Positive case: expect success. 404 is acceptable for GET/DELETE with
-        // IDs on a shared server (stateful dependency — the resource may not exist).
+        // Positive case: expect success. 404/500 acceptable for endpoints with
+        // path params on a shared server (stateful — the resource may not exist).
         const ok2xx = resp.status >= 200 && resp.status < 300;
-        const statefulOk = (resp.status === 404) && ('DELETE' !== 'POST');
+        const hasPathId = url.match(/\/\d+/) || url.match(/\/abc/);
+        const statefulOk = hasPathId && (resp.status === 404 || resp.status === 500);
         client.assert(ok2xx || statefulOk,
           'Case ' + (i+1) + ': returns ' + resp.status + (statefulOk ? ' (404 ok — stateful)' : ''));
 

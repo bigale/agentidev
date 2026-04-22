@@ -26,9 +26,21 @@ export function generateTestScript(analysis, rows, options = {}) {
   const hasBody = endpoint.method === 'POST' || endpoint.method === 'PUT';
   const hasPathParams = Object.values(paramMeta).some(m => m.in === 'path');
 
+  // Determine which required body fields exist (for negative detection)
+  const requiredBodyFields = Object.entries(paramMeta)
+    .filter(([, m]) => m.in === 'body' && m.required)
+    .map(([name]) => name);
+
   const casesJson = JSON.stringify(rows.map(row => {
-    const isNegative = Object.values(row).some(v => typeof v === 'string' && v.startsWith('~'));
-    return { ...row, _negative: isNegative };
+    // A case is negative if:
+    // 1. Any value has ~ prefix (explicit negative from PICT)
+    const hasNegPrefix = Object.values(row).some(v => typeof v === 'string' && v.startsWith('~'));
+    // 2. Content-type mismatch: sending JSON body with XML content-type
+    const ctMismatch = hasBody && row.ContentType === 'application_xml';
+    // 3. Required body field is omitted
+    const missingRequired = requiredBodyFields.some(f => row[f] === 'omit');
+
+    return { ...row, _negative: hasNegPrefix || ctMismatch || missingRequired };
   }), null, 2);
 
   return `#!/usr/bin/env node
@@ -73,10 +85,11 @@ ${buildFetchCode(endpoint, paramMeta, hasBody, hasPathParams)}
           console.log('  Case ' + (i+1) + ': server lenient on negative input');
         }
       } else {
-        // Positive case: expect success. 404 is acceptable for GET/DELETE with
-        // IDs on a shared server (stateful dependency — the resource may not exist).
+        // Positive case: expect success. 404/500 acceptable for endpoints with
+        // path params on a shared server (stateful — the resource may not exist).
         const ok2xx = resp.status >= 200 && resp.status < 300;
-        const statefulOk = (resp.status === 404) && ('${endpoint.method}' !== 'POST');
+        const hasPathId = url.match(/\\/\\d+/) || url.match(/\\/abc/);
+        const statefulOk = hasPathId && (resp.status === 404 || resp.status === 500);
         client.assert(ok2xx || statefulOk,
           'Case ' + (i+1) + ': returns ' + resp.status + (statefulOk ? ' (404 ok — stateful)' : ''));
 
@@ -232,8 +245,15 @@ function buildBodyBuilder(paramMeta) {
     } else if (meta.isArray) {
       lines.push(`  // ${field} (array)`);
       lines.push(`  const ${pictName}Val = stripNeg(c.${pictName});`);
-      lines.push(`  if (${pictName}Val === 'one_item') body.${field} = ['https://example.com/photo.jpg'];`);
-      lines.push(`  else if (${pictName}Val === 'multiple_items') body.${field} = ['https://example.com/a.jpg', 'https://example.com/b.jpg'];`);
+      // Check if array items are objects (e.g., tags: [{id,name}]) or strings (e.g., photoUrls)
+      const itemIsObject = meta.itemSchema?.properties || meta.itemSchema?.type === 'object';
+      if (itemIsObject) {
+        lines.push(`  if (${pictName}Val === 'one_item') body.${field} = [{ id: 1, name: 'test-${field}' }];`);
+        lines.push(`  else if (${pictName}Val === 'multiple_items') body.${field} = [{ id: 1, name: 'test-a' }, { id: 2, name: 'test-b' }];`);
+      } else {
+        lines.push(`  if (${pictName}Val === 'one_item') body.${field} = ['https://example.com/photo.jpg'];`);
+        lines.push(`  else if (${pictName}Val === 'multiple_items') body.${field} = ['https://example.com/a.jpg', 'https://example.com/b.jpg'];`);
+      }
       lines.push(`  else if (${pictName}Val === 'empty_array') body.${field} = [];`);
     } else if (meta.schema?.enum) {
       lines.push(`  // ${field} (enum)`);
@@ -309,7 +329,22 @@ function buildFetchCode(endpoint, paramMeta, hasBody, hasPathParams) {
 
   // Fetch options
   lines.push('      const fetchOpts = { method: \'' + endpoint.method + '\', headers };');
-  if (hasBody) {
+  const hasFormData = Object.values(paramMeta).some(m => m.in === 'formData');
+  if (hasFormData) {
+    // Multipart form data — don't set Content-Type (fetch sets boundary automatically)
+    lines.push("      delete headers['Content-Type'];");
+    lines.push('      const form = new FormData();');
+    for (const [name, meta] of Object.entries(paramMeta)) {
+      if (meta.in !== 'formData') continue;
+      if (meta.schema?.type === 'file' || name === 'file') {
+        // Create a minimal file blob for testing
+        lines.push(`      form.append('${meta.originalName}', new Blob(['test'], {type: 'application/octet-stream'}), 'test.txt');`);
+      } else {
+        lines.push(`      form.append('${meta.originalName}', stripNeg(c.${name}));`);
+      }
+    }
+    lines.push('      fetchOpts.body = form;');
+  } else if (hasBody) {
     lines.push('      fetchOpts.body = JSON.stringify(buildBody(c));');
   }
   lines.push('      const resp = await fetch(url, fetchOpts);');

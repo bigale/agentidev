@@ -242,6 +242,10 @@ function generateValues(schema, required = false) {
   } else if (schema.type === 'array') {
     values.push('one_item', 'multiple_items');
     values.push('~empty_array');
+  } else if (schema.format === 'date-time' || schema.format === 'date') {
+    // Date/time fields need valid ISO strings, not arbitrary text
+    values.push('2026-04-21T12:00:00Z', '2026-01-01T00:00:00Z');
+    values.push('~invalid_date', '~empty_string');
   } else {
     // Default string
     values.push('doggie', 'cat_42');
