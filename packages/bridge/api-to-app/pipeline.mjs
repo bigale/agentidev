@@ -20,7 +20,7 @@
  *   --dry-run           Print PICT models and rows, don't generate scripts
  */
 
-import { writeFileSync, mkdirSync, readFileSync } from 'fs';
+import { writeFileSync, mkdirSync, readFileSync, existsSync } from 'fs';
 import { resolve, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
@@ -45,6 +45,7 @@ const { runAndParse, isPictAvailable } = await import(pathToFileURL(resolve(REAL
 const { generateTestScript, generateWorkflowTest } = await import(pathToFileURL(resolve(REAL_DIR, 'test-generator.mjs')).href);
 const { generateApp } = await import(pathToFileURL(resolve(REAL_DIR, 'app-generator.mjs')).href);
 const { generateAppFromPict } = await import(pathToFileURL(resolve(REAL_DIR, 'app-from-pict.mjs')).href);
+const { generateUiTest } = await import(pathToFileURL(resolve(REAL_DIR, 'ui-test-generator.mjs')).href);
 
 const EXAMPLES_DIR = resolve(REPO_ROOT, 'examples');
 
@@ -344,6 +345,49 @@ try {
         cases: Object.keys(appResult.config.layout.members).length,
         outputPath: appResult.pluginId,
       });
+      // Phase 3: Generate CDP UI test for the published plugin
+      console.log('\n  --- Generate UI Test ---');
+      const listModelPath = resolve(REAL_DIR, 'models', 'findPetsByStatus.pict');
+      if (existsSync(listModelPath)) {
+        const uiTestSource = generateUiTest({
+          pluginId: appResult.pluginId,
+          listModelPath,
+          filterFormId: 'filterForm',
+          filterField: 'status',
+          fetchButtonId: 'btnFetch',
+          gridId: 'mainGrid',
+          createFormId: 'createForm',
+          createButtonId: 'btnCreate',
+          importPath: '../packages/bridge/script-client.mjs',
+        });
+
+        const uiTestPath = resolve(outputDir, 'test-ui-' + appResult.pluginId + '.mjs');
+        writeFileSync(uiTestPath, uiTestSource, 'utf-8');
+        console.log('  UI test:', uiTestPath);
+
+        // Register in script library
+        try {
+          await client._sendRequest('BRIDGE_SCRIPT_SAVE', { name: 'test-ui-' + appResult.pluginId, source: uiTestSource });
+          console.log('  Registered: test-ui-' + appResult.pluginId);
+        } catch (e) { /* non-fatal */ }
+
+        // Save as artifact
+        await client.artifact({
+          type: 'text',
+          label: 'UI Test: ' + appResult.pluginId,
+          data: uiTestSource.substring(0, 3000) + (uiTestSource.length > 3000 ? '\n// ... truncated' : ''),
+          contentType: 'application/javascript',
+        });
+
+        client.assert(true, 'UI test generated: test-ui-' + appResult.pluginId);
+        generated.push({
+          operationId: 'test-ui-' + appResult.pluginId,
+          method: 'UITEST',
+          path: '/' + entityName.toLowerCase() + '-app',
+          cases: 3, // filter values
+          outputPath: uiTestPath,
+        });
+      }
     } catch (err) {
       console.error('  Full loop build failed:', err.message);
       client.assert(false, 'Plugin generation failed: ' + err.message);
