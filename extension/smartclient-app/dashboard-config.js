@@ -655,38 +655,45 @@ window._dashboardConfig = {
             height: '100%',
             members: [
               {
-                _type: 'HLayout',
-                height: 26,
+                _type: 'VLayout',
                 width: '100%',
-                membersMargin: 4,
-                layoutMargin: 2,
+                height: '100%',
                 members: [
                   {
-                    _type: 'Button',
-                    ID: 'btnEditSource',
-                    title: 'Edit',
-                    width: 50,
-                    height: 22,
+                    _type: 'HLayout',
+                    height: 26,
+                    width: '100%',
+                    membersMargin: 4,
+                    layoutMargin: 2,
+                    members: [
+                      {
+                        _type: 'Button',
+                        ID: 'btnEditSource',
+                        title: 'Edit',
+                        width: 50,
+                        height: 22,
+                      },
+                      {
+                        _type: 'Label',
+                        ID: 'sourceLabel',
+                        width: '*',
+                        height: 22,
+                        contents: '<span style="font-size:11px;color:#888;">Select a script, click Edit to open editor</span>',
+                      },
+                    ],
                   },
                   {
-                    _type: 'Label',
-                    ID: 'sourceLabel',
-                    width: '*',
-                    height: 22,
-                    contents: '<span style="font-size:11px;color:#888;">Select a script, click Edit to open editor</span>',
+                    _type: 'HTMLFlow',
+                    ID: 'sourceViewer',
+                    width: '100%',
+                    height: '*',
+                    overflow: 'auto',
+                    contents: '<pre style="padding:8px;margin:0;font-size:12px;line-height:1.5;'
+                      + 'font-family:Consolas,Monaco,monospace;background:#1e1e1e;color:#d4d4d4;'
+                      + 'white-space:pre-wrap;word-break:break-word;min-height:100%;">'
+                      + '<span style="color:#6a9955">// Select a script from the Scripts grid to view source</span></pre>',
                   },
                 ],
-              },
-              {
-                _type: 'HTMLFlow',
-                ID: 'sourceViewer',
-                width: '100%',
-                height: '*',
-                overflow: 'auto',
-                contents: '<pre style="padding:8px;margin:0;font-size:12px;line-height:1.5;'
-                  + 'font-family:Consolas,Monaco,monospace;background:#1e1e1e;color:#d4d4d4;'
-                  + 'white-space:pre-wrap;word-break:break-word;min-height:100%;">'
-                  + '<span style="color:#6a9955">// Select a script from the Scripts grid to view source</span></pre>',
               },
             ],
           },
