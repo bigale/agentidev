@@ -55,8 +55,9 @@ You have access to powerful tools:
 - generate_plugin_test: create a full CDP test script from component IDs and click steps
 - script_save + script_launch: save and run any script
 
-**API Testing**:
-- api_to_app: generate combinatorial API tests from an OpenAPI spec using PICT. Supports single endpoint or all pet CRUD endpoints + workflow. Results on dashboard.
+**API Testing + App Generation**:
+- api_to_app: generate combinatorial API tests from an OpenAPI spec using PICT
+- build_app: generate a SmartClient app from spec (LLM-driven with programmatic fallback)
 
 IMPORTANT - Tool Usage Rules:
 - Each tool is a FUNCTION you call directly — NOT a shell command

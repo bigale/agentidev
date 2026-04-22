@@ -599,6 +599,38 @@ ${clickSteps}
         }
       },
     },
+    {
+      name: 'build_app',
+      label: 'Build App from Spec',
+      description: 'Generate a SmartClient plugin app from an OpenAPI spec. Uses the LLM to create a UI config informed by test results, with programmatic fallback. The generated app wraps the API with grids, forms, and buttons. Run api_to_app first to generate tests, then build_app to create the UI.',
+      parameters: T.Object({
+        entity: T.Optional(T.String({ description: 'Primary entity name (default: "Pet")' })),
+        spec: T.Optional(T.String({ description: 'Path to OpenAPI spec JSON' })),
+        baseUrl: T.Optional(T.String({ description: 'API base URL' })),
+        noLlm: T.Optional(T.Boolean({ description: 'Skip LLM, use programmatic generator (default: false)' })),
+      }),
+      execute: async (id, params) => {
+        const buildPath = 'packages/bridge/api-to-app/build-driver.mjs';
+        const args = [];
+        if (params.entity) args.push('--entity=' + params.entity);
+        if (params.spec) args.push('--spec=' + params.spec);
+        if (params.baseUrl) args.push('--base-url=' + params.baseUrl);
+        if (params.noLlm) args.push('--no-llm');
+
+        try {
+          const r = await sendToSW('SCRIPT_LAUNCH', { path: buildPath, args });
+          if (!r.success) return textResult('Build launch failed: ' + (r.error || 'unknown'), r);
+          return textResult(
+            'Build driver launched. Check dashboard for progress.\n' +
+            'Artifacts: build prompt, generated config, handlers.\n' +
+            'The generated app config can be published as a plugin.',
+            r
+          );
+        } catch (e) {
+          return textResult('Build launch failed: ' + e.message);
+        }
+      },
+    },
 
     // ---- SmartClient UI Generation (Phase D) ----
 
