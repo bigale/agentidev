@@ -91,7 +91,11 @@ SmartClient provides the enterprise UI layer:
 - Raw HTML (the web UI at :9876 already does this)
 - Native apps (via WebSocket to bridge)
 
-SmartClient's paid features (RestDataSource, server-side validation, SQL connectors) map to things the bridge already provides. The free LGPL runtime + our fetchUrlAndLoadGrid + HOST_NETWORK_FETCH gives us 80% of the paid feature surface without the license.
+**Critical correction: RestDataSource IS free (LGPL).** The wire protocol (fetch/add/update/remove as JSON over HTTP) ships with the LGPL edition. What's paid is the Java Server Framework that auto-generates the server side from `.ds.xml`. See `plans/smartclient_restdatasource_vs_server_framework.md` for the full analysis.
+
+This means the bridge server (or a BrowserPod Express server) could implement the SmartClient RestDataSource protocol directly — giving SmartClient grids real CRUD (add/update/remove rows, paging, sorting, filtering) without the paid license. The fetchUrlAndLoadGrid action is a stepping stone; RestDataSource binding is the destination.
+
+The gap to fill is server-side: criteria-to-query translation, paging/sort honor, and validation enforcement. The api-to-app pipeline already generates schemas from OpenAPI specs — those same schemas could drive both PICT models AND `.ds.xml` DataSource definitions.
 
 ## The Bridge-in-Pod Scenario
 
@@ -169,6 +173,47 @@ Combined with the api-to-app pipeline, this means:
 4. The plugin calls the API directly — no middleware server
 
 This is the **consumer-side** of the ESB. The producer-side is the bridge server (or eventually, a server running in a BrowserPod).
+
+## The RestDataSource Upgrade Path
+
+The progression from current state to full SmartClient CRUD:
+
+```
+fetchUrlAndLoadGrid (NOW)
+  → One-way: fetch data, display in grid
+  → No add/update/delete from the grid
+  → Manual form submission for create
+
+RestDataSource (NEXT)
+  → Two-way: grid has inline edit, add row, delete row
+  → SmartClient manages the CRUD lifecycle automatically
+  → Server just needs to speak the protocol (JSON over HTTP)
+
+RestDataSource + Bridge Server (GOAL)
+  → Bridge handler implements fetch/add/update/remove
+  → .ds.xml drives both client fields AND server validation
+  → AdvancedCriteria → query translation
+  → Paging, sorting, filtering handled by protocol
+```
+
+The RestDataSource wire protocol is documented and simple:
+
+**Fetch request**: `POST /ds/PetDS/fetch` with `{ data: { status: "available" }, startRow: 0, endRow: 75, sortBy: ["-name"] }`
+
+**Fetch response**: `{ response: { status: 0, startRow: 0, endRow: 74, totalRows: 506, data: [...] } }`
+
+**Add request**: `POST /ds/PetDS/add` with `{ data: { name: "Fido", status: "available" } }`
+
+**Add response**: `{ response: { status: 0, data: [{ id: 42, name: "Fido", ... }] } }`
+
+The bridge server already has the handler dispatch pattern. Adding RestDataSource protocol support is a handler per entity that translates the SmartClient wire format to the upstream API (Petstore, or any REST API). This is exactly what the paid Java Server Framework does — but we'd implement it in Node.js.
+
+**The api-to-app pipeline connection**: the spec-analyzer already extracts entity schemas. Those same schemas could generate:
+1. PICT models (for testing)
+2. SmartClient `.ds.xml` DataSource configs (for the UI)
+3. Bridge handlers that speak the RestDataSource protocol (for the server)
+
+One OpenAPI spec → three outputs → full CRUD app with tested API coverage.
 
 ## The Zato-in-CheerpX Thread
 
@@ -258,5 +303,7 @@ This is Pandora's box, but the lid is already open. The architecture is in place
 2. **Portal latency**: How much overhead does the portal routing add vs. direct localhost WebSocket?
 3. **Portal durability**: What happens to connected clients when the pod restarts?
 4. **CheerpX + BrowserPod**: Can they run in the same page? Same browser tab? Do they conflict on threading/memory?
-5. **SmartClient LGPL vs paid**: At what point does the paid RestDataSource become worth it vs. fetchUrlAndLoadGrid?
-6. **React adapter effort**: How much work to serve React from the same handlers? The web UI at :9876 is already a non-SmartClient client.
+5. **SmartClient RestDataSource protocol**: RESOLVED — RestDataSource IS LGPL/free. The protocol is fully specified (JSON over HTTP). The bridge server can implement it. What's paid is the Java Server Framework that auto-generates the server side. See `plans/smartclient_restdatasource_vs_server_framework.md`.
+6. **RestDataSource server implementation**: How much work to make the bridge speak the RestDataSource wire protocol? The protocol handles fetch (with criteria, paging, sort), add, update, remove. Roughly ~200 lines of handler code per entity. The api-to-app pipeline could generate this.
+7. **React adapter effort**: How much work to serve React from the same handlers? The web UI at :9876 is already a non-SmartClient client.
+8. **Binary uploads and exports**: The LGPL RestDataSource docs explicitly note that binary uploads and format exports (Excel/CSV/PDF) are NOT supported. File uploads need a separate RPCManager.sendRequest path. This is a known gap to design around.
