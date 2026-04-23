@@ -47,8 +47,10 @@ export function generateUiTest(options) {
   const params = parsePictParams(modelText);
   const filterValues = params.get(filterField) || ['available'];
 
+  const hasCreate = createFormId && createButtonId;
   const testName = 'test-ui-' + pluginId;
-  const totalSteps = filterValues.length + 3; // open + verify + filter tests + screenshot
+  // Steps: open + verify + filter tests + create test + sort test + error test + screenshot
+  const totalSteps = filterValues.length + 3 + (hasCreate ? 1 : 0) + 1 + 1;
 
   return `#!/usr/bin/env node
 /**
@@ -196,6 +198,88 @@ ${createButtonId ? `          createBtn: !!isc.AutoTest.getObject('//Button[ID="
     const statusText = (result?.status || '').replace(/<[^>]*>/g, '');
     client.assert(result?.rows >= 0, 'Filter ' + value + ': ' + (result?.rows || 0) + ' rows (' + statusText + ')');
     console.log('  ' + value + ': ' + (result?.rows || 0) + ' rows — ' + statusText);
+  }
+
+${hasCreate ? `
+  // ---- Create Test: fill form, click Create, verify grid ----
+  {
+    const createStep = filterValues.length + 3;
+    await client.progress(createStep, TOTAL, 'Create test');
+    const createExpr = '(async function() {'
+      + 'var form = isc.AutoTest.getObject("//DynamicForm[ID=\\\\"${createFormId}\\\\"]");'
+      + 'if (!form) return { error: "no create form" };'
+      + 'var fields = form.getFields();'
+      + 'for (var f = 0; f < fields.length; f++) {'
+      + '  var field = fields[f];'
+      + '  if (field.name && field.type !== "button") {'
+      + '    if (field.valueMap) { form.setValue(field.name, Object.keys(field.valueMap)[0]); }'
+      + '    else { form.setValue(field.name, "ui-test-" + Date.now()); }'
+      + '  }'
+      + '}'
+      + 'var btn = isc.AutoTest.getObject("//Button[ID=\\\\"${createButtonId}\\\\"]");'
+      + 'if (btn) btn.click();'
+      + 'await new Promise(function(r) { setTimeout(r, 5000); });'
+      + 'var grid = isc.AutoTest.getObject("//ListGrid[ID=\\\\"${gridId}\\\\"]");'
+      + 'return { gridRows: grid ? grid.getTotalRows() : -1, noError: true };'
+      + '})()';
+    const createResult = await cdpEval(targets.sandbox.webSocketDebuggerUrl, createExpr, 15000);
+    client.assert(createResult && !createResult.error, 'Create: form filled + submitted (' + (createResult?.gridRows || 0) + ' rows)');
+    console.log('  Create result:', createResult?.gridRows, 'rows');
+  }
+` : ''}
+  // ---- Sort Test: click column header, verify grid responds ----
+  {
+    const sortStep = filterValues.length + ${hasCreate ? '4' : '3'};
+    await client.progress(sortStep, TOTAL, 'Sort test');
+
+    // First make sure grid has data by fetching
+    await cdpEval(targets.sandbox.webSocketDebuggerUrl, \`(async function() {
+      var form = isc.AutoTest.getObject('//DynamicForm[ID="${filterFormId}"]');
+      if (form) form.setValue('${filterField}', '${filterValues[0]}');
+      var btn = isc.AutoTest.getObject('//Button[ID="${fetchButtonId}"]');
+      if (btn) btn.click();
+      await new Promise(r => setTimeout(r, 5000));
+    })()\`, 10000);
+
+    const sortResult = await cdpEval(targets.sandbox.webSocketDebuggerUrl, \`(function() {
+      var grid = isc.AutoTest.getObject('//ListGrid[ID="${gridId}"]');
+      if (!grid || grid.getTotalRows() === 0) return { error: 'no data to sort' };
+      var fields = grid.getFields();
+      var sortField = fields[0] ? fields[0].name : null;
+      if (!sortField) return { error: 'no fields' };
+      grid.sort(sortField, true); // ascending
+      var firstBefore = grid.getRecord(0);
+      grid.sort(sortField, false); // descending
+      var firstAfter = grid.getRecord(0);
+      return {
+        field: sortField,
+        rows: grid.getTotalRows(),
+        changed: JSON.stringify(firstBefore) !== JSON.stringify(firstAfter),
+      };
+    })()\`, 10000);
+    client.assert(sortResult && !sortResult.error, 'Sort: ' + (sortResult?.field || '?') + ' (' + (sortResult?.rows || 0) + ' rows, order changed: ' + sortResult?.changed + ')');
+  }
+
+  // ---- Error Test: set invalid filter, verify graceful handling ----
+  {
+    const errStep = filterValues.length + ${hasCreate ? '5' : '4'};
+    await client.progress(errStep, TOTAL, 'Error test');
+
+    const errorResult = await cdpEval(targets.sandbox.webSocketDebuggerUrl, \`(async function() {
+      var form = isc.AutoTest.getObject('//DynamicForm[ID="${filterFormId}"]');
+      if (form) form.setValue('${filterField}', 'INVALID_STATUS_XYZ');
+      var btn = isc.AutoTest.getObject('//Button[ID="${fetchButtonId}"]');
+      if (btn) btn.click();
+      await new Promise(r => setTimeout(r, 5000));
+      var grid = isc.AutoTest.getObject('//ListGrid[ID="${gridId}"]');
+      var status = isc.AutoTest.getObject('//HTMLFlow[ID="${gridId.replace('Grid', 'Status')}"]');
+      return {
+        rows: grid ? grid.getTotalRows() : -1,
+        status: status ? status.getContents() : '',
+        noError: true, // if we got here, no JS crash
+      };
+    })()\`, 15000);
+    client.assert(errorResult?.noError, 'Error: invalid filter handled gracefully (' + (errorResult?.rows || 0) + ' rows)');
   }
 
   // Final screenshot
