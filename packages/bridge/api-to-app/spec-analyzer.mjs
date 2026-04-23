@@ -71,9 +71,12 @@ export function resolveSchema(schema, spec) {
  * Generate a PICT model for a single endpoint.
  * @param {object} endpoint - From extractEndpoints()
  * @param {object} spec - Full spec (for resolving $ref)
+ * @param {object} [options]
+ * @param {boolean} [options.includeAuth=true] - Include Auth/Accept/ContentType params
  * @returns {{ model: string, paramMeta: object, bodySchema: object|null }}
  */
-export function generatePictModel(endpoint, spec) {
+export function generatePictModel(endpoint, spec, options = {}) {
+  const { includeAuth = true } = options;
   const lines = [];
   const paramMeta = {};
   let bodySchema = null;
@@ -163,45 +166,50 @@ export function generatePictModel(endpoint, spec) {
     }
   }
 
-  // ---- Content-Type (for POST/PUT with body) ----
-  if (bodyRef && (endpoint.method === 'POST' || endpoint.method === 'PUT')) {
-    const ctValues = endpoint.consumes.map(ct => ct.replace(/\//g, '_'));
-    ctValues.push('~text_plain');
-    paramMeta['ContentType'] = {
-      originalName: 'Content-Type',
-      in: 'header',
-      required: false,
-      values: ctValues,
-    };
-    lines.push(`ContentType: ${ctValues.join(', ')}`);
-  }
+  // ---- Cross-cutting params (only included when includeAuth=true) ----
+  // When includeAuth=false, functional tests assume valid auth + JSON content-type.
+  // Auth is tested separately in the L0 auth model.
+  if (includeAuth) {
+    // Content-Type (for POST/PUT with body)
+    if (bodyRef && (endpoint.method === 'POST' || endpoint.method === 'PUT')) {
+      const ctValues = endpoint.consumes.map(ct => ct.replace(/\//g, '_'));
+      ctValues.push('~text_plain');
+      paramMeta['ContentType'] = {
+        originalName: 'Content-Type',
+        in: 'header',
+        required: false,
+        values: ctValues,
+      };
+      lines.push(`ContentType: ${ctValues.join(', ')}`);
+    }
 
-  // ---- Accept header ----
-  const produces = endpoint.responses?.['200']?.content
-    ? Object.keys(endpoint.responses['200'].content)
-    : spec.produces || ['application/json'];
-  if (produces.length > 0) {
-    const acceptValues = produces.map(ct => ct.replace(/\//g, '_'));
-    acceptValues.push('~text_plain');
-    paramMeta['Accept'] = {
-      originalName: 'Accept',
-      in: 'header',
-      required: false,
-      values: acceptValues,
-    };
-    lines.push(`Accept: ${acceptValues.join(', ')}`);
-  }
+    // Accept header
+    const produces = endpoint.responses?.['200']?.content
+      ? Object.keys(endpoint.responses['200'].content)
+      : spec.produces || ['application/json'];
+    if (produces.length > 0) {
+      const acceptValues = produces.map(ct => ct.replace(/\//g, '_'));
+      acceptValues.push('~text_plain');
+      paramMeta['Accept'] = {
+        originalName: 'Accept',
+        in: 'header',
+        required: false,
+        values: acceptValues,
+      };
+      lines.push(`Accept: ${acceptValues.join(', ')}`);
+    }
 
-  // ---- Auth ----
-  if (endpoint.security?.length > 0) {
-    const authValues = ['valid_auth', '~no_auth', '~invalid_auth'];
-    paramMeta['Auth'] = {
-      originalName: 'Authorization',
-      in: 'header',
-      required: false,
-      values: authValues,
-    };
-    lines.push(`Auth: ${authValues.join(', ')}`);
+    // Auth
+    if (endpoint.security?.length > 0) {
+      const authValues = ['valid_auth', '~no_auth', '~invalid_auth'];
+      paramMeta['Auth'] = {
+        originalName: 'Authorization',
+        in: 'header',
+        required: false,
+        values: authValues,
+      };
+      lines.push(`Auth: ${authValues.join(', ')}`);
+    }
   }
 
   // ---- Constraints ----
@@ -261,4 +269,43 @@ function generateValues(schema, required = false) {
  */
 function sanitizePictName(name) {
   return name.replace(/[^a-zA-Z0-9_]/g, '_');
+}
+
+/**
+ * Generate an L0 auth PICT model that covers every endpoint × auth type pair.
+ * This is the cross-cutting test suite — run separately from functional tests.
+ *
+ * @param {object[]} endpoints - From extractEndpoints()
+ * @param {object} spec - Full spec
+ * @returns {{ model: string, endpointMap: Map<string, object> }}
+ */
+export function generateAuthModel(endpoints, spec) {
+  const opIds = endpoints.map(ep => ep.operationId);
+  const lines = [];
+
+  lines.push('# L0 Auth Model — tests every endpoint x auth type pair');
+  lines.push('# Functional tests (L1) assume valid auth; this suite tests auth behavior.');
+  lines.push('');
+
+  lines.push('Endpoint: ' + opIds.join(', '));
+  lines.push('AuthType: valid_bearer, ~no_auth, ~expired_token, ~invalid_key');
+  lines.push('Accept: application_json, ~text_plain');
+
+  // Content-Type only relevant for POST/PUT
+  const hasMutations = endpoints.some(ep => ep.method === 'POST' || ep.method === 'PUT');
+  if (hasMutations) {
+    lines.push('ContentType: application_json, ~text_plain');
+    const readOps = endpoints
+      .filter(ep => ep.method === 'GET' || ep.method === 'DELETE')
+      .map(ep => '"' + ep.operationId + '"');
+    if (readOps.length > 0) {
+      lines.push('');
+      lines.push('IF [Endpoint] IN {' + readOps.join(', ') + '} THEN [ContentType] = "application_json";');
+    }
+  }
+
+  const endpointMap = new Map();
+  for (const ep of endpoints) endpointMap.set(ep.operationId, ep);
+
+  return { model: lines.join('\n'), endpointMap };
 }

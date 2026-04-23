@@ -314,14 +314,21 @@ function buildFetchCode(endpoint, paramMeta, hasBody, hasPathParams) {
   lines.push('      const headers = {};');
   if (paramMeta.Accept) {
     lines.push("      headers['Accept'] = stripNeg(c.Accept).replace(/_/g, '/');");
+  } else {
+    // Functional test (no Accept param) — default to JSON
+    lines.push("      headers['Accept'] = 'application/json';");
   }
   if (paramMeta.ContentType) {
     lines.push("      headers['Content-Type'] = stripNeg(c.ContentType).replace(/_/g, '/');");
+  } else if (hasBody) {
+    // Functional test (no ContentType param) — default to JSON
+    lines.push("      headers['Content-Type'] = 'application/json';");
   }
   if (paramMeta.Auth) {
     lines.push("      if (stripNeg(c.Auth) === 'valid_auth') headers['Authorization'] = 'Bearer test-token';");
     lines.push("      else if (stripNeg(c.Auth) === 'invalid_auth') headers['Authorization'] = 'Bearer invalid';");
   }
+  // No Auth param = functional test, assume valid auth (Petstore doesn't enforce)
   // api_key header (Petstore DELETE)
   if (paramMeta.api_key) {
     lines.push("      if (stripNeg(c.api_key) !== 'empty_string' && stripNeg(c.api_key) !== 'null') headers['api_key'] = stripNeg(c.api_key);");

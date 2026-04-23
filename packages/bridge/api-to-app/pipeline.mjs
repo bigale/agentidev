@@ -40,7 +40,7 @@ const REPO_ROOT = resolve(REAL_DIR, '..', '..', '..');
 
 // Dynamic imports from the real directory so copies in ~/.agentidev/scripts/ work
 const { ScriptClient } = await import(pathToFileURL(resolve(REAL_DIR, '..', 'script-client.mjs')).href);
-const { loadSpec, extractEndpoints, generatePictModel } = await import(pathToFileURL(resolve(REAL_DIR, 'spec-analyzer.mjs')).href);
+const { loadSpec, extractEndpoints, generatePictModel, generateAuthModel } = await import(pathToFileURL(resolve(REAL_DIR, 'spec-analyzer.mjs')).href);
 const { runAndParse, isPictAvailable } = await import(pathToFileURL(resolve(REAL_DIR, 'pict-runner.mjs')).href);
 const { generateTestScript, generateWorkflowTest } = await import(pathToFileURL(resolve(REAL_DIR, 'test-generator.mjs')).href);
 const { generateApp } = await import(pathToFileURL(resolve(REAL_DIR, 'app-generator.mjs')).href);
@@ -123,7 +123,8 @@ try {
       target.parameters.find(p => p.in === 'body') ? '+ body' : '');
 
     // Generate PICT model
-    const analysis = generatePictModel(target, spec);
+    // Generate functional model (no auth — auth tested separately in L0)
+    const analysis = generatePictModel(target, spec, { includeAuth: false });
     console.log('  PICT params:', Object.keys(analysis.paramMeta).length);
 
     if (dryRun) {
@@ -146,9 +147,20 @@ try {
     const pictOpts = { order, caseSensitive: true };
     if (seedArg) pictOpts.seed = parseInt(seedArg, 10);
 
-    const { headers, rows } = runAndParse(analysis.model, pictOpts);
-    console.log('  PICT cases:', rows.length);
-    client.assert(rows.length > 0, target.operationId + ': ' + rows.length + ' PICT cases');
+    // If no PICT params (e.g. GET /store/inventory with auth removed),
+    // generate a single test case with no parameters
+    let headers, rows;
+    if (Object.keys(analysis.paramMeta).length === 0) {
+      headers = [];
+      rows = [{ _singleCase: true }];
+      console.log('  No PICT params — 1 direct test case');
+    } else {
+      const result = runAndParse(analysis.model, pictOpts);
+      headers = result.headers;
+      rows = result.rows;
+      console.log('  PICT cases:', rows.length);
+    }
+    client.assert(rows.length > 0, target.operationId + ': ' + rows.length + ' cases');
 
     // Save TSV output as artifact
     const tsvContent = [headers.join('\t'), ...rows.map(r => headers.map(h => r[h]).join('\t'))].join('\n');
@@ -201,6 +213,51 @@ try {
       path: target.path,
       cases: rows.length,
       outputPath,
+    });
+  }
+
+  // L0 Auth test — separate from functional tests
+  if (isMulti && !dryRun) {
+    console.log('\n  === L0: Auth Test Suite ===');
+    const resolvedEndpoints = targetIds
+      .map(opId => endpoints.find(ep => ep.operationId === opId))
+      .filter(Boolean);
+    const { model: authModel } = generateAuthModel(resolvedEndpoints, spec);
+
+    // Save auth model
+    const authModelPath = resolve(REAL_DIR, 'models', 'auth.pict');
+    writeFileSync(authModelPath, authModel, 'utf-8');
+    await client.artifact({
+      type: 'text',
+      label: 'PICT Model: Auth (L0)',
+      filePath: authModelPath,
+      contentType: 'text/plain',
+    });
+
+    const pictOpts = { order, caseSensitive: true };
+    if (seedArg) pictOpts.seed = parseInt(seedArg, 10);
+    const { rows: authRows } = runAndParse(authModel, pictOpts);
+    console.log('  Auth cases:', authRows.length);
+
+    // Save auth TSV
+    const authHeaders = Object.keys(authRows[0] || {});
+    const authTsv = [authHeaders.join('\t'), ...authRows.map(r => authHeaders.map(h => r[h]).join('\t'))].join('\n');
+    const authTsvPath = resolve(REAL_DIR, 'models', 'auth.tsv');
+    writeFileSync(authTsvPath, authTsv, 'utf-8');
+    await client.artifact({
+      type: 'text',
+      label: 'PICT Output: Auth (' + authRows.length + ' rows)',
+      filePath: authTsvPath,
+      contentType: 'text/tab-separated-values',
+    });
+
+    client.assert(authRows.length > 0, 'Auth: ' + authRows.length + ' cases');
+    generated.push({
+      operationId: 'auth',
+      method: 'AUTH',
+      path: '/auth',
+      cases: authRows.length,
+      outputPath: authModelPath,
     });
   }
 
