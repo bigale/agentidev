@@ -78,12 +78,14 @@ try {
         if (resp.status === 200) {
           try {
             const body = await resp.json();
-            if (Array.isArray(body)) {
-              client.assert(true, 'Case ' + (i+1) + ': response is array (' + body.length + ' items)');
-            } else if (typeof body === 'object') {
-              client.assert(true, 'Case ' + (i+1) + ': response is object');
-            }
-          } catch (e) { /* non-JSON response, ok for xml accept */ }
+            client.assert(typeof body === 'object' && body !== null, 'Case ' + (i+1) + ': response is object');
+            if (body.id != null) client.assert(typeof body.id === 'number', 'Case ' + (i+1) + ': id is number');
+            client.assert(body.name != null, 'Case ' + (i+1) + ': name present');
+            client.assert(body.photoUrls != null, 'Case ' + (i+1) + ': photoUrls present');
+            if (body.photoUrls != null) client.assert(Array.isArray(body.photoUrls), 'Case ' + (i+1) + ': photoUrls is array');
+            if (body.tags != null) client.assert(Array.isArray(body.tags), 'Case ' + (i+1) + ': tags is array');
+            if (body.status != null) client.assert(["available","pending","sold"].includes(body.status), 'Case ' + (i+1) + ': status is valid enum');
+          } catch (e) { /* non-JSON response */ }
         }
       }
     } catch (err) {

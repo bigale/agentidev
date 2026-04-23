@@ -14,6 +14,7 @@
  * @param {object[]} rows - PICT output rows
  * @param {object} options
  * @param {string} options.baseUrl - API base URL
+ * @param {object} [options.spec] - Full OpenAPI spec (for response schema validation)
  * @param {string} [options.importPath] - ScriptClient import path
  * @param {string} [options.setupCode] - Code to run before tests (e.g., create a pet)
  * @param {string} [options.teardownCode] - Code to run after tests (e.g., delete pet)
@@ -93,7 +94,7 @@ ${buildFetchCode(endpoint, paramMeta, hasBody, hasPathParams)}
         client.assert(ok2xx || statefulOk,
           'Case ' + (i+1) + ': returns ' + resp.status + (statefulOk ? ' (404 ok — stateful)' : ''));
 
-${buildResponseCheck(endpoint)}
+${buildResponseCheck(endpoint, options.spec)}
       }
     } catch (err) {
       client.assert(false, 'Case ' + (i+1) + ': ' + err.message);
@@ -359,23 +360,94 @@ function buildFetchCode(endpoint, paramMeta, hasBody, hasPathParams) {
   return lines.join('\n');
 }
 
-function buildResponseCheck(endpoint) {
+function buildResponseCheck(endpoint, spec) {
   const resp200 = endpoint.responses?.['200'];
-  // Swagger 2.0: schema at response level. OpenAPI 3.0: in content
   const schema = resp200?.schema || resp200?.content?.['application/json']?.schema;
   if (!schema) return '';
 
-  if (schema.type === 'array' || schema.$ref) {
-    return `        if (resp.status === 200) {
-          try {
-            const body = await resp.json();
-            if (Array.isArray(body)) {
-              client.assert(true, 'Case ' + (i+1) + ': response is array (' + body.length + ' items)');
-            } else if (typeof body === 'object') {
-              client.assert(true, 'Case ' + (i+1) + ': response is object');
-            }
-          } catch (e) { /* non-JSON response, ok for xml accept */ }
-        }`;
+  // Resolve the response schema
+  const resolvedSchema = resolveResponseSchema(schema, spec);
+  if (!resolvedSchema) return '';
+
+  const lines = [];
+  lines.push('        if (resp.status === 200) {');
+  lines.push('          try {');
+  lines.push('            const body = await resp.json();');
+
+  if (schema.type === 'array' || (schema.items && !schema.type)) {
+    // Array response — validate array + first item schema
+    lines.push("            client.assert(Array.isArray(body), 'Case ' + (i+1) + ': response is array (' + body.length + ' items)');");
+    if (resolvedSchema.itemSchema) {
+      lines.push('            if (body.length > 0) {');
+      lines.push('              const item = body[0];');
+      lines.push(...buildFieldValidations('item', resolvedSchema.itemSchema, spec, 14));
+      lines.push('            }');
+    }
+  } else if (resolvedSchema.properties) {
+    // Object response — validate fields
+    lines.push("            client.assert(typeof body === 'object' && body !== null, 'Case ' + (i+1) + ': response is object');");
+    lines.push(...buildFieldValidations('body', resolvedSchema, spec, 12));
+  } else {
+    lines.push("            client.assert(body != null, 'Case ' + (i+1) + ': response has body');");
   }
-  return '';
+
+  lines.push('          } catch (e) { /* non-JSON response */ }');
+  lines.push('        }');
+  return lines.join('\n');
+}
+
+/**
+ * Resolve a response schema, following $ref and extracting item schemas for arrays.
+ */
+function resolveResponseSchema(schema, spec) {
+  if (!schema || !spec) return null;
+
+  if (schema.$ref) {
+    const refPath = schema.$ref.replace('#/', '').split('/');
+    let resolved = spec;
+    for (const seg of refPath) resolved = resolved?.[seg];
+    return resolved || null;
+  }
+  if (schema.type === 'array' && schema.items) {
+    const itemSchema = schema.items.$ref
+      ? resolveResponseSchema(schema.items, spec)
+      : schema.items;
+    return { type: 'array', itemSchema };
+  }
+  return schema;
+}
+
+/**
+ * Build per-field validation assertions for a schema.
+ */
+function buildFieldValidations(varName, schema, spec, indent) {
+  if (!schema || !schema.properties) return [];
+  const pad = ' '.repeat(indent);
+  const lines = [];
+  const required = new Set(schema.required || []);
+
+  for (const [fieldName, fieldSchema] of Object.entries(schema.properties)) {
+    const resolved = fieldSchema.$ref
+      ? resolveResponseSchema(fieldSchema, spec) || {}
+      : fieldSchema;
+
+    // Required field presence check
+    if (required.has(fieldName)) {
+      lines.push(pad + "client.assert(" + varName + "." + fieldName + " != null, 'Case ' + (i+1) + ': " + fieldName + " present');");
+    }
+
+    // Type checks for top-level scalar fields
+    if (resolved.type === 'integer' || resolved.type === 'number') {
+      lines.push(pad + "if (" + varName + "." + fieldName + " != null) client.assert(typeof " + varName + "." + fieldName + " === 'number', 'Case ' + (i+1) + ': " + fieldName + " is number');");
+    } else if (resolved.type === 'boolean') {
+      lines.push(pad + "if (" + varName + "." + fieldName + " != null) client.assert(typeof " + varName + "." + fieldName + " === 'boolean', 'Case ' + (i+1) + ': " + fieldName + " is boolean');");
+    } else if (resolved.enum) {
+      const enumStr = JSON.stringify(resolved.enum);
+      lines.push(pad + "if (" + varName + "." + fieldName + " != null) client.assert(" + enumStr + ".includes(" + varName + "." + fieldName + "), 'Case ' + (i+1) + ': " + fieldName + " is valid enum');");
+    } else if (resolved.type === 'array') {
+      lines.push(pad + "if (" + varName + "." + fieldName + " != null) client.assert(Array.isArray(" + varName + "." + fieldName + "), 'Case ' + (i+1) + ': " + fieldName + " is array');");
+    }
+    // Skip nested object validation (one level deep is enough)
+  }
+  return lines;
 }

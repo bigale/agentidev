@@ -184,6 +184,7 @@ try {
     const outputPath = resolve(outputDir, `test-petstore-${target.operationId}.mjs`);
     const scriptSource = generateTestScript(analysis, rows, {
       baseUrl,
+      spec,
       importPath: '../packages/bridge/script-client.mjs',
     });
     writeFileSync(outputPath, scriptSource, 'utf-8');

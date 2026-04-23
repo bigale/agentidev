@@ -668,12 +668,13 @@ try {
         if (resp.status === 200) {
           try {
             const body = await resp.json();
-            if (Array.isArray(body)) {
-              client.assert(true, 'Case ' + (i+1) + ': response is array (' + body.length + ' items)');
-            } else if (typeof body === 'object') {
-              client.assert(true, 'Case ' + (i+1) + ': response is object');
-            }
-          } catch (e) { /* non-JSON response, ok for xml accept */ }
+            client.assert(typeof body === 'object' && body !== null, 'Case ' + (i+1) + ': response is object');
+            if (body.id != null) client.assert(typeof body.id === 'number', 'Case ' + (i+1) + ': id is number');
+            if (body.petId != null) client.assert(typeof body.petId === 'number', 'Case ' + (i+1) + ': petId is number');
+            if (body.quantity != null) client.assert(typeof body.quantity === 'number', 'Case ' + (i+1) + ': quantity is number');
+            if (body.status != null) client.assert(["placed","approved","delivered"].includes(body.status), 'Case ' + (i+1) + ': status is valid enum');
+            if (body.complete != null) client.assert(typeof body.complete === 'boolean', 'Case ' + (i+1) + ': complete is boolean');
+          } catch (e) { /* non-JSON response */ }
         }
       }
     } catch (err) {

@@ -143,12 +143,9 @@ try {
         if (resp.status === 200) {
           try {
             const body = await resp.json();
-            if (Array.isArray(body)) {
-              client.assert(true, 'Case ' + (i+1) + ': response is array (' + body.length + ' items)');
-            } else if (typeof body === 'object') {
-              client.assert(true, 'Case ' + (i+1) + ': response is object');
-            }
-          } catch (e) { /* non-JSON response, ok for xml accept */ }
+            client.assert(typeof body === 'object' && body !== null, 'Case ' + (i+1) + ': response is object');
+            if (body.code != null) client.assert(typeof body.code === 'number', 'Case ' + (i+1) + ': code is number');
+          } catch (e) { /* non-JSON response */ }
         }
       }
     } catch (err) {

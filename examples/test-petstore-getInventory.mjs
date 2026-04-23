@@ -57,7 +57,12 @@ try {
         client.assert(ok2xx || statefulOk,
           'Case ' + (i+1) + ': returns ' + resp.status + (statefulOk ? ' (404 ok — stateful)' : ''));
 
-
+        if (resp.status === 200) {
+          try {
+            const body = await resp.json();
+            client.assert(body != null, 'Case ' + (i+1) + ': response has body');
+          } catch (e) { /* non-JSON response */ }
+        }
       }
     } catch (err) {
       client.assert(false, 'Case ' + (i+1) + ': ' + err.message);
