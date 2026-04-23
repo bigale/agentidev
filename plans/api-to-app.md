@@ -292,6 +292,92 @@ The **exemplars are non-negotiable** — without them the LLM drifts between Zat
 
 **pypict** for embedding PICT inside the Python orchestrator instead of shelling out. Faster and removes the `pict.exe` dependency at the cost of a native build step. Optional optimization for weeks 3+.
 
+## Implementation Status (Apr 2026)
+
+### What we chose: Approach A — wrapper-orchestrated hierarchy
+
+The implementation follows Approach A as recommended. Key decisions:
+
+- **JavaScript, not Python** — the orchestrator, spec analyzer, and test generator are all Node.js .mjs modules (not Python/pytest). ScriptClient replaces pytest as the assertion framework.
+- **fetchUrlAndLoadGrid** — generated SmartClient plugins call the API directly via HOST_NETWORK_FETCH. No Zato, no server-side services. The browser extension IS the server.
+- **BRIDGE_PUBLISH_PLUGIN** — pipeline publishes generated plugins to the extension via a bridge relay. No manual assembly step.
+
+### What we implemented from PICT
+
+| Feature | Plan | Implementation | Gap |
+|---------|------|---------------|-----|
+| Parameters + values | Use | Full — enum, integer, string, date-time, arrays, nested objects | |
+| Negative values (~) | Use | Full — with smart classification (content-type mismatch, missing required) | |
+| Constraints (IF/THEN) | Recommended | **NOT USED** — impossible combos classified post-hoc instead | Should add |
+| Sub-models ({ } @ N) | Optional | Not used | Low priority |
+| Seeds (/e:file) | Use for L0→L1 | Implemented in multi-level.mjs | |
+| Deterministic (/r:N) | Use | Full — --seed=42 everywhere | |
+| Case-sensitive (/c) | Recommended | Full | |
+
+### What constraints would fix
+
+Without constraints, PICT generates impossible combinations that we then classify as negative:
+- JSON body + XML content-type → always fails → classified as negative post-hoc
+- Missing required field + valid content-type → always fails → classified as negative post-hoc
+
+With constraints, PICT would skip these combinations entirely, producing fewer but more meaningful test cases:
+
+```pict
+# With constraints:
+IF [ContentType] = "application_xml" THEN [body_name] = "~empty_string";
+IF [body_name] = "omit" THEN [body_status] = "omit";  # both required or neither
+```
+
+**Impact**: estimated ~30% fewer test cases with the same pairwise coverage of valid combinations.
+
+### Auth separation (RECOMMENDED CHANGE)
+
+**Current**: Auth is mixed into every endpoint model:
+```pict
+status: available, pending, sold, ~unknown_enum
+Accept: application_json, ~text_plain
+Auth: valid_auth, ~no_auth, ~invalid_auth   ← triples the matrix
+```
+
+**Proposed**: Separate auth into its own test suite:
+
+**Auth test model (L0)**:
+```pict
+Endpoint: findPetsByStatus, addPet, getPetById, deletePet, ...
+AuthType: valid_bearer, no_auth, expired_token, invalid_key, wrong_scope
+```
+This produces ~15-20 cases that cover every endpoint × auth type pair. Run once to validate auth behavior.
+
+**Functional test models (L1)** — assume valid auth:
+```pict
+# findPetsByStatus — no Auth param, all calls use valid auth
+status: available, pending, sold, ~unknown_enum
+Accept: application_json, ~text_plain
+```
+This drops from 13 cases to ~6. For addPet (9 params → 7 without Auth/ContentType), ~40 instead of ~69.
+
+**Benefits**:
+- Functional tests are 40-50% smaller
+- Auth failures have their own clear report
+- Valid-auth functional tests are purely about API behavior
+- Auth test can use different setup (token acquisition, key rotation)
+
+**Implementation**:
+1. Remove `Auth` and `ContentType` from per-endpoint models in spec-analyzer.mjs
+2. Add a `generateAuthModel()` function that produces the L0 auth model
+3. Pipeline generates auth tests first, then functional tests
+4. Functional tests inject valid auth header unconditionally
+
+### Phase completion
+
+| Phase | Plan | Status |
+|-------|------|--------|
+| Week 1: spine | One endpoint red→green | DONE (10 endpoints, 334 cases, 100%) |
+| Week 2: fan out + codegen | 5 endpoints, LLM build driver | DONE (10 endpoints, LLM + programmatic) |
+| Week 3: UI + workflows | SmartClient app, CRUD workflow | DONE (pet-app plugin, workflow test) |
+| Week 4: spec evolution | Mutated spec | DONE (5 mutations absorbed) |
+| Closed loop | Tests → App → UI tests | DONE (--full-loop flag) |
+
 ## Conclusion
 
 The hypothesis is viable but reframes itself once grounded. **PICT is a combinatorial engine, not a recursion engine**; the recursion lives in a Python wrapper that mirrors the OpenAPI tree, calls PICT once per node, and uses `/e:` TSV seeding for the only native cross-invocation composition PICT actually supports. The LLM appears twice — optionally as an emitter of long-tail per-schema PICT files, mandatorily as the driver of Zato service, SQLite DDL, and SmartClient DataSource generation — and is kept on rails by four exemplar files pinning the dialect. The TDD output is pytest + httpx parametrized on PICT rows, with Schemathesis overlaying response-schema validation, Hurl mirroring the same rows as a zero-Python smoke suite, and Hypothesis `RuleBasedStateMachine`s covering the five or so workflows PICT's matrix cannot express. The single biggest design lesson from reviewing the PICT docs is that **approach B — one big file, sub-models as layers — is a dead end** because sub-models are explicitly one level deep; any architect who has not read `doc/pict.md` will reach for it first and waste a week. Start with approach A, reserve approach C as the escape hatch, keep the first end-to-end loop narrow (one endpoint, no LLM) so week one delivers a proven wiring, then fan out. Measured against the week-four stretch goal — can the pipeline absorb spec evolution without human edits — this architecture has a realistic shot, and its failure modes are ones you can see coming from the PICT documentation itself.
