@@ -378,6 +378,144 @@ This drops from 13 cases to ~6. For addPet (9 params → 7 without Auth/ContentT
 | Week 4: spec evolution | Mutated spec | DONE (5 mutations absorbed) |
 | Closed loop | Tests → App → UI tests | DONE (--full-loop flag) |
 
+## Next Phases: Full-App Features + Advanced Testing
+
+Weeks 1-4 are complete. The closed loop works. The next phases take the pipeline to production quality — richer tests, richer apps, security coverage.
+
+### Phase 5: Response Schema Validation (~100 lines)
+
+**Goal**: Every positive API test case validates the response body against the OpenAPI schema, field by field.
+
+**Current gap**: Tests check `resp.status === 200` and `Array.isArray(body)` but don't verify the Pet object has `id` (integer), `name` (string), `status` (enum), `category.name` (string). A 200 response with wrong field types passes today.
+
+**Implementation**: Extend `test-generator.mjs` to emit per-field assertions for positive cases. Read the response schema from the spec and generate:
+```javascript
+client.assert(typeof body[0].id === 'number', 'Pet.id is number');
+client.assert(['available','pending','sold'].includes(body[0].status), 'Pet.status is valid enum');
+client.assert(body[0].name != null, 'Pet.name present');
+```
+
+**Why first**: Catches the most real bugs for the least code. A schema-violating response that returns 200 is invisible to the current tests.
+
+### Phase 6: CRUD State Machine (~200 lines)
+
+**Goal**: Replace the linear POST→GET→DELETE workflow with an exploratory state machine that tests transitions.
+
+**Current gap**: The workflow test is a fixed sequence. It doesn't test: update-then-list, create-after-delete, double-delete, concurrent creates.
+
+**Implementation**: New module `state-machine.mjs` that generates a state machine test script:
+```
+States: empty → created → updated → listed → deleted
+Transitions:
+  empty    → created   (POST /pet with valid body)
+  created  → read      (GET /pet/{id}, verify fields match)
+  created  → updated   (PUT /pet, change status)
+  updated  → listed    (GET /pet/findByStatus, verify appears)
+  created  → deleted   (DELETE /pet/{id})
+  deleted  → read_gone (GET /pet/{id}, verify 404)
+  deleted  → created   (POST /pet, verify re-create works)
+```
+
+Each transition verifies pre/post conditions. The machine runs all reachable paths, not just one linear sequence. This is the Hypothesis `RuleBasedStateMachine` concept in JavaScript.
+
+### Phase 7: Multi-Entity TabSet App (~100 lines)
+
+**Goal**: Generate one plugin with a TabSet: Pet tab + Order tab + Inventory tab. Each tab has its own filter form, grid, and create form.
+
+**Current gap**: pet-app only covers Pet. The pipeline generates tests for Order endpoints but the app doesn't show them.
+
+**Implementation**: Extend `app-from-pict.mjs` to accept multiple entities:
+```javascript
+generateAppFromPict({
+  specPath, modelsDir, baseUrl,
+  entities: ['Pet', 'Order'],  // generates a tab per entity
+});
+```
+
+Each entity gets:
+- A Tab pane with filter form + grid + create form
+- fetchUrlAndLoadGrid wired to the entity's list endpoint
+- Create button wired to the entity's create endpoint
+
+**Why here**: Composes what already exists. No new actions or renderer changes needed.
+
+### Phase 8: Richer UI Tests (~150 lines)
+
+**Goal**: UI tests that exercise create, sort, and error states — not just filter + fetch.
+
+**Current gap**: UI test only sets filter → clicks Fetch → checks grid rows. Doesn't test the Create form, doesn't test what happens when the API returns an error.
+
+**Implementation**: Extend `ui-test-generator.mjs` to generate additional test steps:
+1. **Create test**: Fill create form fields from PICT body params → click Create → verify grid row added
+2. **Sort test**: Click a grid column header → verify rows reorder
+3. **Error test**: Set filter to a ~ negative value → click Fetch → verify error message appears (not a crash)
+
+Each step uses `isc.AutoTest.getObject()` in the sandbox iframe via CDP.
+
+### Phase 9: SmartClient DataSource Binding (bigger refactor)
+
+**Goal**: Replace `fetchUrlAndLoadGrid` with proper SmartClient `RestDataSource` configs bound to the API. Gives the app inline editing, add/delete rows, and real DataSource transactions.
+
+**Current gap**: The pet-app grid is read-only. You can fetch and display data but not edit it in place.
+
+**Implementation**: Extend the app generator to emit DataSource configs:
+```json
+{
+  "dataSources": [{
+    "ID": "PetDS",
+    "_type": "RestDataSource",
+    "dataURL": "https://petstore.swagger.io/v2/pet",
+    "fields": [
+      { "name": "id", "type": "integer", "primaryKey": true },
+      { "name": "name", "type": "text" },
+      { "name": "status", "type": "text", "valueMap": {"available":"Available","pending":"Pending","sold":"Sold"} }
+    ],
+    "operationBindings": [
+      { "operationType": "fetch", "dataProtocol": "getParams", "requestProperties": {"httpMethod":"GET"} },
+      { "operationType": "add", "dataProtocol": "postMessage", "requestProperties": {"httpMethod":"POST"} }
+    ]
+  }]
+}
+```
+
+The ListGrid binds to the DataSource with `canEdit: true`, `canRemoveRecords: true`. SmartClient handles the CRUD UI automatically.
+
+**Why later**: Requires understanding SmartClient's RestDataSource `transformResponse`/`transformRequest` to adapt Petstore's bare-JSON format to what SmartClient expects. The adapter logic is non-trivial.
+
+### Phase 10: Security Fuzzing via PICT
+
+**Goal**: Add injection payloads and boundary values to PICT models for free security regression testing.
+
+**Implementation**: Extend `generateValues()` in spec-analyzer.mjs:
+```javascript
+// For string fields, add security-oriented negatives
+if (schema.type === 'string') {
+  values.push('~xss_script_tag');      // <script>alert(1)</script>
+  values.push('~sql_injection');        // '; DROP TABLE pets;--
+  values.push('~oversized_10k');        // 'A'.repeat(10000)
+  values.push('~null_bytes');           // 'valid\x00injection'
+  values.push('~unicode_exploit');      // '𝕳𝖊𝖑𝖑𝖔' (astral plane)
+}
+```
+
+PICT pairs these pairwise with valid parameters — every injection payload gets tested with every valid parameter combination. This is RESTler-lite using the existing PICT infrastructure.
+
+**Test assertions**: For security fuzzing cases, verify:
+- No 500 errors (server handles injection gracefully)
+- Response doesn't echo the injection payload (XSS check)
+- Response is valid JSON (not a stack trace)
+
+### Phase summary
+
+| Phase | What | Lines | Value |
+|-------|------|-------|-------|
+| 5 | Response schema validation | ~100 | Catches schema-violating 200s |
+| 6 | CRUD state machine | ~200 | Catches state transition bugs |
+| 7 | Multi-entity TabSet app | ~100 | Full-app demo |
+| 8 | Richer UI tests | ~150 | Create form + error testing |
+| 9 | DataSource binding | ~300 | Inline CRUD experience |
+| 10 | Security fuzzing | ~50 | Free security regression |
+
 ## Conclusion
 
 The hypothesis is viable but reframes itself once grounded. **PICT is a combinatorial engine, not a recursion engine**; the recursion lives in a Python wrapper that mirrors the OpenAPI tree, calls PICT once per node, and uses `/e:` TSV seeding for the only native cross-invocation composition PICT actually supports. The LLM appears twice — optionally as an emitter of long-tail per-schema PICT files, mandatorily as the driver of Zato service, SQLite DDL, and SmartClient DataSource generation — and is kept on rails by four exemplar files pinning the dialect. The TDD output is pytest + httpx parametrized on PICT rows, with Schemathesis overlaying response-schema validation, Hurl mirroring the same rows as a zero-Python smoke suite, and Hypothesis `RuleBasedStateMachine`s covering the five or so workflows PICT's matrix cannot express. The single biggest design lesson from reviewing the PICT docs is that **approach B — one big file, sub-models as layers — is a dead end** because sub-models are explicitly one level deep; any architect who has not read `doc/pict.md` will reach for it first and waste a week. Start with approach A, reserve approach C as the escape hatch, keep the first end-to-end loop narrow (one endpoint, no LLM) so week one delivers a proven wiring, then fan out. Measured against the week-four stretch goal — can the pipeline absorb spec evolution without human edits — this architecture has a realistic shot, and its failure modes are ones you can see coming from the PICT documentation itself.
