@@ -1,0 +1,337 @@
+{
+  "dataSources": [],
+  "layout": {
+    "_type": "VLayout",
+    "width": "100%",
+    "height": "100%",
+    "members": [
+      {
+        "_type": "Label",
+        "height": 35,
+        "contents": "<span style=\"font-size:18px;color:#a8b4ff;font-weight:600\">Pet + Order Explorer</span>"
+      },
+      {
+        "_type": "Label",
+        "height": 18,
+        "contents": "<span style=\"font-size:11px;color:#666\">API: https://petstore.swagger.io/v2 | 2 entities | PICT-tested</span>"
+      },
+      {
+        "_type": "TabSet",
+        "ID": "entityTabs",
+        "width": "100%",
+        "height": "*",
+        "tabs": [
+          {
+            "title": "Pet",
+            "pane": {
+              "_type": "VLayout",
+              "width": "100%",
+              "height": "100%",
+              "padding": 8,
+              "membersMargin": 6,
+              "members": [
+                {
+                  "_type": "DynamicForm",
+                  "ID": "petFilterForm",
+                  "height": 35,
+                  "numCols": 4,
+                  "fields": [
+                    {
+                      "name": "status",
+                      "title": "Status",
+                      "type": "select",
+                      "defaultValue": "available",
+                      "valueMap": {
+                        "available": "available",
+                        "pending": "pending",
+                        "sold": "sold"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "_type": "HLayout",
+                  "height": 30,
+                  "membersMargin": 8,
+                  "members": [
+                    {
+                      "_type": "Button",
+                      "ID": "petBtnFetch",
+                      "title": "Fetch Pets",
+                      "width": 120,
+                      "_action": "fetchUrlAndLoadGrid",
+                      "_fetchUrl": "https://petstore.swagger.io/v2/pet/findByStatus",
+                      "_payloadFrom": "petFilterForm",
+                      "_targetGrid": "petGrid",
+                      "_statusCanvas": "petStatus",
+                      "_dynamicFields": true,
+                      "_flattenObjects": true,
+                      "_timeoutMs": 15000
+                    },
+                    {
+                      "_type": "HTMLFlow",
+                      "ID": "petStatus",
+                      "width": "*",
+                      "height": 24,
+                      "contents": "<span style=\"color:#888;font-size:11px\">Click Fetch</span>"
+                    }
+                  ]
+                },
+                {
+                  "_type": "ListGrid",
+                  "ID": "petGrid",
+                  "width": "100%",
+                  "height": "*",
+                  "canEdit": false,
+                  "alternateRecordStyles": true,
+                  "emptyMessage": "Click Fetch to load pets",
+                  "fields": [
+                    {
+                      "name": "category",
+                      "title": "Category",
+                      "width": 90
+                    },
+                    {
+                      "name": "name",
+                      "title": "Name",
+                      "width": "*"
+                    },
+                    {
+                      "name": "photoUrls",
+                      "title": "PhotoUrls",
+                      "width": 90
+                    },
+                    {
+                      "name": "tags",
+                      "title": "Tags",
+                      "width": 90
+                    },
+                    {
+                      "name": "status",
+                      "title": "Status",
+                      "width": 90,
+                      "valueMap": {
+                        "available": "available",
+                        "pending": "pending",
+                        "sold": "sold"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "_type": "Label",
+                  "height": 22,
+                  "contents": "<span style=\"font-size:12px;color:#aaa;font-weight:600\">Create Pet</span>"
+                },
+                {
+                  "_type": "DynamicForm",
+                  "ID": "petCreateForm",
+                  "height": 50,
+                  "numCols": 4,
+                  "fields": [
+                    {
+                      "name": "name",
+                      "title": "Name",
+                      "required": true,
+                      "type": "select",
+                      "valueMap": {
+                        "doggie": "doggie",
+                        "cat_42": "cat_42"
+                      }
+                    },
+                    {
+                      "name": "status",
+                      "title": "Status",
+                      "required": false,
+                      "type": "select",
+                      "valueMap": {
+                        "available": "available",
+                        "pending": "pending",
+                        "sold": "sold"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "_type": "HLayout",
+                  "height": 28,
+                  "membersMargin": 8,
+                  "members": [
+                    {
+                      "_type": "Button",
+                      "ID": "petBtnCreate",
+                      "title": "Create",
+                      "width": 80,
+                      "_action": "fetchUrlAndLoadGrid",
+                      "_fetchUrl": "https://petstore.swagger.io/v2/pet",
+                      "_fetchMethod": "POST",
+                      "_payloadFrom": "petCreateForm",
+                      "_targetGrid": "petGrid",
+                      "_statusCanvas": "petCreateStatus",
+                      "_dynamicFields": true,
+                      "_flattenObjects": true,
+                      "_timeoutMs": 15000
+                    },
+                    {
+                      "_type": "HTMLFlow",
+                      "ID": "petCreateStatus",
+                      "width": "*",
+                      "height": 24
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "title": "Order",
+            "pane": {
+              "_type": "VLayout",
+              "width": "100%",
+              "height": "100%",
+              "padding": 8,
+              "membersMargin": 6,
+              "members": [
+                {
+                  "_type": "ListGrid",
+                  "ID": "orderGrid",
+                  "width": "100%",
+                  "height": "*",
+                  "canEdit": false,
+                  "alternateRecordStyles": true,
+                  "emptyMessage": "Click Fetch to load orders",
+                  "fields": [
+                    {
+                      "name": "petId",
+                      "title": "PetId",
+                      "width": 90
+                    },
+                    {
+                      "name": "quantity",
+                      "title": "Quantity",
+                      "width": 90
+                    },
+                    {
+                      "name": "shipDate",
+                      "title": "ShipDate",
+                      "width": 90
+                    },
+                    {
+                      "name": "status",
+                      "title": "Status",
+                      "width": 90,
+                      "valueMap": {
+                        "placed": "placed",
+                        "approved": "approved",
+                        "delivered": "delivered"
+                      }
+                    },
+                    {
+                      "name": "complete",
+                      "title": "Complete",
+                      "width": 90
+                    }
+                  ]
+                },
+                {
+                  "_type": "Label",
+                  "height": 22,
+                  "contents": "<span style=\"font-size:12px;color:#aaa;font-weight:600\">Create Order</span>"
+                },
+                {
+                  "_type": "DynamicForm",
+                  "ID": "orderCreateForm",
+                  "height": 50,
+                  "numCols": 4,
+                  "fields": [
+                    {
+                      "name": "petId",
+                      "title": "PetId",
+                      "required": false,
+                      "type": "select",
+                      "valueMap": {
+                        "1": "1",
+                        "100": "100",
+                        "9999": "9999"
+                      }
+                    },
+                    {
+                      "name": "quantity",
+                      "title": "Quantity",
+                      "required": false,
+                      "type": "select",
+                      "valueMap": {
+                        "1": "1",
+                        "100": "100",
+                        "9999": "9999"
+                      }
+                    },
+                    {
+                      "name": "shipDate",
+                      "title": "ShipDate",
+                      "required": false,
+                      "type": "select",
+                      "valueMap": {
+                        "2026-04-21T12:00:00Z": "2026-04-21T12:00:00Z",
+                        "2026-01-01T00:00:00Z": "2026-01-01T00:00:00Z"
+                      }
+                    },
+                    {
+                      "name": "status",
+                      "title": "Status",
+                      "required": false,
+                      "type": "select",
+                      "valueMap": {
+                        "placed": "placed",
+                        "approved": "approved",
+                        "delivered": "delivered"
+                      }
+                    },
+                    {
+                      "name": "complete",
+                      "title": "Complete",
+                      "required": false,
+                      "type": "select",
+                      "valueMap": {
+                        "true": "true",
+                        "false": "false"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "_type": "HLayout",
+                  "height": 28,
+                  "membersMargin": 8,
+                  "members": [
+                    {
+                      "_type": "Button",
+                      "ID": "orderBtnCreate",
+                      "title": "Create",
+                      "width": 80,
+                      "_action": "fetchUrlAndLoadGrid",
+                      "_fetchUrl": "https://petstore.swagger.io/v2/store/order",
+                      "_fetchMethod": "POST",
+                      "_payloadFrom": "orderCreateForm",
+                      "_targetGrid": "orderGrid",
+                      "_statusCanvas": "orderCreateStatus",
+                      "_dynamicFields": true,
+                      "_flattenObjects": true,
+                      "_timeoutMs": 15000
+                    },
+                    {
+                      "_type": "HTMLFlow",
+                      "ID": "orderCreateStatus",
+                      "width": "*",
+                      "height": 24
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

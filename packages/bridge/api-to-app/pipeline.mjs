@@ -44,7 +44,7 @@ const { loadSpec, extractEndpoints, generatePictModel, generateAuthModel } = awa
 const { runAndParse, isPictAvailable } = await import(pathToFileURL(resolve(REAL_DIR, 'pict-runner.mjs')).href);
 const { generateTestScript, generateWorkflowTest } = await import(pathToFileURL(resolve(REAL_DIR, 'test-generator.mjs')).href);
 const { generateApp } = await import(pathToFileURL(resolve(REAL_DIR, 'app-generator.mjs')).href);
-const { generateAppFromPict } = await import(pathToFileURL(resolve(REAL_DIR, 'app-from-pict.mjs')).href);
+const { generateAppFromPict, generateMultiEntityApp } = await import(pathToFileURL(resolve(REAL_DIR, 'app-from-pict.mjs')).href);
 const { generateStateMachineTest } = await import(pathToFileURL(resolve(REAL_DIR, 'state-machine.mjs')).href);
 const { generateUiTest } = await import(pathToFileURL(resolve(REAL_DIR, 'ui-test-generator.mjs')).href);
 
@@ -385,12 +385,12 @@ try {
     console.log('\n  === Full Loop: Generate + Publish PICT-Informed App ===');
     try {
       const modelDir = resolve(REAL_DIR, 'models');
-      const appResult = generateAppFromPict({
-        specPath,
-        modelsDir: modelDir,
-        baseUrl,
-        entity: entityName,
-      });
+
+      // Use multi-entity app when running all endpoints (Pet + Order)
+      const multiEntities = isMulti ? ['Pet', 'Order'] : null;
+      const appResult = multiEntities
+        ? generateMultiEntityApp({ specPath, modelsDir: modelDir, baseUrl, entities: multiEntities })
+        : generateAppFromPict({ specPath, modelsDir: modelDir, baseUrl, entity: entityName });
 
       // Save config file for manual plugin loading
       const configPath = resolve(outputDir, 'app-' + appResult.pluginId + '-config.json');
