@@ -45,6 +45,7 @@ const { runAndParse, isPictAvailable } = await import(pathToFileURL(resolve(REAL
 const { generateTestScript, generateWorkflowTest } = await import(pathToFileURL(resolve(REAL_DIR, 'test-generator.mjs')).href);
 const { generateApp } = await import(pathToFileURL(resolve(REAL_DIR, 'app-generator.mjs')).href);
 const { generateAppFromPict } = await import(pathToFileURL(resolve(REAL_DIR, 'app-from-pict.mjs')).href);
+const { generateStateMachineTest } = await import(pathToFileURL(resolve(REAL_DIR, 'state-machine.mjs')).href);
 const { generateUiTest } = await import(pathToFileURL(resolve(REAL_DIR, 'ui-test-generator.mjs')).href);
 
 const EXAMPLES_DIR = resolve(REPO_ROOT, 'examples');
@@ -296,6 +297,39 @@ try {
       outputPath: workflowPath,
     });
     client.assert(true, 'Workflow test generated + registered');
+
+    // State machine test (Phase 6) — exploratory transitions
+    console.log('\n  --- State Machine Test ---');
+    const smSource = generateStateMachineTest({
+      baseUrl,
+      entity: entityName,
+      spec,
+      importPath: '../packages/bridge/script-client.mjs',
+    });
+    const smPath = resolve(outputDir, `test-${entityName.toLowerCase()}-state-machine.mjs`);
+    writeFileSync(smPath, smSource, 'utf-8');
+    console.log('  State machine:', smPath);
+
+    try {
+      await client._sendRequest('BRIDGE_SCRIPT_SAVE', { name: `test-${entityName.toLowerCase()}-state-machine`, source: smSource });
+      console.log('  Registered: test-' + entityName.toLowerCase() + '-state-machine');
+    } catch (e) { /* non-fatal */ }
+
+    await client.artifact({
+      type: 'text',
+      label: 'State Machine Test: ' + entityName,
+      filePath: smPath,
+      contentType: 'application/javascript',
+    });
+
+    generated.push({
+      operationId: entityName.toLowerCase() + '-state-machine',
+      method: 'STATE',
+      path: '/' + entityName.toLowerCase() + '/*',
+      cases: 10,
+      outputPath: smPath,
+    });
+    client.assert(true, 'State machine test generated');
   }
 
   // Build app from spec
