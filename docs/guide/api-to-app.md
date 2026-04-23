@@ -4,45 +4,86 @@ Generate combinatorial API tests, build a SmartClient app, and verify it with UI
 
 ## The Closed Loop
 
+```mermaid
+graph TB
+    style Spec fill:#6ECFCF,color:black
+    style PICT fill:#E8A838,color:black
+    style API fill:#7BC67E,color:black
+    style Schema fill:#58A6FF,color:black
+    style Auth fill:#F2A65A,color:black
+    style SM fill:#D97AB5,color:black
+    style App fill:#B088D9,color:black
+    style UI fill:#4A90D9,color:black
+
+    Spec[OpenAPI Spec] --> PICT[PICT Models]
+    PICT --> API[Functional Tests - 254 cases]
+    PICT --> Schema[Schema Validation - 159 assertions]
+    PICT --> Auth[Auth Test Suite - 54 cases]
+    PICT --> SM[State Machine - 23 transitions]
+    PICT --> App[SmartClient App - Pet + Order tabs]
+    App --> UI[UI Tests - filter + create + sort + error]
 ```
-OpenAPI Spec → PICT Models → API Tests (334 pass)
-                    ↓
-              SmartClient App → Published as Plugin
-                    ↓
-              CDP UI Tests → Dashboard Assertions
+
+## Test Coverage Layers
+
+```mermaid
+graph LR
+    style L1 fill:#7BC67E,color:black
+    style L2 fill:#58A6FF,color:black
+    style L3 fill:#F2A65A,color:black
+    style L4 fill:#D97AB5,color:black
+    style L5 fill:#4A90D9,color:black
+
+    L1[L1: Functional Tests] -->|254 cases| V1[Parameter combinations per endpoint]
+    L2[L2: Schema Validation] -->|+159 assertions| V2[Field types + required + enums]
+    L3[L3: Auth Suite] -->|54 cases| V3[Endpoint x auth type pairs]
+    L4[L4: State Machine] -->|23 transitions| V4[CRUD lifecycle: create read update list delete]
+    L5[L5: UI Tests] -->|11 assertions| V5[Filter + create + sort + error handling]
+```
+
+## State Machine Transitions
+
+```mermaid
+stateDiagram-v2
+    [*] --> Created: T1 POST /pet
+    Created --> Read: T2 GET /pet/id
+    Created --> Updated: T3 PUT /pet (status=sold)
+    Updated --> ReadAfterUpdate: T4 GET /pet/id
+    Updated --> Listed: T5 GET findByStatus=sold
+    Listed --> Reverted: T6 PUT /pet (status=available)
+    Reverted --> ListOriginal: T7 GET findByStatus=available
+    Created --> Deleted: T8 DELETE /pet/id
+    Deleted --> VerifyGone: T9 GET /pet/id (404)
+    Deleted --> ReCreated: T10 POST /pet (new)
+    ReCreated --> [*]: cleanup
 ```
 
 ## Full-Loop Dashboard Workflow
 
 1. **Select** `api-to-app-pipeline` in the Scripts panel
-2. **Click Run** with args: `--endpoint=all --full-loop --seed=42`
-3. **Watch** Script History: PICT generation → API test creation → app build → plugin publish → UI test creation
-4. **Artifacts tab**: PICT models (.pict), TSV outputs, generated test scripts, app config, handlers
-5. **Scripts panel**: generated test scripts auto-register (test-petstore-*, test-ui-pet-app)
-6. **Plugins**: pet-app appears in the plugin list — open via wrapper.html?mode=pet-app
-7. **Run generated tests**: select any test script, click Run, see assertions
+2. **Click Run** with args: `--endpoint=all --full-loop --workflow --seed=42`
+3. **Watch** Script History: PICT generation → API tests → auth suite → state machine → app build → plugin publish → UI test
+4. **Artifacts tab**: PICT models, TSV outputs, test scripts, app config, handlers
+5. **Scripts panel**: generated tests auto-register (test-petstore-*, test-pet-state-machine, test-ui-pet-app)
+6. **Plugins**: pet-order-app with Pet + Order tabs
+7. **Run generated tests**: select any test, click Run, see assertions
 
 ### Scheduling
 
-Run the full loop on a cron schedule:
 - Script: `api-to-app-pipeline`
-- Args: `--endpoint=all --full-loop --run --seed=42`
-- Cron: `0 6 * * *` (daily at 6am)
+- Args: `--endpoint=all --full-loop --workflow --run --seed=42`
+- Cron: `0 6 * * *`
 
 ## Quick Start (CLI)
 
 ```bash
-# Full loop: API tests + SmartClient app + UI tests
+# Full loop: all tests + multi-entity app + UI tests
 node packages/bridge/api-to-app/pipeline.mjs \
   --endpoint=all --workflow --full-loop --seed=42
 
 # Generate + run API tests only
 node packages/bridge/api-to-app/pipeline.mjs \
   --endpoint=all --workflow --run --seed=42
-
-# Single endpoint, dry-run
-node packages/bridge/api-to-app/pipeline.mjs \
-  --endpoint=findPetsByStatus --dry-run
 ```
 
 ## Pipeline Options
@@ -52,72 +93,57 @@ node packages/bridge/api-to-app/pipeline.mjs \
 | `--spec=<path>` | `specs/petstore-v2.json` | OpenAPI/Swagger spec file |
 | `--endpoint=<id>` | `findPetsByStatus` | Operation ID, or `all` for all endpoints |
 | `--base-url=<url>` | `https://petstore.swagger.io/v2` | Target API base URL |
-| `--seed=<n>` | random | Deterministic PICT seed for reproducibility |
+| `--seed=<n>` | random | Deterministic PICT seed |
 | `--order=<n>` | 2 (pairwise) | Combinatorial order |
-| `--workflow` | off | Generate CRUD workflow test (POST->GET->DELETE) |
+| `--workflow` | off | Linear workflow + state machine test |
 | `--build` | off | Generate SmartClient app (programmatic) |
-| `--full-loop` | off | Build app + publish as plugin + generate UI tests |
-| `--run` | off | Execute generated tests after creating them |
-| `--dry-run` | off | Print PICT models without generating scripts |
+| `--full-loop` | off | Build app + publish + generate UI tests |
+| `--run` | off | Execute generated tests |
+| `--dry-run` | off | Print PICT models only |
 
-## What Each Phase Produces
+## Coverage Numbers
 
-### Phase 1: PICT API Tests
-- 10 endpoints, 334 test cases, 100% pass rate
-- PICT models saved as .pict files (viewable in dashboard Artifacts)
-- TSV outputs with all test rows (viewable in data grid viewer)
-- Test scripts auto-registered in script library
+| Test Layer | Cases/Assertions | What It Catches |
+|-----------|-----------------|-----------------|
+| Functional (PICT) | 254 cases | Parameter combinations per endpoint |
+| Schema validation | +159 assertions | Wrong field types, missing required fields, invalid enums |
+| Auth suite (L0) | 54 cases | Every endpoint x auth type with PICT constraints |
+| Linear workflow | 6 steps | Basic POST→GET→DELETE sequence |
+| State machine | 23 transitions | update→list, revert, re-create after delete |
+| UI: filter | 3 assertions | Filter form → grid loads data |
+| UI: create | 1 assertion | Create form → submit → grid updates |
+| UI: sort | 1 assertion | Column sort changes row order |
+| UI: error | 1 assertion | Invalid filter → graceful handling |
+| **Total** | **~502** | |
 
-### Phase 2: SmartClient App (--full-loop)
-- PICT-informed config: filter values from PICT params, grid columns from schema
-- Uses `fetchUrlAndLoadGrid` action (calls API directly via HOST_NETWORK_FETCH)
-- No custom SW handlers needed (storage-backed plugin)
-- Auto-published via BRIDGE_PUBLISH_PLUGIN relay to extension
+## Auth Separation
 
-### Phase 3: CDP UI Tests (--full-loop)
-- Generated from the same PICT models that drove API tests
-- Opens the published plugin via CDP (port 9222)
-- For each PICT filter value: fills form, clicks Fetch, verifies grid
-- Screenshots captured as artifacts
+Auth is tested separately from functional behavior:
 
-## Coverage Numbers (Petstore v2)
+- **Auth suite** (L0): PICT model covers `Endpoint × AuthType × Accept × ContentType` with constraints. 54 cases.
+- **Functional tests** (L1): No auth params — all calls assume valid auth. 27% fewer cases.
 
-| Endpoint | PICT Cases | Pass |
-|----------|-----------|------|
-| GET /pet/findByStatus | 13 | 13 |
-| POST /pet | 69 | 69 |
-| PUT /pet | 69 | 69 |
-| GET /pet/{petId} | 14 | 14 |
-| DELETE /pet/{petId} | 25 | 25 |
-| POST /pet/{petId}/uploadImage | 25 | 25 |
-| POST /store/order | 69 | 69 |
-| GET /store/order/{orderId} | 8 | 8 |
-| DELETE /store/order/{orderId} | 8 | 8 |
-| GET /store/inventory | 4 | 4 |
-| CRUD workflow | 6 | 6 |
-| **Total** | **310+** | **100%** |
+## Response Schema Validation
 
-## How PICT Models Are Built
+Every positive API test validates the response body field-by-field against the OpenAPI schema:
+- Required fields present (`name`, `photoUrls` for Pet)
+- Integer fields: `typeof === 'number'`
+- Enum fields: value in allowed set
+- Array fields: `Array.isArray()`
 
-Each endpoint's parameters become PICT parameters with representative values:
+## Multi-Entity App
 
-- **Enum values**: all options + `~unknown_enum`
-- **Integers**: `1, 100, 9999, ~-1, ~abc`
-- **Strings**: `doggie, cat_42, ~empty_string`
-- **Date-time**: `2026-04-21T12:00:00Z, ~invalid_date`
-- **Nested objects**: shape variants (`valid, id_only, name_only, ~malformed, omit`)
-- **Arrays**: object arrays `[{id,name}]` or string arrays `["url"]`
-- **Headers**: content-type, accept, auth variations
-
-The `~` prefix marks negative test values. Cases with content-type mismatch (JSON body + XML header) or missing required fields are auto-classified as negative.
+`--full-loop` with `--endpoint=all` generates a TabSet app:
+- **Pet tab**: filter by status, fetch grid, create form
+- **Order tab**: grid, create form
+- Published as `pet-order-app` plugin
 
 ## The fetchUrlAndLoadGrid Action
 
-Storage-backed plugins (published from the pipeline) use this renderer action to call APIs directly without custom SW handlers:
+Storage-backed plugins call APIs directly via HOST_NETWORK_FETCH:
 
 ```json
 {
-  "_type": "Button",
   "_action": "fetchUrlAndLoadGrid",
   "_fetchUrl": "https://petstore.swagger.io/v2/pet/findByStatus",
   "_fetchMethod": "GET",
@@ -128,30 +154,22 @@ Storage-backed plugins (published from the pipeline) use this renderer action to
 }
 ```
 
-Supports GET (query params) and POST/PUT (JSON body). Flattens nested objects and arrays for grid display.
-
-## Using Your Own API
-
-1. Save your OpenAPI spec as JSON in `packages/bridge/api-to-app/specs/`
-2. Run: `node packages/bridge/api-to-app/pipeline.mjs --spec=<path> --base-url=<url> --endpoint=<operationId> --full-loop`
-3. The pipeline generates tests, builds the app, publishes it, and creates UI tests
-
 ## Pipeline Modules
 
 | Module | Purpose |
 |--------|---------|
-| `spec-analyzer.mjs` | Parse OpenAPI spec, generate PICT models |
-| `pict-runner.mjs` | Execute PICT CLI, parse TSV output |
-| `test-generator.mjs` | PICT rows to API test scripts |
-| `app-from-pict.mjs` | PICT models + spec to SmartClient plugin |
-| `app-generator.mjs` | Programmatic app generation (fallback) |
+| `spec-analyzer.mjs` | Parse spec, generate PICT models, auth model |
+| `pict-runner.mjs` | Execute PICT CLI, parse TSV |
+| `test-generator.mjs` | PICT rows → API test scripts with schema validation |
+| `app-from-pict.mjs` | PICT models → SmartClient plugin (single or multi-entity) |
 | `build-driver.mjs` | LLM-enhanced generation |
-| `ui-test-generator.mjs` | PICT models to CDP UI test scripts |
-| `multi-level.mjs` | L0->L1 PICT orchestration with TSV seeding |
+| `ui-test-generator.mjs` | PICT models → CDP UI tests (filter + create + sort + error) |
+| `state-machine.mjs` | CRUD lifecycle state machine test |
+| `multi-level.mjs` | L0→L1 PICT orchestration with TSV seeding |
 | `pipeline.mjs` | Orchestrator (all flags, dashboard integration) |
 
 ## Prerequisites
 
 - **PICT**: Install from [github.com/microsoft/pict](https://github.com/microsoft/pict)
 - **Node.js 22+**: Uses native `fetch`
-- **Bridge server**: Required for dashboard reporting and plugin publish relay
+- **Bridge server**: Required for dashboard reporting and plugin publish

@@ -86,14 +86,21 @@ The agentidev extension is not starting from zero. Significant portions of the c
 
 ### Built (Apr 20-21 2026 sprint)
 - **Transport abstraction** — pluggable dispatch: chrome.runtime (extension) or WebSocket (CLI/server). Agent tools have zero chrome.* dependencies.
-- **api-to-app pipeline** — LIVE. Spec analyzer, PICT runner, test generator, app generator, multi-level orchestration. 4 Petstore endpoints, 127 test cases, 93.7% pass against live API.
-- **Multi-level PICT** — L0 endpoint selection with TSV seed flow to L1 per-endpoint models. 553 expanded cases.
-- **CDP plugin testing** — test_plugin (quick component check), generate_plugin_test (full CDP test with assertions + screenshots). test-csv-analyzer.mjs: 16/16 pass.
+- **api-to-app pipeline** — LIVE. 10 Petstore endpoints, ~502 assertions, 100% pass. Closed loop: spec → PICT → tests → app → UI tests.
+- **Auth separation** — L0 auth suite (54 cases with PICT constraints) separate from L1 functional tests (254 cases, no auth noise)
+- **Response schema validation** — field-by-field spec checks: types, enums, required fields. +159 assertions.
+- **CRUD state machine** — 10-transition lifecycle test: create→read→update→list→revert→delete→re-create. 23 assertions.
+- **Multi-entity TabSet app** — pet-order-app with Pet + Order tabs, published via BRIDGE_PUBLISH_PLUGIN relay
+- **Richer UI tests** — CDP tests for filter, create form, column sort, error states. 11 assertions.
+- **Multi-level PICT** — L0 endpoint selection with TSV seed flow to L1 models. 553 expanded cases.
+- **CDP plugin testing** — test_plugin (quick), generate_plugin_test (full CDP), test-csv-analyzer (16/16)
 - **Global agent selector** — persistent dropdown above tabs, syncs Agent chat + AF mode
-- **Web UI (enterprise tier)** — bridge serves agent chat at http://localhost:9876/. Same protocol, no extension needed.
-- **Zod schema validation** — 12 handler schemas in handler-schemas.mjs, non-blocking validation on message dispatch
-- **App generator** — SmartClient plugin configs from OpenAPI specs (DataSources, ListGrids, DynamicForms, handlers)
-- **Agent tools** — expanded to 21 tools: script_save, script_launch, generate_plugin_test, api_to_app
+- **Web UI (enterprise tier)** — bridge serves chat at http://localhost:9876/
+- **Zod schema validation** — 12 handler schemas, non-blocking validation
+- **fetchUrlAndLoadGrid** — new renderer action for storage-backed plugins (direct API calls, no custom handlers)
+- **Monaco editor Window** — standalone SmartClient Window with resize/maximize (fixes PortalLayout white-out)
+- **Artifact viewers** — double-click/right-click: code viewer with syntax highlighting, TSV grid with filter
+- **Agent tools** — 22 tools: script_save/launch, generate_plugin_test, api_to_app, build_app
 
 ### Not Yet Built
 - **Hono in Service Worker** — formal HTTP channel abstraction (currently hand-rolled message routing)

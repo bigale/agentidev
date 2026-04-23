@@ -166,23 +166,23 @@ graph LR
 ```
 
 ```bash
-# Generate tests for all pet endpoints + CRUD workflow + app
-node packages/bridge/api-to-app/pipeline.mjs --endpoint=all --workflow --build --seed=42
-
-# Or from the agent chat:
-# api_to_app(endpoint="all", build=true)
+# Full loop: API tests + state machine + multi-entity app + UI tests
+node packages/bridge/api-to-app/pipeline.mjs \
+  --endpoint=all --workflow --full-loop --seed=42
 ```
 
-**Coverage numbers (Petstore v2):**
+**Test coverage (Petstore v2, ~502 total assertions):**
 
-| Level | What | Cases |
-|-------|------|-------|
-| L0 | Endpoint x Auth x Accept x ContentType | 17 scenarios |
-| L1 | Per-endpoint parameters (pairwise) | 121 cases |
-| Workflow | POST -> GET -> DELETE chain | 6 steps |
-| Multi-level | L0 seeded into L1 | 553 expanded cases |
+| Layer | Cases | What It Catches |
+|-------|-------|-----------------|
+| Functional (PICT) | 254 | Parameter combinations per endpoint |
+| Schema validation | +159 | Wrong field types, missing fields, invalid enums |
+| Auth suite (L0) | 54 | Endpoint x auth type with PICT constraints |
+| State machine | 23 | CRUD lifecycle transitions (10 states) |
+| UI tests | 11 | Filter + create + sort + error handling |
+| Workflow | 6 | Linear POST->GET->DELETE |
 
-Pipeline modules: `spec-analyzer.mjs`, `pict-runner.mjs`, `test-generator.mjs`, `app-generator.mjs`, `multi-level.mjs`, `pipeline.mjs`
+9 pipeline modules, 10 endpoints, multi-entity TabSet app (Pet + Order)
 
 ---
 
