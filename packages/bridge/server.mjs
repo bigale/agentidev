@@ -186,14 +186,33 @@ async function handleRestDataSource(req, zatoUrl) {
         data: paged,
       },
     };
+  } else if (opType === 'update') {
+    // After update, fetch the record back to return the full current state.
+    // SmartClient needs the complete record to update its client-side cache.
+    let fullRecord = respData;
+    if (zatoResp.ok && data.id && entity.fetchById) {
+      try {
+        const getResp = await fetch(zatoUrl + entity.fetchById.path + data.id);
+        if (getResp.ok) {
+          const fresh = await getResp.json();
+          // Flatten nested objects
+          fullRecord = {};
+          for (const [k, v] of Object.entries(fresh)) {
+            if (v && typeof v === 'object' && !Array.isArray(v)) fullRecord[k] = v.name || v.title || JSON.stringify(v);
+            else if (Array.isArray(v)) fullRecord[k] = v.length + ' items';
+            else fullRecord[k] = v;
+          }
+        }
+      } catch { /* use the update response as-is */ }
+    }
+    return { response: { status: zatoResp.ok ? 0 : -1, data: [fullRecord] } };
+  } else if (opType === 'remove') {
+    // Return the deleted record's primary key so SmartClient removes the right row
+    const id = data.id || data.petId || data.orderId;
+    return { response: { status: zatoResp.ok ? 0 : -1, data: [{ id }] } };
   } else {
-    // add/update/remove — return the affected record
-    return {
-      response: {
-        status: zatoResp.ok ? 0 : -1,
-        data: respData ? [respData] : [],
-      },
-    };
+    // add — return the created record
+    return { response: { status: zatoResp.ok ? 0 : -1, data: respData ? [respData] : [] } };
   }
 }
 

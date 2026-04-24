@@ -798,6 +798,8 @@ function createDataSource(dsConfig) {
         var opType = dsRequest.operationType || 'fetch';
         var data = dsRequest.data || {};
 
+        console.log('[DS ' + dsConfig.ID + '] ' + opType + ':', JSON.stringify(data));
+
         var url = dsUrl + '?_operationType=' + opType;
         var fetchOpts = { headers: { 'Content-Type': 'application/json' } };
 
