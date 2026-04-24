@@ -387,6 +387,23 @@ agentidev/
 
 Total estimated time: **~3 hours** to a working Petstore on Zato with PICT test coverage.
 
+## Implementation vs Zato Tutorial Best Practices
+
+Analysis from comparing our services against the official Zato REST tutorial
+(https://zato.io/en/tutorials/rest-api/python.html):
+
+| Practice | Tutorial Pattern | Our v1 Implementation | Status |
+|----------|-----------------|----------------------|--------|
+| Dataclass Models (SIO) | `@dataclass` for Input/Output | Raw `json.loads(self.request.raw_request)` | FIXED in v2 |
+| Meta response envelope | `{meta: {cid, is_ok, timestamp}, data: {...}}` | Raw JSON | FIXED in v2 |
+| Correlation ID | `self.cid` in every response | Not included | FIXED in v2 |
+| Base service class | `EmployeeService` with shared `get_meta()` | Each service standalone | FIXED in v2 |
+| HTTP methods | GET for read, POST for everything else | GET/POST/PUT/DELETE | Kept (valid per tutorial) |
+| URL design | Action in URL (`/api/employee/get/123`) | Action in URL (`/api/pet/id/{id}`) | Aligned |
+| Error handling | Structured `is_ok: false` with error codes | Raw error messages | FIXED in v2 |
+| Logging | `self.logger.info(f'cid:{self.cid}')` | Implicit | FIXED in v2 |
+| Query params | `self.request.input.field` via Model | `wsgi_environ['QUERY_STRING']` | Kept (3.3 compat) |
+
 ## Success Criteria
 
 1. `docker-compose up` starts Zato + bridge

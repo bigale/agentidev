@@ -1,22 +1,26 @@
 # -*- coding: utf-8 -*-
 """
-Petstore Pet services for Zato.
-Hot-deployed via the pickup directory.
+Petstore Pet services for Zato — v2 (idiomatic patterns).
 
-These services use SQLite directly (no ORM) for simplicity.
-The quickstart container includes sqlite3 in Python stdlib.
+Follows the Zato REST tutorial best practices:
+- Dataclass Models for typed input/output (SIO)
+- Meta response envelope with correlation ID and timestamp
+- Base service class with shared helpers
+- Proper logging via self.logger
 """
 import json
 import sqlite3
 import os
+from dataclasses import dataclass
 
-from zato.server.service import Service
+from zato.server.service import Model, Service
 
 DB_PATH = os.environ.get('PETSTORE_DB', '/opt/zato/petstore.db')
 
 
+# ---- Database helpers ----
+
 def get_db():
-    """Get a SQLite connection with row_factory for dict-like access."""
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA journal_mode=WAL')
@@ -25,7 +29,6 @@ def get_db():
 
 
 def init_db():
-    """Create tables if they don't exist."""
     schema_path = '/opt/zato/sql/petstore-schema.sql'
     if os.path.exists(schema_path):
         conn = get_db()
@@ -34,8 +37,12 @@ def init_db():
         conn.close()
 
 
+def ensure_db():
+    if not os.path.exists(DB_PATH):
+        init_db()
+
+
 def row_to_pet(row):
-    """Convert a SQLite row to a Petstore API pet dict."""
     return {
         'id': row['id'],
         'name': row['name'],
@@ -49,111 +56,136 @@ def row_to_pet(row):
     }
 
 
-class PetInit(Service):
-    """Initialize the petstore database on first call."""
+# ---- SIO Models ----
+
+@dataclass(init=False)
+class Meta(Model):
+    cid: 'str'
+    is_ok: 'bool'
+    timestamp: 'str'
+
+
+# ---- Base Service ----
+
+class PetstoreService(Service):
+    """Base class for all Petstore services. Provides meta envelope."""
+
+    def get_meta(self, is_ok=True):
+        meta = Meta()
+        meta.cid = self.cid
+        meta.is_ok = is_ok
+        meta.timestamp = self.time.utcnow()
+        return meta
+
+    def success_response(self, data):
+        self.response.payload = json.dumps({
+            'meta': {'cid': self.cid, 'is_ok': True, 'timestamp': str(self.time.utcnow())},
+            'data': data,
+        })
+        self.response.content_type = 'application/json'
+
+    def error_response(self, code, message):
+        self.response.status_code = code
+        self.response.payload = json.dumps({
+            'meta': {'cid': self.cid, 'is_ok': False, 'timestamp': str(self.time.utcnow())},
+            'error': {'code': code, 'message': message},
+        })
+        self.response.content_type = 'application/json'
+
+    def get_query_param(self, name, default=None):
+        """Read a query param from QUERY_STRING (Zato 3.3 compat)."""
+        qs = self.wsgi_environ.get('QUERY_STRING', '')
+        for param in qs.split('&'):
+            if param.startswith(name + '='):
+                return param.split('=', 1)[1]
+        return default
+
+    def get_path_id(self):
+        """Extract the last path segment as an integer ID."""
+        path = self.request.http.path
+        segment = path.rstrip('/').split('/')[-1]
+        try:
+            return int(segment)
+        except (ValueError, TypeError):
+            return None
+
+
+# ---- Services ----
+
+class PetInit(PetstoreService):
+    """POST /api/pet/init — initialize the database."""
     name = 'petstore.init'
 
     def handle(self):
         init_db()
-        self.response.payload = json.dumps({'status': 'initialized', 'db': DB_PATH})
-        self.response.content_type = 'application/json'
+        self.logger.info(f'cid:{self.cid} -> Petstore DB initialized: {DB_PATH}')
+        self.success_response({'status': 'initialized', 'db': DB_PATH})
 
 
-class GetPetsByStatus(Service):
+class GetPetsByStatus(PetstoreService):
     """GET /api/pet/findByStatus?status=available"""
     name = 'petstore.pet.find-by-status'
 
     def handle(self):
-        # Ensure DB exists
-        if not os.path.exists(DB_PATH):
-            init_db()
-
-        # Try multiple ways to get query params (Zato 3.3 compatibility)
-        status = 'available'
-        if hasattr(self.request, 'http') and hasattr(self.request.http, 'GET'):
-            status = self.request.http.GET.get('status', status)
-        # Also try from wsgi_environ query string
-        qs = self.wsgi_environ.get('QUERY_STRING', '')
-        for param in qs.split('&'):
-            if param.startswith('status='):
-                status = param.split('=', 1)[1]
-                break
+        ensure_db()
+        status = self.get_query_param('status', 'available')
+        self.logger.info(f'cid:{self.cid} -> Finding pets by status: {status}')
 
         conn = get_db()
-        rows = conn.execute(
-            'SELECT * FROM pets WHERE status = ?', (status,)
-        ).fetchall()
+        rows = conn.execute('SELECT * FROM pets WHERE status = ?', (status,)).fetchall()
         conn.close()
 
         pets = [row_to_pet(r) for r in rows]
+        # Return as array (SmartClient RestDataSource expects array for fetch)
         self.response.payload = json.dumps(pets)
         self.response.content_type = 'application/json'
 
 
-class GetPetById(Service):
-    """GET /api/pet/{petId}"""
+class GetPetById(PetstoreService):
+    """GET /api/pet/id/{petId}"""
     name = 'petstore.pet.get-by-id'
 
     def handle(self):
-        if not os.path.exists(DB_PATH):
-            init_db()
+        ensure_db()
+        pet_id = self.get_path_id()
 
-        # Extract pet_id from URL path
-        path = self.request.http.path
-        pet_id = path.rstrip('/').split('/')[-1]
-
-        try:
-            pet_id = int(pet_id)
-        except (ValueError, TypeError):
-            self.response.status_code = 400
-            self.response.payload = json.dumps({
-                'code': 400, 'message': 'Invalid pet ID: ' + str(pet_id)
-            })
-            self.response.content_type = 'application/json'
+        if pet_id is None:
+            self.error_response(400, 'Invalid pet ID')
             return
+
+        self.logger.info(f'cid:{self.cid} -> Getting pet: {pet_id}')
 
         conn = get_db()
         row = conn.execute('SELECT * FROM pets WHERE id = ?', (pet_id,)).fetchone()
         conn.close()
 
         if not row:
-            self.response.status_code = 404
-            self.response.payload = json.dumps({
-                'code': 404, 'message': 'Pet not found'
-            })
-            self.response.content_type = 'application/json'
+            self.error_response(404, 'Pet not found')
             return
 
         self.response.payload = json.dumps(row_to_pet(row))
         self.response.content_type = 'application/json'
 
 
-class AddPet(Service):
+class AddPet(PetstoreService):
     """POST /api/pet"""
     name = 'petstore.pet.add'
 
     def handle(self):
-        if not os.path.exists(DB_PATH):
-            init_db()
+        ensure_db()
 
         try:
             data = json.loads(self.request.raw_request)
         except (json.JSONDecodeError, TypeError):
-            self.response.status_code = 400
-            self.response.payload = json.dumps({
-                'code': 400, 'message': 'Invalid JSON body'
-            })
-            self.response.content_type = 'application/json'
+            self.error_response(400, 'Invalid JSON body')
             return
 
         name = data.get('name', '')
         if not name:
-            self.response.status_code = 400
-            self.response.payload = json.dumps({
-                'code': 400, 'message': 'name is required'
-            })
-            self.response.content_type = 'application/json'
+            self.error_response(400, 'name is required')
             return
+
+        self.logger.info(f'cid:{self.cid} -> Adding pet: {name}')
 
         conn = get_db()
         cursor = conn.execute(
@@ -179,28 +211,25 @@ class AddPet(Service):
         self.response.content_type = 'application/json'
 
 
-class UpdatePet(Service):
-    """PUT /api/pet"""
+class UpdatePet(PetstoreService):
+    """PUT /api/pet/update"""
     name = 'petstore.pet.update'
 
     def handle(self):
-        if not os.path.exists(DB_PATH):
-            init_db()
+        ensure_db()
 
         try:
             data = json.loads(self.request.raw_request)
         except (json.JSONDecodeError, TypeError):
-            self.response.status_code = 400
-            self.response.payload = json.dumps({'code': 400, 'message': 'Invalid JSON'})
-            self.response.content_type = 'application/json'
+            self.error_response(400, 'Invalid JSON')
             return
 
         pet_id = data.get('id')
         if not pet_id:
-            self.response.status_code = 400
-            self.response.payload = json.dumps({'code': 400, 'message': 'id required'})
-            self.response.content_type = 'application/json'
+            self.error_response(400, 'id required')
             return
+
+        self.logger.info(f'cid:{self.cid} -> Updating pet: {pet_id}')
 
         conn = get_db()
         conn.execute(
@@ -223,29 +252,23 @@ class UpdatePet(Service):
         self.response.content_type = 'application/json'
 
 
-class DeletePet(Service):
-    """DELETE /api/pet/{petId}"""
+class DeletePet(PetstoreService):
+    """DELETE /api/pet/delete/{petId}"""
     name = 'petstore.pet.delete'
 
     def handle(self):
-        if not os.path.exists(DB_PATH):
-            init_db()
+        ensure_db()
+        pet_id = self.get_path_id()
 
-        path = self.request.http.path
-        pet_id = path.rstrip('/').split('/')[-1]
-
-        try:
-            pet_id = int(pet_id)
-        except (ValueError, TypeError):
-            self.response.status_code = 400
-            self.response.payload = json.dumps({'code': 400, 'message': 'Invalid pet ID'})
-            self.response.content_type = 'application/json'
+        if pet_id is None:
+            self.error_response(400, 'Invalid pet ID')
             return
+
+        self.logger.info(f'cid:{self.cid} -> Deleting pet: {pet_id}')
 
         conn = get_db()
         conn.execute('DELETE FROM pets WHERE id = ?', (pet_id,))
         conn.commit()
         conn.close()
 
-        self.response.payload = json.dumps({'code': 200, 'message': 'Pet deleted'})
-        self.response.content_type = 'application/json'
+        self.success_response({'code': 200, 'message': f'Pet {pet_id} deleted'})
