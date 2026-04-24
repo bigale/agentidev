@@ -2,9 +2,9 @@
 
 **AI-powered browser automation, semantic memory, and agentic UI generation platform.**
 
-Agentidev turns your browser into a programmable development environment. An AI agent with 21 tools lives in the sidepanel — it can browse any website, search your history, run Python, generate SmartClient dashboards, create combinatorial API test suites from OpenAPI specs, and produce apps from those specs. A WebSocket bridge orchestrates Playwright sessions, and everything runs locally.
+Agentidev turns your browser into a programmable development environment and enterprise service bus. An AI agent with 22 tools lives in the sidepanel — it can browse any website, search your history, run Python, generate SmartClient dashboards, create combinatorial API test suites from OpenAPI specs, and produce tested full-stack apps. A WebSocket bridge orchestrates Playwright sessions, Zato ESB integration, and everything runs locally.
 
-No cloud required. No API keys required. Works offline with WebLLM.
+No cloud required. No API keys required. Works offline with WebLLM. Optional Zato Docker backend for enterprise database and service orchestration.
 
 ---
 
@@ -24,7 +24,7 @@ graph TB
     style LLM fill:#C9D1D9,color:black
 
     subgraph Personal Tier
-        UI[Sidepanel Chat UI] --> Agent[AI Agent - 21 tools]
+        UI[Sidepanel Chat UI] --> Agent[AI Agent - 22 tools]
         Agent --> Transport[Transport Abstraction]
         Transport -->|chrome.runtime| SW[Service Worker - 187 handlers]
         SW -->|WebSocket| Bridge
@@ -41,6 +41,7 @@ graph TB
         Bridge --> Debug[V8 Debugger]
         Bridge --> ApiApp[api-to-app Pipeline]
         Bridge --> Zod[Zod Schema Validation]
+        Bridge -->|HTTP| Zato[Zato ESB - Docker]
     end
 
     subgraph Data Layer
@@ -276,18 +277,54 @@ Key property: **no chrome.* API dependencies**. The bridge server is the enterpr
 
 ---
 
+## Zato ESB Integration
+
+Optional backend ESB for enterprise database and service orchestration:
+
+```mermaid
+graph LR
+    style Browser fill:#4A90D9,color:black
+    style Bridge fill:#E8A838,color:black
+    style Zato fill:#7BC67E,color:black
+    style DB fill:#6ECFCF,color:black
+
+    Browser[Extension + SmartClient] -->|WebSocket| Bridge[Bridge Server :9876]
+    Bridge -->|HTTP| Zato[Zato Docker :11223]
+    Zato --> DB[PostgreSQL + SQLite]
+    Zato --> Services[10 Petstore Services]
+    Zato --> Channels[REST Channels]
+```
+
+```bash
+# Start Zato
+cd docker/zato && docker compose up -d
+
+# Verify
+curl http://localhost:11223/api/pet/findByStatus?status=available
+
+# Run PICT tests against Zato
+node packages/bridge/api-to-app/pipeline.mjs \
+  --spec=packages/bridge/api-to-app/specs/petstore-zato.json \
+  --base-url=http://localhost:11223/api --endpoint=all --seed=42
+```
+
+Bridge = frontend ESB (browser-to-service). Zato = backend ESB (service-to-service, service-to-database). They connect via HTTP — the bridge is a Zato client.
+
+---
+
 ## Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
-| **AI Agent** | pi-mono (pi-ai + pi-agent-core), 21 tools, TypeBox schemas |
+| **AI Agent** | pi-mono (pi-ai + pi-agent-core), 22 tools, TypeBox schemas |
 | **LLM Providers** | Ollama, WebLLM (WebGPU), OpenAI, Anthropic |
 | **Transport** | Pluggable: chrome.runtime (extension) or WebSocket (CLI/server) |
 | **Bridge Server** | Node.js, HTTP + WebSocket, Playwright, LanceDB, Zod validation |
+| **Backend ESB** | Zato 3.3 in Docker (services, channels, PostgreSQL, Redis) |
 | **Extension** | Chrome MV3, Service Worker (187 handlers), Offscreen Document |
-| **UI Framework** | SmartClient LGPL v14.1p (bundled, 5 skins) |
-| **API Testing** | PICT (pairwise combinatorial), ScriptClient assertions |
-| **Code Editor** | Monaco Editor |
+| **UI Framework** | SmartClient LGPL v14.1p (bundled, RestDataSource, 5 skins) |
+| **API Testing** | PICT (pairwise combinatorial), ~502 assertions, ScriptClient |
+| **Code Editor** | Monaco Editor (standalone Window) |
 | **Vector Search** | all-MiniLM-L6-v2 via transformers.js + LanceDB |
 | **Java Runtime** | CheerpJ 4.2 (JVM to WASM) |
 | **Linux Runtime** | CheerpX 1.0.7 (x86 to WASM) |
