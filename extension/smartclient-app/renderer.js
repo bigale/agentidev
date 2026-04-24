@@ -244,6 +244,33 @@ var ACTION_MAP = {
       dispatchAction(node._messageType, payload);
     };
   },
+  // ---- DataSource-bound actions (for RestDataSource grids) ----
+
+  'dsFetch': function (component, node) {
+    component.click = function () {
+      var grid = resolveRef(node._targetGrid);
+      if (!grid) return;
+      var criteria = {};
+      if (node._payloadFrom) {
+        var source = resolveRef(node._payloadFrom);
+        if (source && source.getValues) criteria = source.getValues() || {};
+      }
+      grid.fetchData(criteria);
+    };
+  },
+  'dsAdd': function (component, node) {
+    component.click = function () {
+      var grid = resolveRef(node._targetGrid);
+      if (grid) grid.startEditingNew();
+    };
+  },
+  'dsSave': function (component, node) {
+    component.click = function () {
+      var grid = resolveRef(node._targetGrid);
+      if (grid) grid.saveAllEdits();
+    };
+  },
+
   /**
    * Like 'dispatch' but waits for the response and writes it into a target
    * component (HTMLFlow, Label, anything with setContents).
@@ -745,21 +772,86 @@ function wireAction(component, node) {
 
 // ---- DataSource creation ----
 
+// Allow RestDataSource to make cross-origin calls (sandbox has null origin,
+// bridge server is on localhost:9876). Without this, SmartClient shows a warning
+// dialog and blocks the request.
+if (typeof isc !== 'undefined' && isc.RPCManager) {
+  isc.RPCManager.allowCrossDomainCalls = true;
+}
+
 function createDataSource(dsConfig) {
-  var ds = isc.DataSource.create({
-    ID: dsConfig.ID,
-    dataProtocol: 'clientCustom',
-    fields: dsConfig.fields,
-    transformRequest: function (dsRequest) {
-      sendDSRequest(dsRequest).then(function (resp) {
-        this.processResponse(dsRequest.requestId, {
-          status: resp.status || 0,
-          data: resp.data,
-          totalRows: resp.totalRows,
-        });
-      }.bind(this));
-    },
-  });
+  var ds;
+
+  if (dsConfig._type === 'RestDataSource' && dsConfig.dataURL) {
+    // RestDataSource via fetch() — the sandbox's XHR is blocked cross-origin
+    // but fetch() works. We use clientCustom protocol with fetch() internally
+    // to call the bridge's /ds/ endpoint which speaks the RestDataSource wire
+    // protocol and proxies to Zato.
+    var dsUrl = dsConfig.dataURL;
+    ds = isc.DataSource.create({
+      ID: dsConfig.ID,
+      clientOnly: false,
+      dataProtocol: 'clientCustom',
+      fields: dsConfig.fields,
+      transformRequest: function (dsRequest) {
+        var self = this;
+        var opType = dsRequest.operationType || 'fetch';
+        var data = dsRequest.data || {};
+
+        var url = dsUrl + '?_operationType=' + opType;
+        var fetchOpts = { headers: { 'Content-Type': 'application/json' } };
+
+        if (opType === 'fetch') {
+          // GET with query params
+          for (var k in data) {
+            if (data[k] != null) url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(data[k]);
+          }
+          if (dsRequest.startRow != null) url += '&_startRow=' + dsRequest.startRow;
+          if (dsRequest.endRow != null) url += '&_endRow=' + dsRequest.endRow;
+          if (dsRequest.sortBy) url += '&_sortBy=' + dsRequest.sortBy;
+          fetchOpts.method = 'GET';
+        } else {
+          // POST for add/update/remove
+          fetchOpts.method = 'POST';
+          fetchOpts.body = JSON.stringify(Object.assign({ _operationType: opType }, data));
+        }
+
+        fetch(url, fetchOpts)
+          .then(function (resp) { return resp.json(); })
+          .then(function (result) {
+            var r = result.response || result;
+            self.processResponse(dsRequest.requestId, {
+              status: r.status || 0,
+              startRow: r.startRow || 0,
+              endRow: r.endRow || (r.data ? r.data.length - 1 : 0),
+              totalRows: r.totalRows || (r.data ? r.data.length : 0),
+              data: r.data || [],
+            });
+          })
+          .catch(function (err) {
+            console.error('[DS] fetch error:', err.message);
+            self.processResponse(dsRequest.requestId, { status: -1, data: err.message });
+          });
+      },
+    });
+  } else {
+    // Default: clientCustom protocol (routed through postMessage → extension → bridge)
+    ds = isc.DataSource.create({
+      ID: dsConfig.ID,
+      dataProtocol: 'clientCustom',
+      fields: dsConfig.fields,
+      transformRequest: function (dsRequest) {
+        sendDSRequest(dsRequest).then(function (resp) {
+          this.processResponse(dsRequest.requestId, {
+            status: resp.status || 0,
+            data: resp.data,
+            totalRows: resp.totalRows,
+          });
+        }.bind(this));
+      },
+    });
+  }
+
   generatedDataSources.push(ds);
   return ds;
 }

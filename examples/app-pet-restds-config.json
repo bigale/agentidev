@@ -1,0 +1,111 @@
+{
+  "dataSources": [
+    {
+      "ID": "PetDS",
+      "_type": "RestDataSource",
+      "dataURL": "http://localhost:9876/ds/PetDS",
+      "fields": [
+        { "name": "id", "type": "integer", "primaryKey": true },
+        { "name": "name", "type": "text", "title": "Name", "required": true },
+        { "name": "status", "type": "text", "title": "Status", "valueMap": { "available": "Available", "pending": "Pending", "sold": "Sold" } },
+        { "name": "category", "type": "text", "title": "Category" },
+        { "name": "photoUrls", "type": "text", "title": "Photos", "hidden": true },
+        { "name": "tags", "type": "text", "title": "Tags", "hidden": true }
+      ],
+      "operationBindings": [
+        { "operationType": "fetch", "dataProtocol": "getParams" },
+        { "operationType": "add", "dataProtocol": "postParams" },
+        { "operationType": "update", "dataProtocol": "postParams" },
+        { "operationType": "remove", "dataProtocol": "postParams" }
+      ]
+    }
+  ],
+  "layout": {
+    "_type": "VLayout",
+    "width": "100%",
+    "height": "100%",
+    "padding": 12,
+    "membersMargin": 8,
+    "members": [
+      {
+        "_type": "Label",
+        "height": 35,
+        "contents": "<span style='font-size:18px;color:#a8b4ff;font-weight:600'>Pet Explorer (RestDataSource + Zato)</span>"
+      },
+      {
+        "_type": "Label",
+        "height": 18,
+        "contents": "<span style='font-size:11px;color:#666'>CRUD via SmartClient RestDataSource - Bridge - Zato ESB - SQLite</span>"
+      },
+      {
+        "_type": "DynamicForm",
+        "ID": "filterForm",
+        "height": 35,
+        "numCols": 4,
+        "fields": [
+          {
+            "name": "status",
+            "title": "Status",
+            "type": "select",
+            "defaultValue": "available",
+            "valueMap": { "available": "Available", "pending": "Pending", "sold": "Sold" }
+          }
+        ]
+      },
+      {
+        "_type": "Button",
+        "ID": "btnFetch",
+        "title": "Fetch Pets",
+        "width": 100,
+        "height": 28,
+        "_action": "dsFetch",
+        "_targetGrid": "petGrid",
+        "_payloadFrom": "filterForm"
+      },
+      {
+        "_type": "ListGrid",
+        "ID": "petGrid",
+        "width": "100%",
+        "height": "*",
+        "dataSource": "PetDS",
+        "autoFetchData": true,
+        "initialCriteria": { "status": "available" },
+        "canEdit": true,
+        "editEvent": "doubleClick",
+        "listEndEditAction": "next",
+        "autoSaveEdits": true,
+        "canRemoveRecords": true,
+        "alternateRecordStyles": true,
+        "fields": [
+          { "name": "id", "width": 60 },
+          { "name": "name", "width": "*" },
+          { "name": "status", "width": 120 },
+          { "name": "category", "width": 120 }
+        ]
+      },
+      {
+        "_type": "HLayout",
+        "height": 30,
+        "membersMargin": 8,
+        "members": [
+          {
+            "_type": "Button",
+            "ID": "btnAdd",
+            "title": "Add Pet",
+            "width": 80,
+            "_action": "dsAdd",
+            "_targetGrid": "petGrid"
+          },
+          {
+            "_type": "Button",
+            "ID": "btnSave",
+            "title": "Save All",
+            "width": 80,
+            "_action": "dsSave",
+            "_targetGrid": "petGrid"
+          }
+        ]
+      }
+    ]
+  }
+}

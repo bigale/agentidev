@@ -45,6 +45,158 @@ const CONSOLE_BUFFER_LIMIT = 500 * 1024;  // 500KB max console buffer per script
 // Sources stored in bridge LanceDB (not relayed to extension)
 const BRIDGE_VECTOR_SOURCES = new Set(['showcase', 'reference', 'docs', 'template']);
 
+// ---- RestDataSource protocol handler ----
+// Translates SmartClient RestDataSource wire protocol to Zato REST channel calls.
+// Route: /ds/<EntityDS>/<fetch|add|update|remove>
+
+// Entity → Zato URL path mapping
+const DS_ENTITY_MAP = {
+  PetDS: {
+    fetch: { method: 'GET', path: '/api/pet/findByStatus', queryParam: 'status' },
+    fetchById: { method: 'GET', path: '/api/pet/id/' },
+    add: { method: 'POST', path: '/api/pet' },
+    update: { method: 'PUT', path: '/api/pet/update' },
+    remove: { method: 'DELETE', path: '/api/pet/delete/' },
+  },
+  OrderDS: {
+    fetch: { method: 'GET', path: '/api/store/inventory' },
+    fetchById: { method: 'GET', path: '/api/store/order/id/' },
+    add: { method: 'POST', path: '/api/store/order' },
+    remove: { method: 'DELETE', path: '/api/store/order/delete/' },
+  },
+};
+
+async function handleRestDataSource(req, zatoUrl) {
+  const url = new URL(req.url, 'http://localhost');
+  const parts = url.pathname.split('/').filter(Boolean); // ['ds', 'PetDS', 'fetch']
+  const dsId = parts[1];
+  const entity = DS_ENTITY_MAP[dsId];
+  if (!entity) return { response: { status: -1, data: 'Unknown DataSource: ' + dsId } };
+
+  // Parse parameters from query string (GET/fetch) or body (POST/add/update/remove)
+  let params = {};
+  if (req.method === 'GET') {
+    for (const [k, v] of url.searchParams) params[k] = v;
+  } else {
+    const body = await new Promise(resolve => {
+      let d = ''; req.on('data', c => d += c); req.on('end', () => {
+        try { resolve(JSON.parse(d)); } catch {
+          // Form-encoded: key=value&key2=value2
+          const p = {};
+          d.split('&').forEach(pair => { const [k, v] = pair.split('=').map(decodeURIComponent); p[k] = v; });
+          resolve(p);
+        }
+      });
+    });
+    params = body;
+  }
+
+  const opType = params._operationType || parts[2] || 'fetch';
+  const startRow = parseInt(params._startRow || '0', 10);
+  const endRow = parseInt(params._endRow || '75', 10);
+  const sortBy = params._sortBy;
+
+  // Strip SmartClient internal params
+  const data = { ...params };
+  delete data._operationType; delete data._startRow; delete data._endRow;
+  delete data._sortBy; delete data._textMatchStyle; delete data._componentId;
+  delete data._dataSource; delete data._oldValues;
+
+  let zatoPath, zatoMethod, zatoBody;
+
+  switch (opType) {
+    case 'fetch': {
+      const conf = entity.fetch;
+      zatoPath = conf.path;
+      zatoMethod = conf.method;
+      // Add query params
+      if (conf.queryParam && data[conf.queryParam]) {
+        zatoPath += '?' + conf.queryParam + '=' + encodeURIComponent(data[conf.queryParam]);
+      } else if (data.id && entity.fetchById) {
+        zatoPath = entity.fetchById.path + data.id;
+        zatoMethod = entity.fetchById.method;
+      }
+      break;
+    }
+    case 'add': {
+      const conf = entity.add;
+      zatoPath = conf.path;
+      zatoMethod = conf.method;
+      zatoBody = JSON.stringify(data);
+      break;
+    }
+    case 'update': {
+      const conf = entity.update;
+      if (!conf) return { response: { status: -1, data: 'Update not supported for ' + dsId } };
+      zatoPath = conf.path;
+      zatoMethod = conf.method;
+      zatoBody = JSON.stringify(data);
+      break;
+    }
+    case 'remove': {
+      const conf = entity.remove;
+      const id = data.id || data.petId || data.orderId;
+      zatoPath = conf.path + (id || '');
+      zatoMethod = conf.method;
+      break;
+    }
+    default:
+      return { response: { status: -1, data: 'Unknown operation: ' + opType } };
+  }
+
+  // Call Zato
+  const fetchOpts = { method: zatoMethod, headers: { 'Content-Type': 'application/json' } };
+  if (zatoBody) fetchOpts.body = zatoBody;
+
+  const zatoResp = await fetch(zatoUrl + zatoPath, fetchOpts);
+  let respData;
+  try { respData = await zatoResp.json(); } catch { respData = null; }
+
+  // Format as SmartClient RestDataSource response
+  if (opType === 'fetch') {
+    let rows = Array.isArray(respData) ? respData : (respData ? [respData] : []);
+    // Flatten nested objects for grid display (category: {id,name} → category: "Dogs")
+    rows = rows.map(row => {
+      const flat = {};
+      for (const [k, v] of Object.entries(row)) {
+        if (v && typeof v === 'object' && !Array.isArray(v)) flat[k] = v.name || v.title || JSON.stringify(v);
+        else if (Array.isArray(v)) flat[k] = v.length + ' items';
+        else flat[k] = v;
+      }
+      return flat;
+    });
+    // Apply client-side sorting if sortBy specified
+    if (sortBy) {
+      const desc = sortBy.startsWith('-');
+      const field = sortBy.replace(/^-/, '');
+      rows.sort((a, b) => {
+        const va = a[field], vb = b[field];
+        const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+        return desc ? -cmp : cmp;
+      });
+    }
+    // Apply paging
+    const paged = rows.slice(startRow, endRow + 1);
+    return {
+      response: {
+        status: 0,
+        startRow,
+        endRow: startRow + paged.length - 1,
+        totalRows: rows.length,
+        data: paged,
+      },
+    };
+  } else {
+    // add/update/remove — return the affected record
+    return {
+      response: {
+        status: zatoResp.ok ? 0 : -1,
+        data: respData ? [respData] : [],
+      },
+    };
+  }
+}
+
 // Parse CLI args
 const args = process.argv.slice(2);
 const portArg = args.find(a => a.startsWith('--port='));
@@ -736,9 +888,35 @@ async function startServer() {
   // Create HTTP server for web UI + WebSocket upgrade on the same port.
   // HTTP requests serve the web UI; WebSocket upgrades are handled by wss.
   const WEB_UI_DIR = pathResolve(__dirname, 'web-ui');
+  // Zato URL for RestDataSource proxy
+  const ZATO_URL = process.env.ZATO_URL || 'http://localhost:11223';
+
   const httpServer = http.createServer(async (req, res) => {
-    // Serve web UI static files
     const urlPath = req.url === '/' ? '/index.html' : req.url.split('?')[0];
+
+    // ---- RestDataSource proxy: /ds/<EntityDS>/<operation> ----
+    // Handles SmartClient RestDataSource wire protocol and proxies to Zato.
+    if (urlPath.startsWith('/ds/')) {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+      if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
+
+      try {
+        const result = await handleRestDataSource(req, ZATO_URL);
+        res.writeHead(200);
+        res.end(JSON.stringify(result));
+      } catch (err) {
+        console.error('[Bridge] RestDataSource error:', err.message);
+        res.writeHead(200);
+        res.end(JSON.stringify({ response: { status: -1, data: err.message } }));
+      }
+      return;
+    }
+
+    // Serve web UI static files
     const filePath = pathResolve(WEB_UI_DIR, '.' + urlPath);
 
     // Security: don't serve files outside web-ui directory
