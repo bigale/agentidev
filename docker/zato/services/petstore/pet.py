@@ -43,14 +43,14 @@ def ensure_db():
 
 
 def row_to_pet(row):
+    cat = None
+    if row['category_id'] or row['category_name']:
+        cat = {'id': row['category_id'], 'name': row['category_name']}
     return {
         'id': row['id'],
         'name': row['name'],
         'status': row['status'],
-        'category': {
-            'id': row['category_id'],
-            'name': row['category_name'],
-        } if row['category_id'] else None,
+        'category': cat,
         'photoUrls': json.loads(row['photo_urls']) if row['photo_urls'] else [],
         'tags': json.loads(row['tags']) if row['tags'] else [],
     }
@@ -109,6 +109,24 @@ class PetstoreService(Service):
         except (ValueError, TypeError):
             return None
 
+
+    def parse_category(self, data):
+        """Extract category_id and category_name from dict, string, or None."""
+        cat = data.get('category')
+        if isinstance(cat, dict):
+            return cat.get('id'), cat.get('name')
+        elif isinstance(cat, str) and cat:
+            return None, cat  # Grid sends flattened string like "Dogs"
+        return None, None
+
+    def parse_array_field(self, data, field):
+        """Handle array fields that may come as string from flattened grid."""
+        val = data.get(field)
+        if isinstance(val, list):
+            return json.dumps(val)
+        elif isinstance(val, str):
+            return val if val.startswith('[') else '[]'
+        return '[]'
 
 # ---- Services ----
 
@@ -187,6 +205,8 @@ class AddPet(PetstoreService):
 
         self.logger.info(f'cid:{self.cid} -> Adding pet: {name}')
 
+        cat_id, cat_name = self.parse_category(data)
+
         conn = get_db()
         cursor = conn.execute(
             '''INSERT INTO pets (id, name, status, category_id, category_name, photo_urls, tags)
@@ -195,10 +215,9 @@ class AddPet(PetstoreService):
                 data.get('id'),
                 name,
                 data.get('status', 'available'),
-                data.get('category', {}).get('id') if isinstance(data.get('category'), dict) else None,
-                data.get('category', {}).get('name') if isinstance(data.get('category'), dict) else None,
-                json.dumps(data.get('photoUrls', [])),
-                json.dumps(data.get('tags', [])),
+                cat_id, cat_name,
+                self.parse_array_field(data, 'photoUrls'),
+                self.parse_array_field(data, 'tags'),
             )
         )
         conn.commit()
@@ -231,6 +250,8 @@ class UpdatePet(PetstoreService):
 
         self.logger.info(f'cid:{self.cid} -> Updating pet: {pet_id}')
 
+        cat_id, cat_name = self.parse_category(data)
+
         conn = get_db()
         conn.execute(
             '''UPDATE pets SET name=?, status=?, category_id=?, category_name=?, photo_urls=?, tags=?
@@ -238,10 +259,9 @@ class UpdatePet(PetstoreService):
             (
                 data.get('name', ''),
                 data.get('status', 'available'),
-                data.get('category', {}).get('id') if isinstance(data.get('category'), dict) else None,
-                data.get('category', {}).get('name') if isinstance(data.get('category'), dict) else None,
-                json.dumps(data.get('photoUrls', [])),
-                json.dumps(data.get('tags', [])),
+                cat_id, cat_name,
+                self.parse_array_field(data, 'photoUrls'),
+                self.parse_array_field(data, 'tags'),
                 pet_id,
             )
         )
