@@ -128,9 +128,20 @@ async function handleRestDataSource(req, zatoUrl) {
     case 'update': {
       const conf = entity.update;
       if (!conf) return { response: { status: -1, data: 'Update not supported for ' + dsId } };
+      // SmartClient sends only changed fields. Fetch current record and merge.
+      let fullData = { ...data };
+      if (data.id && entity.fetchById) {
+        try {
+          const curResp = await fetch(zatoUrl + entity.fetchById.path + data.id);
+          if (curResp.ok) {
+            const current = await curResp.json();
+            fullData = { ...current, ...data };
+          }
+        } catch { /* use partial data */ }
+      }
       zatoPath = conf.path;
       zatoMethod = conf.method;
-      zatoBody = JSON.stringify(data);
+      zatoBody = JSON.stringify(fullData);
       break;
     }
     case 'remove': {

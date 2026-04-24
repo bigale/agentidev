@@ -68,7 +68,16 @@ class GetPetsByStatus(Service):
         if not os.path.exists(DB_PATH):
             init_db()
 
-        status = self.request.http.GET.get('status', 'available')
+        # Try multiple ways to get query params (Zato 3.3 compatibility)
+        status = 'available'
+        if hasattr(self.request, 'http') and hasattr(self.request.http, 'GET'):
+            status = self.request.http.GET.get('status', status)
+        # Also try from wsgi_environ query string
+        qs = self.wsgi_environ.get('QUERY_STRING', '')
+        for param in qs.split('&'):
+            if param.startswith('status='):
+                status = param.split('=', 1)[1]
+                break
 
         conn = get_db()
         rows = conn.execute(
