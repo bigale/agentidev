@@ -99,7 +99,7 @@ export async function loadPlugins(handlers) {
 
   // Register meta handlers ONCE so the SC sandbox can introspect plugins.
   if (!handlers['PLUGIN_LIST']) {
-    handlers['PLUGIN_LIST'] = async () => listPlugins();
+    handlers['PLUGIN_LIST'] = async () => await listPlugins();
   }
   if (!handlers['PLUGIN_GET_MANIFEST']) {
     handlers['PLUGIN_GET_MANIFEST'] = async (msg) => getManifest(msg.id);
@@ -175,7 +175,7 @@ async function loadPlugin(id, handlers) {
 /**
  * @returns {Array<{id, name, version, modes, requires}>}
  */
-export function listPlugins() {
+export async function listPlugins() {
   const out = [];
   for (const [id, entry] of _registry.entries()) {
     const m = entry.manifest;
@@ -187,8 +187,35 @@ export function listPlugins() {
       modes: m.modes,
       requires: m.requires || {},
       loadedAt: entry.loadedAt,
+      source: entry.source || 'builtin',
     });
   }
+
+  // Also fetch external plugins from the bridge if available.
+  // These come from EXTERNAL_PLUGINS_DIR on the bridge host (e.g. consulting-template).
+  // Tagged source: 'external' so consumers can pick the right URL mode (?ext= vs ?mode=).
+  try {
+    const resp = await fetch('http://localhost:9876/external-plugins', {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      const externals = Array.isArray(data.plugins) ? data.plugins : [];
+      const existingIds = new Set(out.map(p => p.id));
+      for (const ext of externals) {
+        if (existingIds.has(ext.id)) continue; // built-in wins on collision
+        out.push({
+          id: ext.id,
+          name: ext.name,
+          description: ext.description || '',
+          source: 'external',
+        });
+      }
+    }
+  } catch {
+    // Bridge unavailable — return only built-ins. Don't error the dropdown.
+  }
+
   return out;
 }
 

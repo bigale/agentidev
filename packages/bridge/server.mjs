@@ -1013,6 +1013,51 @@ async function startServer() {
       return;
     }
 
+    // ---- External plugin discovery (list mode): GET /external-plugins ----
+    // Returns array of {id, name, description, source: 'external'} for each
+    // plugin found in EXTERNAL_PLUGINS_DIR. Used by the extension's auto-mode
+    // dropdown to merge external plugins alongside built-in extension/apps ones.
+    if (urlPath === '/external-plugins' || urlPath === '/external-plugins/') {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Content-Type', 'application/json');
+      const externalDir = process.env.EXTERNAL_PLUGINS_DIR;
+      if (!externalDir) {
+        res.writeHead(200);
+        res.end(JSON.stringify({ plugins: [] }));
+        return;
+      }
+      try {
+        const root = pathResolve(externalDir);
+        if (!existsSync(root)) {
+          res.writeHead(200);
+          res.end(JSON.stringify({ plugins: [] }));
+          return;
+        }
+        const out = [];
+        for (const entry of readdirSync(root)) {
+          const pluginJsonPath = pathResolve(root, entry, 'plugin.json');
+          if (!existsSync(pluginJsonPath)) continue;
+          try {
+            const cfg = JSON.parse(readFileSync(pluginJsonPath, 'utf-8'));
+            out.push({
+              id: cfg.id || entry,
+              name: cfg.name || entry,
+              description: cfg.description || '',
+              source: 'external',
+            });
+          } catch (e) {
+            console.warn(`[Bridge] Skipping ${entry}: ${e.message}`);
+          }
+        }
+        res.writeHead(200);
+        res.end(JSON.stringify({ plugins: out }));
+      } catch (err) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
     // ---- External plugin config serving: /external-plugins/<plugin-id>/plugin.json ----
     // Allows wrapper.html?ext=<plugin-id> to load configs from EXTERNAL_PLUGINS_DIR.
     if (urlPath.startsWith('/external-plugins/')) {

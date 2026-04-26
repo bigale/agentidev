@@ -154,7 +154,22 @@ function loadPluginList(dropdown) {
       return;
     }
     dropdown.innerHTML = '';
+    // Sort: built-in first, external second; alphabetical within each group
+    plugins.sort((a, b) => {
+      if (a.source !== b.source) return a.source === 'external' ? 1 : -1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+    let lastSource = null;
     for (const p of plugins) {
+      // Section divider when source changes (built-in → external)
+      if (p.source === 'external' && lastSource !== 'external') {
+        const sep = document.createElement('div');
+        sep.style.cssText = 'padding:4px 12px;color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.5px;border-top:1px solid #444;margin-top:2px;';
+        sep.textContent = 'External';
+        dropdown.appendChild(sep);
+      }
+      lastSource = p.source;
+
       const item = document.createElement('div');
       item.style.cssText = 'padding:6px 12px;cursor:pointer;font-size:12px;color:#e0e0e0;white-space:nowrap;';
       item.textContent = p.name;
@@ -162,8 +177,14 @@ function loadPluginList(dropdown) {
       item.addEventListener('mouseenter', () => { item.style.background = '#3a3a5a'; });
       item.addEventListener('mouseleave', () => { item.style.background = 'transparent'; });
       item.addEventListener('click', () => {
-        const mode = (p.modes && p.modes[0]) || p.id;
-        chrome.tabs.create({ url: chrome.runtime.getURL('smartclient-app/wrapper.html?mode=' + encodeURIComponent(mode)) });
+        let url;
+        if (p.source === 'external') {
+          url = chrome.runtime.getURL('smartclient-app/wrapper.html?ext=' + encodeURIComponent(p.id));
+        } else {
+          const mode = (p.modes && p.modes[0]) || p.id;
+          url = chrome.runtime.getURL('smartclient-app/wrapper.html?mode=' + encodeURIComponent(mode));
+        }
+        chrome.tabs.create({ url });
         dropdown.style.display = 'none';
       });
       dropdown.appendChild(item);
