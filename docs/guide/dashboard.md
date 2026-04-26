@@ -45,6 +45,7 @@ When you click **Session ▼** and pick a session before running, the script con
 
 Lists all scripts registered with the bridge. Scripts appear here when:
 - Saved to `~/.agentidev/scripts/` (bridge file watcher auto-syncs)
+- Saved to `EXTERNAL_SCRIPTS_DIR` (e.g. a sibling suite repo) — the bridge watches both directories and emits FILE_CHANGED so the extension auto-imports them on connect
 - Opened via File → Open
 - Saved from the editor
 

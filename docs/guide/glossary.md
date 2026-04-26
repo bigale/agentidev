@@ -146,6 +146,26 @@ Architecture terms used throughout agentidev documentation and diagrams. If you 
 
 **Frontend ESB** — The bridge server's role: handles browser-to-service concerns (UI protocol, agent tools, browser automation, PICT pipeline). Complements the backend ESB (Zato) rather than replacing it.
 
+---
+
+## External Plugins / Suites
+
+**External Plugin** — A SmartClient plugin loaded from a directory outside the agentidev repo. Discovered via `EXTERNAL_PLUGINS_DIR`, opened via `wrapper.html?ext=<plugin-id>`. Used for private plugin suites (e.g. consulting templates, business-specific tooling) that shouldn't ship in the public framework. Has the same component whitelist and rendering pipeline as built-in plugins; only the config source differs.
+
+**EXTERNAL_PLUGINS_DIR** — Environment variable read by the bridge and Zato docker-compose. Points at a directory of `<plugin-id>/` subdirectories, each containing `plugin.json` and optional `zato/{services,schema.sql,channels.json}`. Lets a sibling repo contribute first-class plugins without forking agentidev.
+
+**EXTERNAL_SCRIPTS_DIR** — Environment variable read by the bridge file watcher. Points at a directory of `.mjs` script files. Files there appear in the dashboard Scripts library alongside `~/.agentidev/scripts/`. Bridge auto-emits `BRIDGE_SCRIPT_FILE_CHANGED` for these on startup and on each extension reconnection.
+
+**INSTANCE_OVERRIDES_DIR** — Environment variable used by external scripts to read business-specific config (target verticals, geo center, branding) without baking it into the script. Convention: `<INSTANCE_OVERRIDES_DIR>/<plugin-id>/<config>.json`.
+
+**Suite** — A repo containing `plugins/` and `scripts/` directories meant to be loaded into agentidev as external plugins + external scripts. Example: `consulting-template`. A suite can be sold/licensed separately from any specific business that uses it.
+
+**Instance** — A repo containing the suite-specific configuration, branding, real API keys, and accumulated data for a particular deployment. Example: `ai-com` is the AutomatedInternet.com instance of the `consulting-template` suite. Three-layer model: **agentidev (framework) ← suite ← instance**.
+
+**?ext= URL Mode** — `wrapper.html?ext=<plugin-id>` loads the plugin's `plugin.json` from the bridge's `/external-plugins/<id>/plugin.json` endpoint. Counterpart to `?app=<id>` (IndexedDB) and `?mode=<id>` (built-in plugins).
+
+**`/external-plugins` endpoint** — `GET http://localhost:9876/external-plugins` returns `{plugins: [{id, name, description, source: 'external'}]}`. Used by the Auto tab Plugins dropdown to merge external plugins alongside built-ins. `GET /external-plugins/<id>/<file>` serves the actual files (with path-traversal protection).
+
 **Backend ESB** — Zato's role: handles service-to-service concerns (database connections, API composition, enterprise adapters, hot-deploy). The bridge calls Zato REST channels over HTTP.
 
 **REST Channel** — Zato's term for an HTTP endpoint that maps to a service. Created via `zato create-rest-channel` CLI or web admin. Each channel has a URL path, HTTP method, and linked service.

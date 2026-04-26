@@ -203,8 +203,80 @@ await client.complete({ assertions: client.getAssertionSummary() });
 
 Save to `~/.agentidev/scripts/` and run from the dashboard. See `examples/test-csv-analyzer.mjs` for a complete reference implementation (16 assertions).
 
+## External Plugins (sibling repos)
+
+The framework supports loading plugins from a sibling directory outside this repo. This is the model for private plugin suites (e.g. a consulting business template) that shouldn't ship in the public framework but need first-class integration.
+
+### Three env vars
+
+```bash
+export EXTERNAL_PLUGINS_DIR=~/repos/my-suite/plugins
+export EXTERNAL_SCRIPTS_DIR=~/repos/my-suite/scripts
+export INSTANCE_OVERRIDES_DIR=~/repos/my-instance/overrides
+```
+
+When set, the bridge and extension look in these paths in addition to their built-in locations. Unset, everything still works the way it did before.
+
+### External plugin layout
+
+```
+my-suite/plugins/<plugin-id>/
+├── plugin.json                # SmartClient config (renderer-consumable)
+└── zato/                      # Optional: if the plugin has a Zato backend
+    ├── services/*.py          # Hot-deployed into Zato on setup
+    ├── schema.sql             # Optional, called by an init service
+    └── channels.json          # { channels: [...], datasources: {...} }
+```
+
+### What the framework does with each piece
+
+| Piece | Mechanism |
+|---|---|
+| `plugin.json` | Bridge serves at `GET /external-plugins/<id>/plugin.json`. Loaded by `wrapper.html?ext=<id>` |
+| Zato services | `setup-channels.mjs` copies `*.py` from external dir into Zato pickup, hot-deploys |
+| `channels.json` channels | `setup-channels.mjs` registers each via `zato create-rest-channel` |
+| `channels.json` datasources | Bridge merges into `DS_ENTITY_MAP` at startup; lets `/ds/<DSId>` proxy work |
+| Discovery list | Bridge `GET /external-plugins` returns `[{id, name, description, source:'external'}, ...]` |
+
+### URL mode for external plugins
+
+External plugins open via `?ext=<plugin-id>`:
+
+```
+chrome-extension://<ext-id>/smartclient-app/wrapper.html?ext=prospect-crm
+```
+
+The host page (`bridge.js`) fetches `http://localhost:9876/external-plugins/<id>/plugin.json` and feeds the config to the sandbox iframe. Same render path as built-in plugins; just a different config source.
+
+### Auto tab dropdown integration
+
+The Auto tab Plugins dropdown shows external plugins under an "External" section header, sorted alphabetically. Click routes to `?ext=<id>`. Built-in plugins appear above, sorted alphabetically, opened via `?mode=<id>`. If the bridge is offline, only built-ins show.
+
+### External scripts
+
+`EXTERNAL_SCRIPTS_DIR` makes `.mjs` files in that directory show up in the dashboard Scripts library alongside `~/.agentidev/scripts/`. The bridge file watcher monitors both directories. On bridge startup and on each extension reconnection, existing external scripts are emitted as `BRIDGE_SCRIPT_FILE_CHANGED` so the extension's library auto-imports them.
+
+Launch by name from the dashboard works the same way for both — `launchScriptInternal` resolves bare names against `SCRIPTS_DIR` first, then `EXTERNAL_SCRIPTS_DIR`, auto-appending `.mjs` if missing.
+
+### Instance overrides
+
+`INSTANCE_OVERRIDES_DIR` is used by external scripts to read business-specific config (target verticals, geo center, branding) without baking it into the script. Convention: scripts read from `<INSTANCE_OVERRIDES_DIR>/<plugin-id>/<config>.json` when no equivalent CLI arg is provided.
+
+### When to use the external pattern vs `extension/apps/`
+
+| Use external | Use `extension/apps/` |
+|---|---|
+| Plugin shouldn't ship in the public agentidev repo | Plugin is part of the framework or a public reference implementation |
+| Plugin has a Zato backend (services + schema + channels) | Plugin is pure browser-side (chrome.runtime handlers + UI) |
+| Plugin is part of a "suite" you maintain elsewhere | Standalone plugin |
+| Plugin needs RestDataSource over HTTP to a backend | Plugin uses message-passing to SW handlers |
+
+A canonical worked example: `consulting-template/plugins/prospect-crm` — plugin.json + Zato services + RestDataSource grid, loaded via `?ext=prospect-crm`.
+
 ## Gotchas
 
 - **SectionStack breaks buttons**: renderer only walks `members`, not `sections[].items[]`. Use VLayout + Labels instead.
 - **DynamicForm has getSelectedRecord AND getValues**: `_payloadFrom` prefers `getValues` for forms (not grids).
 - **resolveRef only works in dashboard mode**: in plugin mode use `isc.AutoTest.getObject`.
+- **External plugins disappear from dropdown when bridge is down**: the discovery list is fetched live. Built-ins still show. Restart the bridge and reopen the dropdown to refresh.
+- **POST and GET on the same Zato URL collide**: Zato 3.3 doesn't dispatch by HTTP method on identical paths. Use distinct paths (`/api/foo` GET, `/api/foo/add` POST) — see `restdatasource-zato` rule for the channel layout.
