@@ -1,3 +1,28 @@
+# =============================================================================
+# Agentidev — Zato ESB Backend
+# =============================================================================
+#
+# Petstore API services backed by SQLite, exposed via REST channels.
+#
+# Quick start:
+#   cd docker/zato
+#   docker compose up -d
+#   node setup-channels.mjs      # creates channels + DB + verifies
+#
+# Full reset (destroys all data):
+#   docker compose down -v
+#   docker compose up -d
+#   node setup-channels.mjs
+#
+# Data persistence:
+#   - zato-data volume: Zato config, ODB, channel definitions, petstore.db
+#   - ./services: Python services (git-tracked, bind-mounted)
+#   - ./sql: Schema, seed data, backups (git-tracked, bind-mounted)
+#
+# The zato-data volume survives 'docker compose down' but NOT 'down -v'.
+# To back up: docker exec agentidev-zato cp /opt/zato/petstore.db /opt/zato/sql/petstore-backup.db
+# =============================================================================
+
 version: '3.8'
 
 services:
@@ -8,11 +33,26 @@ services:
       - "11223:11223"   # REST channels (server1)
       - "8183:8183"     # Zato dashboard (web-admin)
     volumes:
-      - ./services:/opt/zato/hotdeploy
-      - ./sql:/opt/zato/sql
+      # Git-tracked: services auto-deploy on container start
+      - ./services:/opt/zato/hotdeploy:ro
+      # Git-tracked: schema, seed data, setup script, backups
+      - ./sql:/opt/zato/sql:rw
+      # Named volume: Zato runtime (ODB, config, channels, petstore.db)
       - zato-data:/opt/zato/env
+      # Optional: external plugins from sibling repos (e.g. consulting-template).
+      # Set EXTERNAL_PLUGINS_DIR in your shell or .env; defaults to ./.empty (no-op).
+      # Each plugin should follow the layout: <plugin>/zato/{services/,schema.sql,channels.json}
+      - ${EXTERNAL_PLUGINS_DIR:-./.empty}:/opt/zato/external-plugins:ro
     environment:
       - ZATO_WEB_ADMIN_PASSWORD=admin
+      - PETSTORE_DB=/opt/zato/petstore.db
+      - EXTERNAL_PLUGINS_DIR=${EXTERNAL_PLUGINS_DIR:-}
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:17010/zato/ping')"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
     restart: unless-stopped
 
 volumes:

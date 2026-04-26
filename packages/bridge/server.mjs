@@ -16,7 +16,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { spawn, execFile } from 'child_process';
 import http from 'http';
 import { readFile, writeFile, mkdir, stat, readdir, symlink, lstat, unlink, readlink, rm } from 'fs/promises';
-import { watch, copyFileSync } from 'fs';
+import { watch, copyFileSync, existsSync, readdirSync, readFileSync } from 'fs';
 import { resolve as pathResolve, dirname } from 'path';
 import { Cron } from 'croner';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -49,7 +49,8 @@ const BRIDGE_VECTOR_SOURCES = new Set(['showcase', 'reference', 'docs', 'templat
 // Translates SmartClient RestDataSource wire protocol to Zato REST channel calls.
 // Route: /ds/<EntityDS>/<fetch|add|update|remove>
 
-// Entity → Zato URL path mapping
+// Entity → Zato URL path mapping. Built-in entries plus any discovered from
+// EXTERNAL_PLUGINS_DIR/<plugin>/zato/channels.json (datasources section).
 const DS_ENTITY_MAP = {
   PetDS: {
     fetch: { method: 'GET', path: '/api/pet/findByStatus', queryParam: 'status' },
@@ -65,6 +66,34 @@ const DS_ENTITY_MAP = {
     remove: { method: 'DELETE', path: '/api/store/order/delete/' },
   },
 };
+
+// Load external plugin DataSources at startup
+function loadExternalDataSources() {
+  const externalDir = process.env.EXTERNAL_PLUGINS_DIR;
+  if (!externalDir) return;
+  try {
+    const root = pathResolve(externalDir);
+    if (!existsSync(root)) return;
+    for (const entry of readdirSync(root)) {
+      const channelsPath = pathResolve(root, entry, 'zato', 'channels.json');
+      if (!existsSync(channelsPath)) continue;
+      try {
+        const parsed = JSON.parse(readFileSync(channelsPath, 'utf8'));
+        const datasources = parsed.datasources || {};
+        for (const [dsId, conf] of Object.entries(datasources)) {
+          DS_ENTITY_MAP[dsId] = conf;
+          console.log(`[Bridge] Loaded external DataSource: ${dsId} (from plugin ${entry})`);
+        }
+      } catch (e) {
+        console.error(`[Bridge] Failed to parse ${channelsPath}: ${e.message}`);
+      }
+    }
+  } catch (e) {
+    console.error(`[Bridge] loadExternalDataSources failed: ${e.message}`);
+  }
+}
+
+loadExternalDataSources();
 
 async function handleRestDataSource(req, zatoUrl) {
   const url = new URL(req.url, 'http://localhost');

@@ -147,6 +147,41 @@ cd docker/zato && docker compose up -d   # Start Zato
 # Channels created via: docker exec agentidev-zato /opt/zato/current/bin/zato create-rest-channel ...
 ```
 
+## External Plugins (EXTERNAL_PLUGINS_DIR)
+
+The framework supports loading plugins from a sibling directory (e.g. private `consulting-template` repo) without adding them to this public repo.
+
+Set the env var to a directory containing plugin subdirectories:
+
+```bash
+export EXTERNAL_PLUGINS_DIR=~/repos/consulting-template/plugins
+cd docker/zato && docker compose up -d
+node setup-channels.mjs
+```
+
+Each external plugin must follow this layout:
+
+```
+<plugin-id>/
+├── plugin.json              # SmartClient plugin config
+└── zato/
+    ├── services/*.py        # Hot-deployed into Zato
+    ├── schema.sql           # Optional, called by an init service
+    └── channels.json        # { channels: [...], datasources: {...} }
+```
+
+What the framework does on `setup-channels.mjs`:
+- Walks `EXTERNAL_PLUGINS_DIR/*/zato/`
+- Copies `services/*.py` to Zato's `pickup/incoming/services/` (triggers hot-deploy)
+- Reads `channels.json` and registers each channel via `zato create-rest-channel`
+
+What the bridge does on startup:
+- Walks `EXTERNAL_PLUGINS_DIR/*/zato/channels.json`
+- Merges each plugin's `datasources` block into `DS_ENTITY_MAP`
+- Logs: `[Bridge] Loaded external DataSource: <id> (from plugin <plugin-id>)`
+
+Schema files inside the container appear at `/opt/zato/external-plugins/<plugin-id>/zato/schema.sql` — init services should reference that path.
+
 ## PICT Testing Against Zato
 
 The same PICT test suite runs against Zato:
