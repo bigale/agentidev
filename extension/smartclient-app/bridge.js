@@ -4,9 +4,10 @@
  * Also routes AI generation requests (smartclient-ai) to SC_GENERATE_UI handler.
  *
  * Loading modes:
- *   ?app=<id>  — load persisted app from IndexedDB (primary)
- *   ?clone=1   — load from chrome.storage.session (backward compat)
- *   (no params) — show app gallery
+ *   ?app=<id>     — load persisted app from IndexedDB (primary)
+ *   ?clone=1      — load from chrome.storage.session (backward compat)
+ *   ?ext=<id>     — load external plugin from bridge (EXTERNAL_PLUGINS_DIR/<id>/plugin.json)
+ *   (no params)   — show app gallery
  */
 
 const iframe = document.getElementById('sc-frame');
@@ -89,6 +90,29 @@ else if (urlParams.get('clone') === '1') {
     chrome.storage.session.remove('sc_clone_config');
     sendConfigToIframe(config);
   });
+}
+
+// --- Mode 2b: External plugin via bridge HTTP (?ext=<plugin-id>) ---
+// Reads from EXTERNAL_PLUGINS_DIR/<plugin-id>/plugin.json on the bridge host.
+else if (urlParams.get('ext')) {
+  const extId = urlParams.get('ext');
+  const url = 'http://localhost:9876/external-plugins/' + encodeURIComponent(extId) + '/plugin.json';
+  fetch(url)
+    .then((r) => r.ok ? r.json() : r.json().then((e) => Promise.reject(new Error(e.error || 'fetch failed'))))
+    .then((config) => {
+      document.title = (config.name || extId) + ' — SmartClient';
+      sendConfigToIframe(config);
+    })
+    .catch((err) => {
+      console.error('[Bridge] External plugin load failed:', err.message);
+      document.body.innerHTML = '<pre style="color:#e74c3c;padding:20px;font-family:monospace">' +
+        'Failed to load external plugin "' + extId + '": ' + err.message + '\n\n' +
+        'Make sure:\n' +
+        '  1. The bridge is running on localhost:9876\n' +
+        '  2. EXTERNAL_PLUGINS_DIR is set when starting the bridge\n' +
+        '  3. <EXTERNAL_PLUGINS_DIR>/' + extId + '/plugin.json exists\n' +
+        '</pre>';
+    });
 }
 
 // --- Mode 3: Dashboard (PortalLayout) ---

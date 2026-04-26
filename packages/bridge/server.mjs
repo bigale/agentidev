@@ -975,6 +975,42 @@ async function startServer() {
       return;
     }
 
+    // ---- External plugin config serving: /external-plugins/<plugin-id>/plugin.json ----
+    // Allows wrapper.html?ext=<plugin-id> to load configs from EXTERNAL_PLUGINS_DIR.
+    if (urlPath.startsWith('/external-plugins/')) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Content-Type', 'application/json');
+      const externalDir = process.env.EXTERNAL_PLUGINS_DIR;
+      if (!externalDir) {
+        res.writeHead(404); res.end(JSON.stringify({ error: 'EXTERNAL_PLUGINS_DIR not set' }));
+        return;
+      }
+      // Strip /external-plugins/ prefix and split: <plugin-id>/<file>
+      const rel = urlPath.replace(/^\/external-plugins\//, '');
+      const parts = rel.split('/').filter(Boolean);
+      if (parts.length < 2) { res.writeHead(400); res.end(JSON.stringify({ error: 'usage: /external-plugins/<plugin-id>/<file>' })); return; }
+      const pluginId = parts[0];
+      const subpath = parts.slice(1).join('/');
+      // Path traversal guard
+      if (pluginId.includes('..') || subpath.includes('..')) {
+        res.writeHead(400); res.end(JSON.stringify({ error: 'invalid path' })); return;
+      }
+      const targetPath = pathResolve(externalDir, pluginId, subpath);
+      const expectedRoot = pathResolve(externalDir);
+      if (!targetPath.startsWith(expectedRoot)) {
+        res.writeHead(403); res.end(JSON.stringify({ error: 'forbidden' })); return;
+      }
+      try {
+        const content = await readFile(targetPath, 'utf-8');
+        res.writeHead(200);
+        res.end(content);
+      } catch (err) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: 'plugin file not found', path: `${pluginId}/${subpath}` }));
+      }
+      return;
+    }
+
     // Serve web UI static files
     const filePath = pathResolve(WEB_UI_DIR, '.' + urlPath);
 
