@@ -36,6 +36,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT  = pathResolve(__dirname, '..', '..');
 const SHIM_PATH = pathResolve(__dirname, 'playwright-shim.mjs');
 const SCRIPTS_DIR = pathResolve(homedir(), '.agentidev', 'scripts');
+// Optional: external scripts directory (e.g. consulting-template/scripts). Watched in addition to SCRIPTS_DIR.
+const EXTERNAL_SCRIPTS_DIR = process.env.EXTERNAL_SCRIPTS_DIR
+  ? pathResolve(process.env.EXTERNAL_SCRIPTS_DIR)
+  : null;
 const AUTH_DIR = pathResolve(homedir(), '.agentidev', 'auth');
 const CLONES_DIR = pathResolve(homedir(), '.agentidev', 'clones');
 const ARTIFACTS_DIR = pathResolve(homedir(), '.agentidev', 'artifacts');
@@ -870,32 +874,62 @@ async function startServer() {
     }
   }
 
-  // Start file watcher on scripts directory
+  // Start file watcher on scripts directory (and EXTERNAL_SCRIPTS_DIR if set)
   async function startFileWatcher() {
     try {
       await mkdir(SCRIPTS_DIR, { recursive: true });
     } catch { /* already exists */ }
-    try {
-      fileWatcher = watch(SCRIPTS_DIR, (eventType, filename) => {
-        if (!filename || !filename.endsWith('.mjs')) return;
 
-        // Debounce: editors write multiple times
-        if (fileWatcherDebounce.has(filename)) {
-          clearTimeout(fileWatcherDebounce.get(filename));
-        }
-        fileWatcherDebounce.set(filename, setTimeout(() => {
-          fileWatcherDebounce.delete(filename);
-          handleFileChange(filename);
-        }, FILE_WATCH_DEBOUNCE));
-      });
-      console.log(`[Bridge] Watching scripts dir: ${SCRIPTS_DIR}`);
-    } catch (err) {
-      console.warn(`[Bridge] File watcher failed (non-fatal): ${err.message}`);
+    function watchDir(dir, label) {
+      try {
+        const w = watch(dir, (eventType, filename) => {
+          if (!filename || !filename.endsWith('.mjs')) return;
+          // Debounce key includes dir to avoid collisions when same name exists in both
+          const key = `${dir}/${filename}`;
+          if (fileWatcherDebounce.has(key)) {
+            clearTimeout(fileWatcherDebounce.get(key));
+          }
+          fileWatcherDebounce.set(key, setTimeout(() => {
+            fileWatcherDebounce.delete(key);
+            handleFileChange(filename, dir);
+          }, FILE_WATCH_DEBOUNCE));
+        });
+        console.log(`[Bridge] Watching ${label}: ${dir}`);
+        return w;
+      } catch (err) {
+        console.warn(`[Bridge] File watcher failed for ${dir} (non-fatal): ${err.message}`);
+        return null;
+      }
+    }
+
+    fileWatcher = watchDir(SCRIPTS_DIR, 'scripts dir');
+
+    if (EXTERNAL_SCRIPTS_DIR) {
+      if (existsSync(EXTERNAL_SCRIPTS_DIR)) {
+        watchDir(EXTERNAL_SCRIPTS_DIR, 'EXTERNAL_SCRIPTS_DIR');
+      } else {
+        console.warn(`[Bridge] EXTERNAL_SCRIPTS_DIR set but does not exist: ${EXTERNAL_SCRIPTS_DIR}`);
+      }
     }
   }
 
-  async function handleFileChange(filename) {
-    const filePath = pathResolve(SCRIPTS_DIR, filename);
+  // Optional: emit FILE_CHANGED for every existing script in EXTERNAL_SCRIPTS_DIR
+  // on bridge startup so the extension library picks them up without waiting for an edit.
+  async function emitExistingExternalScripts() {
+    if (!EXTERNAL_SCRIPTS_DIR || !existsSync(EXTERNAL_SCRIPTS_DIR)) return;
+    try {
+      const files = readdirSync(EXTERNAL_SCRIPTS_DIR).filter(f => f.endsWith('.mjs'));
+      for (const f of files) {
+        await handleFileChange(f, EXTERNAL_SCRIPTS_DIR);
+      }
+      if (files.length) console.log(`[Bridge] Emitted ${files.length} existing external scripts`);
+    } catch (err) {
+      console.warn(`[Bridge] Failed to emit existing external scripts: ${err.message}`);
+    }
+  }
+
+  async function handleFileChange(filename, dir = SCRIPTS_DIR) {
+    const filePath = pathResolve(dir, filename);
 
     // Echo suppression: skip if we wrote this file ourselves
     if (fileWatcherIgnore.has(filePath)) {
@@ -933,6 +967,10 @@ async function startServer() {
   }
 
   startFileWatcher();
+  // Fire-and-forget: emit existing external scripts so they appear in the library
+  // as soon as a connected extension starts listening. Slight delay so the watcher
+  // is ready and clients have a moment to connect.
+  setTimeout(() => emitExistingExternalScripts(), 1500);
   loadSchedules();
   initDB();
   // Initialize bridge-side vector DB and embedding model (non-blocking — bridge
@@ -1352,17 +1390,22 @@ async function startServer() {
   async function launchScriptInternal(payload) {
     const { path: scriptPath, args: scriptArgs = [], breakpoints: preBreakpoints, lineBreakpoints, debug, sessionId: launchSessionId, originalPath, preActions, postActions, captureArtifacts } = payload;
 
-    // Resolve script path: bare filenames check SCRIPTS_DIR first (dashboard sends just the name),
-    // relative paths resolve against server CWD, absolute paths used as-is.
+    // Resolve script path: bare filenames check SCRIPTS_DIR, then EXTERNAL_SCRIPTS_DIR,
+    // then fall back to CWD. Auto-appends .mjs when given a bare name (dashboard Run
+    // sends just the script name without extension). Absolute paths used as-is.
     let resolvedScriptPath = scriptPath;
     if (!scriptPath.startsWith('/')) {
-      const inScriptsDir = pathResolve(SCRIPTS_DIR, scriptPath);
-      try {
-        await stat(inScriptsDir);
-        resolvedScriptPath = inScriptsDir;
-      } catch {
-        resolvedScriptPath = pathResolve(scriptPath);
+      const variants = scriptPath.endsWith('.mjs') ? [scriptPath] : [scriptPath, scriptPath + '.mjs'];
+      const candidates = [];
+      for (const v of variants) {
+        candidates.push(pathResolve(SCRIPTS_DIR, v));
+        if (EXTERNAL_SCRIPTS_DIR) candidates.push(pathResolve(EXTERNAL_SCRIPTS_DIR, v));
       }
+      let found = null;
+      for (const c of candidates) {
+        try { await stat(c); found = c; break; } catch { /* keep looking */ }
+      }
+      resolvedScriptPath = found || pathResolve(scriptPath);
     }
     const useV8Debug = debug || (Array.isArray(lineBreakpoints) && lineBreakpoints.length > 0);
     const nodeArgs = useV8Debug ? ['--inspect-brk=0', resolvedScriptPath, ...scriptArgs] : [resolvedScriptPath, ...scriptArgs];
@@ -1739,6 +1782,11 @@ async function startServer() {
           shimPath: SHIM_PATH,
           scriptsDir: SCRIPTS_DIR,
         }));
+        // When an extension connects, re-emit external scripts so their library
+        // entries are populated even if the extension started after bridge boot.
+        if (role === 'extension' && EXTERNAL_SCRIPTS_DIR) {
+          setTimeout(() => emitExistingExternalScripts(), 500);
+        }
         break;
       }
 
