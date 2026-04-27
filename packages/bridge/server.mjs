@@ -1519,6 +1519,28 @@ async function startServer() {
 
     // Dependency resolution
     let launchCwd = undefined;
+    // If launching from EXTERNAL_SCRIPTS_DIR, set up a node_modules symlink there
+    // pointing at agentidev's node_modules. External script suites typically
+    // don't have their own node_modules — this lets them import @anthropic-ai/sdk
+    // and other agentidev deps without each suite reinstalling them.
+    if (EXTERNAL_SCRIPTS_DIR && resolvedScriptPath.startsWith(EXTERNAL_SCRIPTS_DIR)) {
+      try {
+        const nodeModulesPath = await findNearestNodeModules(REPO_ROOT);
+        if (nodeModulesPath) {
+          const externalSymlinkDest = pathResolve(EXTERNAL_SCRIPTS_DIR, 'node_modules');
+          try {
+            await lstat(externalSymlinkDest);
+            // already exists — assume good
+          } catch {
+            const linkType = process.platform === 'win32' ? 'junction' : 'dir';
+            await symlink(nodeModulesPath, externalSymlinkDest, linkType);
+            console.log(`[Bridge] Created node_modules symlink in EXTERNAL_SCRIPTS_DIR → ${nodeModulesPath}`);
+          }
+        }
+      } catch (err) {
+        console.warn(`[Bridge] EXTERNAL_SCRIPTS_DIR symlink failed (non-fatal): ${err.message}`);
+      }
+    }
     if (originalPath) {
       const resolvedOriginalPath = originalPath.startsWith('/') ? originalPath : pathResolve(originalPath);
       const originalDir = dirname(resolvedOriginalPath);
