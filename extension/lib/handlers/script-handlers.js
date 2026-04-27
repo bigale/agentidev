@@ -227,6 +227,30 @@ export function register(handlers) {
     return { success: true, ...(await bridgeClient.scheduleHistory(msg.scheduleId || msg.id)) };
   };
 
+  // ---- Run Plans ----
+  handlers['RUN_PLAN_LIST'] = async () => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge', plans: [] };
+    return { success: true, ...(await bridgeClient.listRunPlans()) };
+  };
+  handlers['RUN_PLAN_GET'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
+    return { success: true, ...(await bridgeClient.getRunPlan(msg.id)) };
+  };
+  handlers['RUN_PLAN_SAVE'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
+    // Strip handler-routing fields (type) before forwarding payload to bridge
+    const { type, ...plan } = msg;
+    return { success: true, ...(await bridgeClient.saveRunPlan(plan)) };
+  };
+  handlers['RUN_PLAN_DELETE'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
+    return { success: true, ...(await bridgeClient.deleteRunPlan(msg.id)) };
+  };
+  handlers['RUN_PLAN_EXECUTE'] = async (msg) => {
+    if (!bridgeClient.isConnected()) return { success: false, error: 'Not connected to bridge' };
+    return { success: true, ...(await bridgeClient.executeRunPlan(msg.id)) };
+  };
+
   // ---- Script Library (chrome.storage.local) ----
 
   handlers['SCRIPT_IMPORT'] = async (msg) => {

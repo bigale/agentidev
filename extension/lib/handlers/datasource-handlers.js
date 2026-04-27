@@ -41,6 +41,47 @@ const BRIDGE_BACKENDS = {
     list: () => ({ log: getCommandLog() }),
     idField: 'id',
   },
+  // Run Plans flattened for TreeGrid: each plan is a parent row,
+  // each step is a child row with parentId = plan.id.
+  RunPlans: {
+    listKey: 'rows',
+    list: async () => {
+      const reply = await bridgeClient.listRunPlans();
+      const plans = reply?.plans || [];
+      const rows = [];
+      for (const plan of plans) {
+        rows.push({
+          id: plan.id,
+          parentId: null,
+          isPlan: true,
+          name: plan.name,
+          description: plan.description || '',
+          enabled: plan.enabled,
+          schedule: plan.schedule || null,
+          stepCount: (plan.steps || []).length,
+          updatedAt: plan.updatedAt,
+        });
+        for (const step of plan.steps || []) {
+          rows.push({
+            id: `${plan.id}::${step.id}`,
+            parentId: plan.id,
+            isPlan: false,
+            name: step.script,
+            stepId: step.id,
+            script: step.script,
+            args: Object.entries(step.args || {})
+              .map(([k, v]) => `--${k}=${v}`)
+              .join(' '),
+            argsObj: step.args || {},
+            enabled: step.enabled !== false,
+            stopOnFailure: !!step.stopOnFailure,
+          });
+        }
+      }
+      return { rows };
+    },
+    idField: 'id',
+  },
 };
 
 function applyCriteria(records, criteria) {

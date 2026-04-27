@@ -356,6 +356,51 @@ function loadDashboard() {
     };
   }
 
+  // ==== Run Plans (Automation portlet) ====
+  var btnNewRunPlan = resolveRef('btnNewRunPlan');
+  if (btnNewRunPlan) {
+    btnNewRunPlan.click = function () { showNewRunPlanDialog(); };
+  }
+  var btnRunRunPlan = resolveRef('btnRunRunPlan');
+  if (btnRunRunPlan) {
+    btnRunRunPlan.click = function () {
+      var tree = resolveRef('runPlansTree');
+      var rec = tree && tree.getSelectedRecord();
+      if (!rec) { isc.warn('Select a plan to run'); return; }
+      var planId = rec.isPlan ? rec.id : rec.parentId;
+      if (!planId) return;
+      dispatchActionAsync('RUN_PLAN_EXECUTE', { id: planId }).then(function (resp) {
+        if (resp && resp.success) {
+          isc.say('Plan started: runId=' + resp.runId + ' (' + resp.stepsToRun + ' steps)');
+        } else {
+          isc.warn('Run failed: ' + (resp && resp.error ? resp.error : 'unknown'));
+        }
+      });
+    };
+  }
+  var btnDeleteRunPlan = resolveRef('btnDeleteRunPlan');
+  if (btnDeleteRunPlan) {
+    btnDeleteRunPlan.click = function () {
+      var tree = resolveRef('runPlansTree');
+      var rec = tree && tree.getSelectedRecord();
+      if (!rec || !rec.isPlan) { isc.warn('Select a plan (not a step) to delete'); return; }
+      isc.ask('Delete plan "' + rec.name + '"?', function (ok) {
+        if (!ok) return;
+        dispatchActionAsync('RUN_PLAN_DELETE', { id: rec.id }).then(function () {
+          var t = resolveRef('runPlansTree');
+          if (t) t.invalidateCache();
+        });
+      });
+    };
+  }
+  var btnRefreshRunPlans = resolveRef('btnRefreshRunPlans');
+  if (btnRefreshRunPlans) {
+    btnRefreshRunPlans.click = function () {
+      var t = resolveRef('runPlansTree');
+      if (t) t.invalidateCache();
+    };
+  }
+
   // Wire Recipe buttons
   var btnAddPre = resolveRef('btnAddPre');
   if (btnAddPre) {
@@ -1441,6 +1486,133 @@ function showOpenScriptDialog() {
       isc.Button.create({
         title: 'Cancel',
         click: function () { dlg.destroy(); },
+      }),
+    ],
+  });
+  dlg.show();
+}
+
+// ---- New Run Plan dialog ----
+// Minimal v1: name + a JSON editor for the steps array. Future iterations
+// can build a richer step-by-step builder; for now JSON is the universal
+// data structure and lets power users compose plans freely.
+function showNewRunPlanDialog() {
+  var defaultPlan = {
+    name: 'My Run Plan',
+    description: '',
+    enabled: true,
+    steps: [
+      {
+        id: 'step_1',
+        script: 'verify-selectors',
+        enabled: true,
+        args: {
+          config: '/path/to/probe-config.json',
+          baseline: '/path/to/probe-config.baseline.json',
+        },
+        stopOnFailure: false,
+      },
+    ],
+  };
+
+  var statusLabel = isc.Label.create({
+    width: '100%',
+    height: 20,
+    contents: '',
+  });
+
+  var form = isc.DynamicForm.create({
+    width: '100%',
+    numCols: 2,
+    colWidths: [120, '*'],
+    fields: [
+      { name: 'name', title: 'Name', type: 'text', defaultValue: defaultPlan.name, required: true },
+      { name: 'description', title: 'Description', type: 'text', defaultValue: '' },
+      {
+        name: 'planJson',
+        title: 'Plan steps (JSON)',
+        type: 'TextAreaItem',
+        rowSpan: 6,
+        height: 240,
+        width: '*',
+        colSpan: 2,
+        titleOrientation: 'top',
+        defaultValue: JSON.stringify({ steps: defaultPlan.steps }, null, 2),
+      },
+    ],
+  });
+
+  var okBtn = isc.Button.create({
+    title: 'Create',
+    click: function () {
+      var vals = form.getValues();
+      var name = (vals.name || '').trim();
+      if (!name) {
+        statusLabel.setContents('<span style="color:#f44336;">Name is required</span>');
+        return;
+      }
+      var parsed;
+      try {
+        parsed = JSON.parse(vals.planJson || '{}');
+      } catch (e) {
+        statusLabel.setContents('<span style="color:#f44336;">Invalid JSON: ' + e.message + '</span>');
+        return;
+      }
+      if (!Array.isArray(parsed.steps)) {
+        statusLabel.setContents('<span style="color:#f44336;">JSON must contain steps[] array</span>');
+        return;
+      }
+
+      okBtn.setDisabled(true);
+      cancelBtn.setDisabled(true);
+      statusLabel.setContents('<span style="color:#888;">Saving plan...</span>');
+
+      dispatchActionAsync('RUN_PLAN_SAVE', {
+        name: name,
+        description: (vals.description || '').trim(),
+        enabled: true,
+        steps: parsed.steps,
+      }).then(function (resp) {
+        if (resp && resp.success) {
+          var tree = resolveRef('runPlansTree');
+          if (tree) tree.invalidateCache();
+          dlg.close();
+        } else {
+          statusLabel.setContents('<span style="color:#f44336;">Save failed: ' + (resp && resp.error || 'unknown') + '</span>');
+          okBtn.setDisabled(false);
+          cancelBtn.setDisabled(false);
+        }
+      });
+    },
+  });
+  var cancelBtn = isc.Button.create({
+    title: 'Cancel',
+    click: function () { dlg.close(); },
+  });
+
+  var dlg = isc.Window.create({
+    title: 'New Run Plan',
+    width: 600,
+    height: 480,
+    autoCenter: true,
+    isModal: true,
+    showModalMask: true,
+    items: [
+      isc.VLayout.create({
+        width: '100%',
+        height: '100%',
+        layoutMargin: 12,
+        membersMargin: 8,
+        members: [
+          form,
+          statusLabel,
+          isc.HLayout.create({
+            height: 30,
+            membersMargin: 8,
+            align: 'right',
+            members: [okBtn, cancelBtn],
+          }),
+        ],
       }),
     ],
   });

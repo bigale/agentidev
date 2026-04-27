@@ -150,6 +150,29 @@ window._dashboardConfig = {
         { name: 'contentType', type: 'text',    hidden: true },
       ],
     },
+    {
+      // Run plans flattened into TreeGrid rows. Each plan is a parent;
+      // each step is a child with parentId = plan.id.
+      // The bridge backend (RunPlans in datasource-handlers.js) returns
+      // this shape.
+      ID: 'RunPlans',
+      fields: [
+        { name: 'id',         type: 'text',    primaryKey: true, hidden: true },
+        { name: 'parentId',   type: 'text',    hidden: true },
+        { name: 'isPlan',     type: 'boolean', hidden: true },
+        { name: 'name',       type: 'text',    title: 'Name',     width: '*' },
+        { name: 'enabled',    type: 'boolean', title: 'On',       width: 35 },
+        { name: 'stepCount',  type: 'integer', title: 'Steps',    width: 50 },
+        { name: 'args',       type: 'text',    title: 'Args',     width: '*' },
+        { name: 'updatedAt',  type: 'text',    title: 'Updated',  width: 150 },
+        { name: 'description',type: 'text',    hidden: true },
+        { name: 'script',     type: 'text',    hidden: true },
+        { name: 'stepId',     type: 'text',    hidden: true },
+        { name: 'stopOnFailure', type: 'boolean', hidden: true },
+        { name: 'argsObj',    type: 'text',    hidden: true },
+        { name: 'schedule',   type: 'text',    hidden: true },
+      ],
+    },
   ],
 
   layout: {
@@ -640,6 +663,84 @@ window._dashboardConfig = {
                         _action: 'dispatch',
                         _messageType: 'SCHEDULE_DELETE',
                         _payloadFrom: 'schedulesGrid',
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+
+          // ==== Column 0, row 4: Automation (Run Plans) ====
+          {
+            _type: 'Portlet',
+            _column: 0,
+            _row: 4,
+            title: 'Automation (Run Plans)',
+            height: 320,
+            members: [
+              {
+                _type: 'VLayout',
+                width: '100%',
+                height: '100%',
+                members: [
+                  {
+                    _type: 'TreeGrid',
+                    ID: 'runPlansTree',
+                    width: '100%',
+                    height: '*',
+                    dataSource: 'RunPlans',
+                    autoFetchData: true,
+                    selectionType: 'single',
+                    showOpenIcons: true,
+                    showConnectors: true,
+                    canEdit: false,
+                    parentIdField: 'parentId',
+                    idField: 'id',
+                    rootValue: null,
+                    showHeader: true,
+                    fields: [
+                      { name: 'name',         title: 'Name',     width: '*',  treeField: true },
+                      { name: 'enabled',      title: 'On',       type: 'boolean', width: 35 },
+                      { name: 'stepCount',    title: 'Steps',    width: 50 },
+                      { name: 'args',         title: 'Args',     width: '*' },
+                      { name: 'updatedAt',    title: 'Updated',  width: 150 },
+                    ],
+                    emptyMessage: 'No run plans yet — click New Plan to create one',
+                  },
+                  {
+                    _type: 'HLayout',
+                    height: 30,
+                    membersMargin: 4,
+                    layoutMargin: 4,
+                    members: [
+                      {
+                        _type: 'Button',
+                        ID: 'btnNewRunPlan',
+                        title: 'New Plan',
+                        width: 80,
+                        _action: 'newRunPlan',
+                      },
+                      {
+                        _type: 'Button',
+                        ID: 'btnRunRunPlan',
+                        title: 'Run',
+                        width: 60,
+                        _action: 'runRunPlan',
+                      },
+                      {
+                        _type: 'Button',
+                        ID: 'btnDeleteRunPlan',
+                        title: 'Delete',
+                        width: 70,
+                        _action: 'deleteRunPlan',
+                      },
+                      {
+                        _type: 'Button',
+                        ID: 'btnRefreshRunPlans',
+                        title: 'Refresh',
+                        width: 70,
+                        _action: 'refreshRunPlans',
                       },
                     ],
                   },

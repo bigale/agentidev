@@ -8,7 +8,7 @@
 
 // Only these SmartClient types can be instantiated
 const ALLOWED_TYPES = new Set([
-  'VLayout', 'HLayout', 'ListGrid', 'DynamicForm', 'Button', 'Label',
+  'VLayout', 'HLayout', 'ListGrid', 'TreeGrid', 'DynamicForm', 'Button', 'Label',
   'TabSet', 'Tab', 'DetailViewer', 'SectionStack', 'HTMLFlow',
   'Window', 'ToolStrip', 'ToolStripButton',
   'PortalLayout', 'Portlet', 'Canvas', 'Progressbar', 'ImgButton',
@@ -597,6 +597,18 @@ var ACTION_MAP = {
     // Wired dynamically in dashboard-app.js loadDashboard()
   },
   'idbSync': function (component) {
+    // Wired dynamically in dashboard-app.js loadDashboard()
+  },
+  'newRunPlan': function (component) {
+    // Wired dynamically in dashboard-app.js loadDashboard()
+  },
+  'runRunPlan': function (component) {
+    // Wired dynamically in dashboard-app.js loadDashboard()
+  },
+  'deleteRunPlan': function (component) {
+    // Wired dynamically in dashboard-app.js loadDashboard()
+  },
+  'refreshRunPlans': function (component) {
     // Wired dynamically in dashboard-app.js loadDashboard()
   },
   // ---- Client-side compute action ----

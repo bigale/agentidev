@@ -493,6 +493,24 @@ export function onScheduleUpdate(cb) {
   callbacks.onScheduleUpdate.push(cb);
 }
 
+// ---- Run Plans ----
+
+export function listRunPlans() {
+  return _sendRequest('BRIDGE_RUN_PLAN_LIST', {});
+}
+export function getRunPlan(id) {
+  return _sendRequest('BRIDGE_RUN_PLAN_GET', { id });
+}
+export function saveRunPlan(plan) {
+  return _sendRequest('BRIDGE_RUN_PLAN_SAVE', plan);
+}
+export function deleteRunPlan(id) {
+  return _sendRequest('BRIDGE_RUN_PLAN_DELETE', { id });
+}
+export function executeRunPlan(id) {
+  return _sendRequest('BRIDGE_RUN_PLAN_EXECUTE', { id });
+}
+
 // ---- SmartClient AI ----
 
 /**
