@@ -258,6 +258,8 @@ The Auto tab Plugins dropdown shows external plugins under an "External" section
 
 Launch by name from the dashboard works the same way for both — `launchScriptInternal` resolves bare names against `SCRIPTS_DIR` first, then `EXTERNAL_SCRIPTS_DIR`, auto-appending `.mjs` if missing.
 
+> **Building scrape/enrich scripts?** See the [Runtime Automation](../runtime-automation.md) doc for the conceptual framing — it explains the dev-time-resolution vs runtime-LLM split and where the `probe-selectors` utility fits as the bridge between paradigms. A QA-automation lens on why deterministic runtime is worth the engineering for repeated tasks.
+
 ### Instance overrides
 
 `INSTANCE_OVERRIDES_DIR` is used by external scripts to read business-specific config (target verticals, geo center, branding) without baking it into the script. Convention: scripts read from `<INSTANCE_OVERRIDES_DIR>/<plugin-id>/<config>.json` when no equivalent CLI arg is provided.

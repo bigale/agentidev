@@ -35,6 +35,7 @@ const INDEX = JSON.parse(readFileSync(join(GUIDE_DIR, 'index.json'), 'utf-8'));
 // Additional architecture docs to include
 const EXTRA_DOCS = [
   { source: 'docs/convergence-architecture.md', title: 'Convergence Architecture' },
+  { source: 'docs/runtime-automation.md', title: 'Runtime Automation' },
 ];
 
 // Map guide section to wiki page filename.
