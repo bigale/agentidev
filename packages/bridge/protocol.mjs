@@ -114,6 +114,9 @@ export const MSG = {
   BRIDGE_READ_FILE: 'BRIDGE_READ_FILE',                      // read a local file (text or base64)
   BRIDGE_COPY_TO_ASSETS: 'BRIDGE_COPY_TO_ASSETS',            // copy a local file to the asset-server root
 
+  // LLM completions (route through Claude Code — uses CLI auth, no API key needed)
+  BRIDGE_LLM_COMPLETE: 'BRIDGE_LLM_COMPLETE',                // generic completion: { system, prompt, model?, schema?, timeout? } → { result }
+
   // SmartClient AI (route through Claude Code)
   BRIDGE_SC_GENERATE_UI: 'BRIDGE_SC_GENERATE_UI',            // generate SmartClient UI config via claude -p
   BRIDGE_PUBLISH_PLUGIN: 'BRIDGE_PUBLISH_PLUGIN',            // publish plugin config (relayed to extension)

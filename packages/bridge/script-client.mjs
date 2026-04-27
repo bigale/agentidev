@@ -327,6 +327,35 @@ export class ScriptClient {
   }
 
   /**
+   * Request an LLM completion through the bridge.
+   * Uses Claude Code CLI auth on the bridge side — no API key needed
+   * in the script's environment.
+   *
+   * @param {object} opts
+   * @param {string} opts.prompt - User message (required)
+   * @param {string} [opts.system] - System prompt
+   * @param {string} [opts.model='sonnet'] - 'opus' | 'sonnet' | 'haiku'
+   * @param {object} [opts.schema] - JSON Schema; when provided, the response
+   *                                  is parsed as JSON and the system prompt
+   *                                  is augmented with strict-output guidance.
+   * @param {number} [opts.timeoutMs=120000]
+   * @returns {Promise<string|object>} Raw text without schema, parsed JSON with schema.
+   * @throws if the bridge or LLM call fails.
+   */
+  async llmComplete({ prompt, system, model = 'sonnet', schema, timeoutMs = 120000 } = {}) {
+    if (!prompt) throw new Error('llmComplete: prompt is required');
+    const reply = await this._sendRequest(
+      'BRIDGE_LLM_COMPLETE',
+      { system, prompt, model, schema, timeout: timeoutMs },
+      timeoutMs + 5000,
+    );
+    if (!reply || reply.success !== true) {
+      throw new Error(`llmComplete failed: ${reply?.error || 'unknown error'}`);
+    }
+    return reply.result;
+  }
+
+  /**
    * Dynamically declare a checkpoint after registration.
    * Used by playwright-shim when new pages are created (page IDs aren't known at registration time).
    * The bridge appends to script.checkpoints and broadcasts the update so UIs show the new toggle.

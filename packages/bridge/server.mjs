@@ -3483,6 +3483,55 @@ async function startServer() {
         break;
       }
 
+      case MSG.BRIDGE_LLM_COMPLETE: {
+        // Generic LLM completion using Claude Code CLI auth — no API key required.
+        // Payload: { system, prompt, model?, schema?, timeout? }
+        // - system: system prompt (string)
+        // - prompt: user message (string)
+        // - model: 'opus' | 'sonnet' | 'haiku' (default: 'sonnet')
+        // - schema: optional JSON Schema; when present, response is parsed as JSON
+        //   and the system prompt is augmented with strict-output instructions.
+        // - timeout: ms (default 120000)
+        // Reply: { success, result } where result is the raw text (no schema)
+        //        or the parsed JSON object (with schema).
+        const { system, prompt, model, schema, timeout } = msg.payload || {};
+        if (!prompt || !prompt.trim()) {
+          sendTo(ws, buildError('prompt is required', msg.id));
+          break;
+        }
+        const llmModel = model || 'sonnet';
+        const llmTimeout = timeout || 120000;
+        let llmSystem = system || '';
+        if (schema) {
+          // Augment with strict-JSON instructions
+          llmSystem = (llmSystem ? llmSystem + '\n\n' : '') +
+            'IMPORTANT: Output ONLY a single valid JSON object that matches this schema. ' +
+            'No prose, no markdown fences, no explanation before or after. ' +
+            'Schema:\n' + JSON.stringify(schema, null, 2);
+        }
+        console.log(`[Bridge] LLM_COMPLETE (${llmModel}): "${prompt.trim().slice(0, 80)}..."`);
+        try {
+          const raw = await spawnClaude(llmModel, llmSystem, prompt, { timeout: llmTimeout });
+          let result;
+          if (schema) {
+            result = parseClaudeJsonResponse(raw);
+          } else {
+            // Unwrap claude --output-format json envelope and return the result text
+            try {
+              const env = JSON.parse(raw);
+              result = env.result || raw;
+            } catch {
+              result = raw;
+            }
+          }
+          sendTo(ws, buildReply(msg, { success: true, result }));
+        } catch (err) {
+          console.error('[Bridge] LLM_COMPLETE error:', err.message);
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
       case MSG.BRIDGE_SC_GENERATE_UI: {
         const { prompt, currentConfig, projectDescription, templatePrompt } = msg.payload || {};
         if (!prompt || !prompt.trim()) {
