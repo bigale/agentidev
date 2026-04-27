@@ -117,6 +117,14 @@ export const MSG = {
   // LLM completions (route through Claude Code — uses CLI auth, no API key needed)
   BRIDGE_LLM_COMPLETE: 'BRIDGE_LLM_COMPLETE',                // generic completion: { system, prompt, model?, schema?, timeout? } → { result }
 
+  // Run plans — composable multi-step automation pipelines (TreeGrid editor in dashboard)
+  BRIDGE_RUN_PLAN_LIST: 'BRIDGE_RUN_PLAN_LIST',              // → { plans: [...] }
+  BRIDGE_RUN_PLAN_GET: 'BRIDGE_RUN_PLAN_GET',                // { id } → { plan }
+  BRIDGE_RUN_PLAN_SAVE: 'BRIDGE_RUN_PLAN_SAVE',              // { id?, name, enabled, schedule?, steps } → { plan }
+  BRIDGE_RUN_PLAN_DELETE: 'BRIDGE_RUN_PLAN_DELETE',          // { id } → { success }
+  BRIDGE_RUN_PLAN_EXECUTE: 'BRIDGE_RUN_PLAN_EXECUTE',        // { id } → { runId, stepResults: [...] }
+  BRIDGE_RUN_PLAN_PROGRESS: 'BRIDGE_RUN_PLAN_PROGRESS',      // broadcast: { runId, planId, stepIdx, stepId, state, scriptId? }
+
   // SmartClient AI (route through Claude Code)
   BRIDGE_SC_GENERATE_UI: 'BRIDGE_SC_GENERATE_UI',            // generate SmartClient UI config via claude -p
   BRIDGE_PUBLISH_PLUGIN: 'BRIDGE_PUBLISH_PLUGIN',            // publish plugin config (relayed to extension)

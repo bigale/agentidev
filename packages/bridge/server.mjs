@@ -735,6 +735,10 @@ async function startServer() {
   // Pending artifact capture flag: pid → boolean (set at launch, applied at register)
   const pendingCaptureArtifacts = new Map();
 
+  // Pending completion resolvers: pid → array of { resolve } registered by run-plan
+  // execute (or any caller wanting to await a script's exit). Drained on child exit.
+  const pendingCompletions = new Map();
+
   // Console buffers: pid → string (stdout+stderr, started at launch, transferred to script at register)
   const pendingConsoleBuffers = new Map();
 
@@ -1713,6 +1717,21 @@ async function startServer() {
     });
     child.on('exit', (code) => {
       console.log(`[Bridge] Script exited: ${scriptPath} (code ${code})`);
+
+      // Drain any pending completion waiters (e.g. run-plan execute).
+      // Pull the script record off the scripts Map so callers see final state.
+      if (pendingCompletions.has(child.pid)) {
+        const waiters = pendingCompletions.get(child.pid);
+        pendingCompletions.delete(child.pid);
+        let scriptRecord = null;
+        for (const [, s] of scripts) {
+          if (s.pid === child.pid) { scriptRecord = s; break; }
+        }
+        for (const w of waiters) {
+          try { w.resolve({ exitCode: code, script: scriptRecord }); } catch { /* ignore */ }
+        }
+      }
+
       if (pendingInspectors.has(child.pid)) {
         pendingInspectors.get(child.pid).disconnect();
         pendingInspectors.delete(child.pid);
@@ -3914,6 +3933,214 @@ Output ONLY the JSON object. No explanation, no markdown fences.`;
         } catch (err) {
           sendTo(ws, buildReply(msg, { success: false, error: err.message }));
         }
+        break;
+      }
+
+      // ── Run Plans ─────────────────────────────────────────
+      // File-backed at ~/.agentidev/run-plans/<id>.json. A run plan is a
+      // sequence of script invocations the dashboard composes via the TreeGrid
+      // editor. Walks enabled steps in order on EXECUTE, broadcasts progress.
+
+      case MSG.BRIDGE_RUN_PLAN_LIST: {
+        try {
+          const dir = pathResolve(homedir(), '.agentidev', 'run-plans');
+          await mkdir(dir, { recursive: true });
+          const files = (await readdir(dir)).filter(f => f.endsWith('.json'));
+          const plans = [];
+          for (const f of files) {
+            try {
+              const txt = await readFile(pathResolve(dir, f), 'utf-8');
+              plans.push(JSON.parse(txt));
+            } catch (e) {
+              console.warn(`[Bridge] Skipping bad run plan ${f}: ${e.message}`);
+            }
+          }
+          plans.sort((a, b) => (b.updatedAt || 0).localeCompare(a.updatedAt || ''));
+          sendTo(ws, buildReply(msg, { success: true, plans }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_RUN_PLAN_GET: {
+        const { id: planId } = msg.payload || {};
+        if (!planId) { sendTo(ws, buildError('id is required', msg.id)); break; }
+        try {
+          const filePath = pathResolve(homedir(), '.agentidev', 'run-plans', `${planId}.json`);
+          const txt = await readFile(filePath, 'utf-8');
+          sendTo(ws, buildReply(msg, { success: true, plan: JSON.parse(txt) }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_RUN_PLAN_SAVE: {
+        const incoming = msg.payload || {};
+        if (!incoming.name || !Array.isArray(incoming.steps)) {
+          sendTo(ws, buildError('name and steps[] are required', msg.id));
+          break;
+        }
+        try {
+          const dir = pathResolve(homedir(), '.agentidev', 'run-plans');
+          await mkdir(dir, { recursive: true });
+          const planId = incoming.id || `plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+          const filePath = pathResolve(dir, `${planId}.json`);
+
+          let existing = null;
+          try { existing = JSON.parse(await readFile(filePath, 'utf-8')); } catch { /* new */ }
+
+          const now = new Date().toISOString();
+          const plan = {
+            id: planId,
+            name: incoming.name,
+            description: incoming.description || existing?.description || '',
+            enabled: incoming.enabled !== false,
+            schedule: incoming.schedule || null,
+            steps: incoming.steps.map((s, i) => ({
+              id: s.id || `step_${i + 1}`,
+              script: s.script,
+              enabled: s.enabled !== false,
+              args: s.args || {},
+              stopOnFailure: !!s.stopOnFailure,
+            })),
+            createdAt: existing?.createdAt || now,
+            updatedAt: now,
+          };
+          await writeFile(filePath, JSON.stringify(plan, null, 2));
+          console.log(`[Bridge] Run plan saved: ${planId} (${plan.steps.length} steps)`);
+          sendTo(ws, buildReply(msg, { success: true, plan }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_RUN_PLAN_DELETE: {
+        const { id: delPlanId } = msg.payload || {};
+        if (!delPlanId) { sendTo(ws, buildError('id is required', msg.id)); break; }
+        try {
+          const filePath = pathResolve(homedir(), '.agentidev', 'run-plans', `${delPlanId}.json`);
+          await rm(filePath);
+          console.log(`[Bridge] Run plan deleted: ${delPlanId}`);
+          sendTo(ws, buildReply(msg, { success: true }));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: err.message }));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_RUN_PLAN_EXECUTE: {
+        const { id: execPlanId } = msg.payload || {};
+        if (!execPlanId) { sendTo(ws, buildError('id is required', msg.id)); break; }
+
+        let plan;
+        try {
+          const filePath = pathResolve(homedir(), '.agentidev', 'run-plans', `${execPlanId}.json`);
+          plan = JSON.parse(await readFile(filePath, 'utf-8'));
+        } catch (err) {
+          sendTo(ws, buildReply(msg, { success: false, error: `plan not found: ${execPlanId}` }));
+          break;
+        }
+
+        if (plan.enabled === false) {
+          sendTo(ws, buildReply(msg, { success: false, error: 'plan is disabled' }));
+          break;
+        }
+
+        const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const enabledSteps = plan.steps.filter(s => s.enabled !== false);
+        console.log(`[Bridge] Run plan execute: ${plan.name} (${enabledSteps.length}/${plan.steps.length} enabled steps)`);
+
+        // Reply immediately with runId; results stream via RUN_PLAN_PROGRESS broadcasts
+        sendTo(ws, buildReply(msg, { success: true, runId, planId: plan.id, stepsToRun: enabledSteps.length }));
+
+        // Walk steps in order on a separate task so we don't block the message loop
+        (async () => {
+          const stepResults = [];
+          for (let i = 0; i < enabledSteps.length; i++) {
+            const step = enabledSteps[i];
+            broadcast(buildMessage(MSG.BRIDGE_RUN_PLAN_PROGRESS, {
+              runId, planId: plan.id, stepIdx: i, stepId: step.id,
+              state: 'launching', script: step.script,
+            }));
+
+            // Convert {key: value} args object to ['--key=value', ...] CLI args
+            const cliArgs = Object.entries(step.args || {}).map(([k, v]) => `--${k}=${v}`);
+
+            try {
+              // Launch the script and wait for it to register + complete.
+              // launchScriptInternal returns { launchId, pid }; we need to track the
+              // resulting script through to completion via the scripts Map.
+              const launchResult = await launchScriptInternal({
+                path: step.script,
+                args: cliArgs,
+              });
+
+              broadcast(buildMessage(MSG.BRIDGE_RUN_PLAN_PROGRESS, {
+                runId, planId: plan.id, stepIdx: i, stepId: step.id,
+                state: 'running', script: step.script,
+                pid: launchResult.pid, launchId: launchResult.launchId,
+              }));
+
+              // Wait for the script to exit via the pendingCompletions hook
+              const completion = await new Promise((resolve, reject) => {
+                const TIMEOUT = 10 * 60 * 1000; // 10 minutes per step max
+                const timer = setTimeout(() => {
+                  reject(new Error(`step ${step.id} timed out after 10 minutes`));
+                }, TIMEOUT);
+                const waiters = pendingCompletions.get(launchResult.pid) || [];
+                waiters.push({
+                  resolve: (result) => { clearTimeout(timer); resolve(result); },
+                });
+                pendingCompletions.set(launchResult.pid, waiters);
+              });
+
+              const completedScript = completion.script || {};
+              const ok = completion.exitCode === 0 && (completedScript.errors || 0) === 0;
+              stepResults.push({
+                stepIdx: i, stepId: step.id, script: step.script,
+                ok, state: completedScript.state,
+                errors: completedScript.errors,
+                duration: completedScript.duration,
+              });
+              broadcast(buildMessage(MSG.BRIDGE_RUN_PLAN_PROGRESS, {
+                runId, planId: plan.id, stepIdx: i, stepId: step.id,
+                state: ok ? 'complete' : 'failed',
+                script: step.script,
+                errors: completedScript.errors,
+                duration: completedScript.duration,
+              }));
+
+              if (!ok && step.stopOnFailure) {
+                console.log(`[Bridge] Run plan ${plan.id} stopped on step ${step.id} (stopOnFailure)`);
+                broadcast(buildMessage(MSG.BRIDGE_RUN_PLAN_PROGRESS, {
+                  runId, planId: plan.id,
+                  state: 'aborted', stoppedAt: i, stoppedOn: step.id,
+                }));
+                break;
+              }
+            } catch (err) {
+              console.error(`[Bridge] Run plan ${plan.id} step ${step.id} error: ${err.message}`);
+              stepResults.push({
+                stepIdx: i, stepId: step.id, script: step.script,
+                ok: false, error: err.message,
+              });
+              broadcast(buildMessage(MSG.BRIDGE_RUN_PLAN_PROGRESS, {
+                runId, planId: plan.id, stepIdx: i, stepId: step.id,
+                state: 'error', error: err.message,
+              }));
+              if (step.stopOnFailure) break;
+            }
+          }
+          broadcast(buildMessage(MSG.BRIDGE_RUN_PLAN_PROGRESS, {
+            runId, planId: plan.id, state: 'finished',
+            stepResults,
+          }));
+          console.log(`[Bridge] Run plan ${plan.id} finished — ${stepResults.filter(r => r.ok).length}/${stepResults.length} ok`);
+        })().catch(err => console.error(`[Bridge] Run plan execute error: ${err.message}`));
+
         break;
       }
 
