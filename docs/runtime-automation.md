@@ -166,12 +166,37 @@ The honest weakness of Paradigm B is that selectors break when UIs change. Parad
 
 | Approach | What it does | Status in agentidev |
 |---|---|---|
-| **Re-run probe nightly** | Track which selectors lose their matches; alert | Manual today |
+| **Re-run probe nightly with drift detection** | Track which selectors lose their matches; alert via assertions | **`verify-selectors.mjs` (consulting-template/scripts/)** |
 | **Wrap deterministic script with Paradigm-A fallback** | If `el == null`, hand off to LLM browser control to re-resolve | Not implemented |
 | **Multi-selector tolerance** | Each probe records 2–3 alternative selectors; fall back across them | Possible by extending probe-selectors output |
 | **LLM-suggested selector repair** | When a selector misses, send the failing config + current DOM to an LLM, get a fix | Future work |
 
-The probe artifact already captures enough information (counts, alternatives via the ancestor walk, screenshot) to support all of these. The next step would be a `verify-selectors.mjs` script that runs the suite against current production pages and diffs against the last known-good probe output. That's a one-day exercise.
+### verify-selectors: nightly drift detection
+
+`verify-selectors.mjs` re-runs a probe config against the live page and diffs the result against a saved baseline (the JSON output of an earlier successful probe). Three severity levels:
+
+- **✓ unchanged** — same count, same tag/role/clickable ancestor on first sample
+- **⚠ warn** — count changed (still >0), or sample tag/role/clickable ancestor changed, or expected `data-*` attribute disappeared
+- **✗ breaking** — match count went to 0 (selector no longer matches anything)
+
+Each probe becomes one ScriptClient assertion, so drift surfaces in the dashboard's Test Results portlet. The script also exits non-zero on drift for shell pipelines and cron alerting.
+
+```bash
+# Capture initial baseline (one-time, after probe-selectors is clean)
+node verify-selectors.mjs --config=examples/probe-google-maps-detail.json \
+  --baseline=baselines/probe-google-maps-detail.baseline.json \
+  --update-baseline
+
+# Daily verification (intended for the dashboard Schedules portlet)
+node verify-selectors.mjs --config=... --baseline=...
+
+# Refresh baseline after intentional UI changes accepted
+node verify-selectors.mjs --config=... --baseline=... --update-baseline
+```
+
+The baseline file is git-tracked alongside the probe config. When a teammate intentionally accepts a UI change (e.g. Google rebrands a button), they regenerate the baseline and commit the diff. The git history of the baseline becomes the audit trail of "we acknowledged this UI change on date X."
+
+This closes the determinism loop: agentidev now has the dev-time, runtime, and drift-detection legs of Paradigm B as first-class scripts.
 
 ## What probe-selectors does NOT do
 
