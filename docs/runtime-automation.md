@@ -198,6 +198,166 @@ The baseline file is git-tracked alongside the probe config. When a teammate int
 
 This closes the determinism loop: agentidev now has the dev-time, runtime, and drift-detection legs of Paradigm B as first-class scripts.
 
+### LLM-assisted repair (planned)
+
+The remaining gap: when drift IS detected, repair is still manual — a developer reads the diff, opens the page, figures out the new selectors, re-baselines. This is exactly the spot where Paradigm A earns its keep within an otherwise Paradigm-B system.
+
+```mermaid
+graph LR
+    V[verify-selectors fails] --> Diff[Drift report - failing config + last good baseline]
+    Diff --> DOM[Capture current DOM + screenshot]
+    DOM --> LLM[LLM proposes patched selectors]
+    LLM --> Probe[Re-run probe-selectors on proposal]
+    Probe --> Q{Probes match cleanly?}
+    Q -->|Yes| Review[Human reviews diff]
+    Review --> Accept[Update baseline, commit]
+    Q -->|No| LLM
+    Accept --> Det[Deterministic runtime resumes]
+
+    style V fill:#e74c3c,color:black
+    style Diff fill:#F5A623,color:black
+    style DOM fill:#F5A623,color:black
+    style LLM fill:#D97AB5,color:black
+    style Probe fill:#7BC67E,color:black
+    style Q fill:#F5A623,color:black
+    style Review fill:#9b59b6,color:black
+    style Accept fill:#7BC67E,color:black
+    style Det fill:#4a90d9,color:black
+```
+
+The flow keeps every step inspectable: the drift report names which selector failed, the LLM proposal is a patch to the probe config, the re-run of probe-selectors confirms the fix, and the baseline update is a git diff. Paradigm A handles the resolution; Paradigm B reasserts on the other side. **Nothing in the production runtime path runs an LLM.**
+
+Estimated cost per drift event with this flow: one LLM call (sub-cent on Sonnet, free on Ollama) plus a few seconds of human review. Still vastly cheaper than running paradigm-A on every production execution.
+
+A first cut would be a `repair-selectors.mjs` script that takes a failed verify report + the live DOM as input, prompts an LLM with both, and emits a patched probe config. Human runs `verify-selectors --update-baseline` after sanity-checking. About a one-day exercise on top of what's already shipped.
+
+## Run Plan composition — automation as a first-class dashboard primitive
+
+Browser automation has gone from "one capability among many" in agentidev to **the spine** of the consulting-template stack. That promotion deserves a first-class composition surface in the dashboard, not just a list of scripts the user invokes individually.
+
+The natural shape: a hierarchical run-plan editor where the user composes ordered, multi-step automation flows from the script library, sets per-step config inline, and runs the whole tree with one click.
+
+### The two flows are siblings, not the same thing
+
+```mermaid
+graph TB
+    subgraph Composition[Composition flow - new]
+        A[Run Plan editor TreeGrid] --> B[Walk tree, enabled leaves only]
+        B --> C[Sequential script-launch in order]
+    end
+    subgraph Repair[LLM-repair flow - planned next]
+        D[verify-selectors fails] --> E[Send DOM + config to LLM]
+        E --> F[Propose patched selectors]
+        F --> G[Human accepts → new baseline]
+    end
+    Composition -.shared.-> Bridge[bridge script:launch + EXTERNAL_SCRIPTS_DIR]
+    Repair -.shared.-> Bridge
+
+    style A fill:#7BC67E,color:black
+    style B fill:#7BC67E,color:black
+    style C fill:#4a90d9,color:black
+    style D fill:#F5A623,color:black
+    style E fill:#D97AB5,color:black
+    style F fill:#D97AB5,color:black
+    style G fill:#7BC67E,color:black
+    style Bridge fill:#9b59b6,color:black
+```
+
+Different fingerprints (proactive composition vs reactive repair), different surfaces in the dashboard, but they share the same bridge substrate underneath: `script:launch` over scripts in `EXTERNAL_SCRIPTS_DIR`. Building one doesn't perturb the other.
+
+### What the editor looks like
+
+SmartClient's TreeGrid (already on the renderer's allowed list) supports everything this needs:
+
+- Hierarchical data — folders + leaves, expandable
+- Per-node checkboxes — `selectionAppearance: "checkbox"`
+- Inline cell editing — per-row `canEdit` with per-field overrides
+- Drag-reorder for siblings — `canReorderRecords: true`
+- Multiple value columns visible per row
+
+A run-plan portlet in the dashboard would render something like:
+
+```
+☑ Tampa Dental Refresh                 [order: 1]
+  ☑ scrape-google-maps     --vertical=dental --query="dentists Tampa FL"
+  ☑ enrich-from-maps       --vertical=dental --limit=10
+  ☑ verify-selectors       --config=examples/probe-... --baseline=baselines/...
+☐ Tampa HVAC Refresh                   [order: 2]
+  ☑ scrape-google-maps     --vertical=hvac --query="HVAC Tampa FL"
+  ...
+☑ Weekly Drift Check                   [order: 3, schedule: Mon 6am]
+  ☑ verify-selectors       --config=... --baseline=...
+```
+
+Each leaf is a script invocation. Each folder is a "playbook" that runs its enabled children sequentially. A side pane could mirror the JSON-equivalent live for power users.
+
+### Run plan data model
+
+```json
+{
+  "id": "run_plan_1",
+  "name": "Tampa Dental Refresh",
+  "enabled": true,
+  "schedule": null,
+  "steps": [
+    {
+      "id": "step_1",
+      "script": "scrape-google-maps",
+      "enabled": true,
+      "args": { "vertical": "dental", "query": "dentists Tampa FL", "max-results": "15" },
+      "stopOnFailure": false
+    },
+    {
+      "id": "step_2",
+      "script": "enrich-from-maps",
+      "enabled": true,
+      "args": { "vertical": "dental", "limit": "10", "max-age-days": "30" },
+      "stopOnFailure": false
+    },
+    {
+      "id": "step_3",
+      "script": "verify-selectors",
+      "enabled": true,
+      "args": { "config": "scripts/examples/probe-google-maps-detail.json",
+                "baseline": "scripts/baselines/probe-google-maps-detail.baseline.json" },
+      "stopOnFailure": true
+    }
+  ]
+}
+```
+
+Persistence: file-backed under `~/.agentidev/run-plans/` (mirrors how Agentiface apps already live), git-friendly. A run is a tree-walk that fires `script:launch` per enabled step in order, respecting `stopOnFailure`.
+
+### Smallest reversible move
+
+If/when this is pursued (currently not blocking anything else):
+
+1. New `RunPlan` DataSource — file-backed under `~/.agentidev/run-plans/`
+2. New "Automation" portlet in the dashboard with a TreeGrid bound to it
+3. A "Run Plan" toolbar button that walks enabled steps, fires `script:launch` per step
+4. Reuse the existing Script History portlet to surface results — same machinery, just appears
+
+That's a 2-day exercise without renderer changes. Nothing about it conflicts with the LLM-repair track or the existing Scripts/Schedules portlets.
+
+### What to defer until a v1 ships
+
+| Feature | Why defer |
+|---|---|
+| Real-time per-step progress bars in the tree | Script History already shows it; integrate when there's a real desire for tighter feedback |
+| LLM-generated run plans (user describes goal, agent emits tree) | Trivially layerable once the data model exists |
+| Cron-scheduling whole run plans | Existing Schedules portlet handles individual scripts; "schedule a plan" is a thin wrapper later |
+| Conditional steps (run B only if A succeeded with X) | Real workflow language is bigger scope; `stopOnFailure` covers the v1 cases |
+| Visual graph editor (drag boxes + arrows) | TreeGrid covers 90% of the use case |
+| Sub-dashboard with its own URL | PortalLayout's minimize+move handles the cramming; revisit at >10 portlets |
+
+### Honest scope ceiling
+
+The TreeGrid approach gives 80% of a workflow tool with 20% of the engineering. The 20% you don't get: branching, conditional logic, parallel steps, complex variable passing between steps. Those are real but rarely needed for "scrape, enrich, verify" pipelines.
+
+If run plans grow into needing real workflow semantics (outputs from step A flowing into args for step B, branching on condition, parallel fan-out), the right move is to swap the runtime layer for a workflow engine. **Zato — already in the agentidev stack — has this.** The TreeGrid editor wouldn't preclude that future; it would just become the editor for whichever runtime backs it. The `script:launch` walk and a Zato-orchestrated run plan look identical from the editor's perspective.
+
+This is the same separation we got right with `EXTERNAL_PLUGINS_DIR` vs Zato services: the editor (composition surface) and the runtime (execution substrate) are different concerns. Get the composition surface right with the simple runtime first; upgrade the runtime when the composition demands it.
+
 ## What probe-selectors does NOT do
 
 To be clear about scope:
