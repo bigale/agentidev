@@ -695,6 +695,11 @@ window._dashboardConfig = {
                     showOpenIcons: true,
                     showConnectors: true,
                     canEdit: false,
+                    // Don't fold parent rows on double-click of body — only the
+                    // explicit +/- icon should toggle expand. Otherwise the
+                    // double-click is captured here and our context menu /
+                    // edit affordances feel hijacked.
+                    openOnDoubleClick: false,
                     parentIdField: 'parentId',
                     idField: 'id',
                     rootValue: null,
