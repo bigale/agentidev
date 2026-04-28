@@ -129,6 +129,23 @@ if (typeof isc === 'undefined') {
 
 <!-- Dashboard mode (SC-4) -->
 <script src="dashboard-config.js"></script>
+<!-- Portlet modules (load before dashboard-app.js — order matches dashboard/load-order.txt) -->
+<script src="dashboard/shared.js"></script>
+<script src="dashboard/layout.js"></script>
+<script src="dashboard/broadcast.js"></script>
+<script src="dashboard/help.js"></script>
+<script src="dashboard/auth-capture.js"></script>
+<script src="dashboard/session-record.js"></script>
+<script src="dashboard/toolbar.js"></script>
+<script src="dashboard/sessions.js"></script>
+<script src="dashboard/schedules.js"></script>
+<script src="dashboard/run-plans.js"></script>
+<script src="dashboard/recipe.js"></script>
+<script src="dashboard/artifacts.js"></script>
+<script src="dashboard/script-history.js"></script>
+<script src="dashboard/scripts.js"></script>
+<script src="dashboard/monaco.js"></script>
+<script src="dashboard/test-results.js"></script>
 <script src="dashboard-app.js"></script>
 
 <!-- Initialize Agentiface theme (after all SC components loaded) -->
