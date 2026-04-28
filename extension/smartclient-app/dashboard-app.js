@@ -405,10 +405,52 @@ function loadDashboard() {
   // Items conditional on whether the row is a plan (parent) or a step (child).
   var runPlansTree = resolveRef('runPlansTree');
   if (runPlansTree) {
-    runPlansTree.showContextMenu = function () {
-      var rec = this.getSelectedRecord() || this.lastSelectedRecord;
+    // Toggle helper used by both the context menu and the enabled-column click.
+    function toggleRunPlanEnabled(rec) {
+      var isPlan = !!rec.isPlan;
+      var planId = isPlan ? rec.id : rec.parentId;
+      var stepId = isPlan ? null : rec.stepId;
+      dispatchActionAsync('RUN_PLAN_GET', { id: planId }).then(function (resp) {
+        if (!resp || !resp.success) return;
+        var plan = resp.plan;
+        var payload;
+        if (isPlan) {
+          payload = {
+            id: plan.id, name: plan.name, description: plan.description,
+            enabled: !plan.enabled, steps: plan.steps,
+          };
+        } else {
+          var patchedSteps = plan.steps.map(function (s) {
+            if (s.id !== stepId) return s;
+            return Object.assign({}, s, { enabled: s.enabled === false ? true : false });
+          });
+          payload = {
+            id: plan.id, name: plan.name, description: plan.description,
+            enabled: plan.enabled, steps: patchedSteps,
+          };
+        }
+        dispatchActionAsync('RUN_PLAN_SAVE', payload).then(function () {
+          var t = resolveRef('runPlansTree');
+          if (t) t.invalidateCache();
+        });
+      });
+    }
+
+    // Click on the enabled column cell toggles the boolean directly.
+    // canEdit is false on the tree, so checkboxes are decorative — we have to
+    // route the click ourselves rather than rely on inline edit.
+    runPlansTree.recordClick = function (viewer, record, recordNum, field) {
+      if (!record || !field) return;
+      if (field.name === 'enabled') {
+        toggleRunPlanEnabled(record);
+      }
+    };
+
+    // cellContextClick gets the right-clicked record directly — no race with
+    // selection state like showContextMenu had.
+    runPlansTree.cellContextClick = function (rec) {
       if (!rec) {
-        // No selection — give a "New Plan" affordance only
+        // Right-click on empty area — give a "New Plan" affordance only
         var newOnlyMenu = isc.Menu.create({
           autoDraw: false,
           data: [{ title: 'New Plan...', click: function () { showNewRunPlanDialog(); } }],
@@ -441,19 +483,7 @@ function loadDashboard() {
         });
         items.push({
           title: rec.enabled ? 'Disable' : 'Enable',
-          click: function () {
-            dispatchActionAsync('RUN_PLAN_GET', { id: planId }).then(function (resp) {
-              if (!resp || !resp.success) return;
-              var plan = resp.plan;
-              dispatchActionAsync('RUN_PLAN_SAVE', {
-                id: plan.id, name: plan.name, description: plan.description,
-                enabled: !plan.enabled, steps: plan.steps,
-              }).then(function () {
-                var t = resolveRef('runPlansTree');
-                if (t) t.invalidateCache();
-              });
-            });
-          },
+          click: function () { toggleRunPlanEnabled(rec); },
         });
         items.push({ isSeparator: true });
         items.push({
@@ -478,23 +508,7 @@ function loadDashboard() {
         });
         items.push({
           title: rec.enabled ? 'Disable Step' : 'Enable Step',
-          click: function () {
-            dispatchActionAsync('RUN_PLAN_GET', { id: planId }).then(function (resp) {
-              if (!resp || !resp.success) return;
-              var plan = resp.plan;
-              var patchedSteps = plan.steps.map(function (s) {
-                if (s.id !== stepId) return s;
-                return Object.assign({}, s, { enabled: !s.enabled });
-              });
-              dispatchActionAsync('RUN_PLAN_SAVE', {
-                id: plan.id, name: plan.name, description: plan.description,
-                enabled: plan.enabled, steps: patchedSteps,
-              }).then(function () {
-                var t = resolveRef('runPlansTree');
-                if (t) t.invalidateCache();
-              });
-            });
-          },
+          click: function () { toggleRunPlanEnabled(rec); },
         });
         items.push({ isSeparator: true });
         items.push({
