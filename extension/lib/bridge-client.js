@@ -410,6 +410,38 @@ export function saveScript(name, source) {
   return _sendRequest('BRIDGE_SCRIPT_SAVE', { name, source });
 }
 
+// ---- PocketFlow flows ----
+
+/**
+ * Save a PocketFlow flow source to ~/.agentidev/flows/<name>.py.
+ * @param {string} name - Flow name (alphanumeric + _ -)
+ * @param {string} source - Full Python source
+ * @returns {Promise<{ success: boolean, path: string }>}
+ */
+export function flowDefine(name, source) {
+  return _sendRequest('BRIDGE_FLOW_DEFINE', { name, source });
+}
+
+/**
+ * Run a saved PocketFlow flow with the given shared state.
+ * Bridge spawns python3 with the vendored pocketflow on PYTHONPATH.
+ * @param {string} name - Flow name (must match a saved flow)
+ * @param {object} [shared={}] - Initial shared state passed via stdin
+ * @param {number} [timeout=60000] - Hard kill timeout in ms
+ * @returns {Promise<{ success: boolean, shared: object, stderr?: string, error?: string }>}
+ */
+export function flowRun(name, shared = {}, timeout = 60000) {
+  return _sendRequest('BRIDGE_FLOW_RUN', { name, shared, timeout });
+}
+
+/**
+ * List all saved flows in ~/.agentidev/flows/.
+ * @returns {Promise<{ flows: Array<{ name, path, size, modifiedAt }> }>}
+ */
+export function flowList() {
+  return _sendRequest('BRIDGE_FLOW_LIST', {});
+}
+
 // ---- V8 Inspector debugging (line-level) ----
 
 export function dbgStepOver(scriptId, pid) {

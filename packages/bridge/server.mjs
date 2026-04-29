@@ -43,6 +43,8 @@ const EXTERNAL_SCRIPTS_DIR = process.env.EXTERNAL_SCRIPTS_DIR
 const AUTH_DIR = pathResolve(homedir(), '.agentidev', 'auth');
 const CLONES_DIR = pathResolve(homedir(), '.agentidev', 'clones');
 const ARTIFACTS_DIR = pathResolve(homedir(), '.agentidev', 'artifacts');
+const FLOWS_DIR = pathResolve(homedir(), '.agentidev', 'flows');
+const POCKETFLOW_VENDOR_DIR = pathResolve(__dirname, 'vendor');
 const ARTIFACT_INLINE_LIMIT = 100 * 1024; // 100KB — below this, store as base64 inline
 const CONSOLE_BUFFER_LIMIT = 500 * 1024;  // 500KB max console buffer per script
 
@@ -2901,6 +2903,126 @@ async function startServer() {
           sendTo(ws, buildReply(msg, { success: true, source, path: scriptPath }));
         } catch (err) {
           sendTo(ws, buildError(`Cannot read file: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_FLOW_DEFINE: {
+        const { name: rawName, source } = msg.payload || {};
+        if (!rawName || !source) {
+          sendTo(ws, buildError('name and source required', msg.id));
+          return;
+        }
+        // Sanitize name: filename only, strip .py
+        const name = rawName.split(/[/\\]/).pop().replace(/\.py$/, '');
+        if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+          sendTo(ws, buildError('flow name must be alphanumeric (plus _ -)', msg.id));
+          return;
+        }
+        try {
+          await mkdir(FLOWS_DIR, { recursive: true });
+          const filePath = pathResolve(FLOWS_DIR, `${name}.py`);
+          await writeFile(filePath, source, 'utf-8');
+          console.log(`[Bridge] Flow saved: ${filePath} (${source.length} bytes)`);
+          sendTo(ws, buildReply(msg, { success: true, path: filePath }));
+        } catch (err) {
+          sendTo(ws, buildError(`Failed to save flow: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_FLOW_RUN: {
+        const { name: rawName, shared = {}, timeout = 60000 } = msg.payload || {};
+        if (!rawName) {
+          sendTo(ws, buildError('flow name required', msg.id));
+          return;
+        }
+        const name = rawName.split(/[/\\]/).pop().replace(/\.py$/, '');
+        const filePath = pathResolve(FLOWS_DIR, `${name}.py`);
+        try {
+          await readFile(filePath, 'utf-8');
+        } catch {
+          sendTo(ws, buildError(`Flow not found: ${name}`, msg.id));
+          return;
+        }
+
+        // Spawn python3 with PYTHONPATH pointing at vendored pocketflow.
+        // Pipe shared-state JSON via stdin, capture final shared from stdout.
+        const child = spawn('python3', [filePath], {
+          env: {
+            ...process.env,
+            PYTHONPATH: POCKETFLOW_VENDOR_DIR + (process.env.PYTHONPATH ? `:${process.env.PYTHONPATH}` : ''),
+          },
+        });
+        let stdout = '';
+        let stderr = '';
+        const killTimer = setTimeout(() => {
+          try { child.kill('SIGTERM'); } catch {}
+        }, timeout);
+
+        child.stdout.on('data', (d) => { stdout += d.toString(); });
+        child.stderr.on('data', (d) => { stderr += d.toString(); });
+        child.stdin.write(JSON.stringify(shared));
+        child.stdin.end();
+
+        child.on('exit', (code) => {
+          clearTimeout(killTimer);
+          if (code !== 0) {
+            sendTo(ws, buildReply(msg, {
+              success: false,
+              error: `flow exited with code ${code}`,
+              stderr: stderr.slice(-2000),
+              shared: null,
+            }));
+            return;
+          }
+          let finalShared;
+          try {
+            finalShared = JSON.parse(stdout);
+          } catch (e) {
+            sendTo(ws, buildReply(msg, {
+              success: false,
+              error: `flow stdout was not valid JSON: ${e.message}`,
+              stderr: stderr.slice(-2000),
+              shared: null,
+            }));
+            return;
+          }
+          sendTo(ws, buildReply(msg, {
+            success: true,
+            shared: finalShared,
+            stderr: stderr.length > 0 ? stderr.slice(-2000) : undefined,
+          }));
+        });
+        child.on('error', (err) => {
+          clearTimeout(killTimer);
+          sendTo(ws, buildError(`spawn failed: ${err.message}`, msg.id));
+        });
+        break;
+      }
+
+      case MSG.BRIDGE_FLOW_LIST: {
+        try {
+          await mkdir(FLOWS_DIR, { recursive: true });
+          const entries = await readdir(FLOWS_DIR);
+          const flows = [];
+          for (const entry of entries) {
+            if (!entry.endsWith('.py')) continue;
+            const filePath = pathResolve(FLOWS_DIR, entry);
+            try {
+              const stats = await stat(filePath);
+              flows.push({
+                name: entry.replace(/\.py$/, ''),
+                path: filePath,
+                size: stats.size,
+                modifiedAt: stats.mtimeMs,
+              });
+            } catch { /* ignore stat failure */ }
+          }
+          flows.sort((a, b) => b.modifiedAt - a.modifiedAt);
+          sendTo(ws, buildReply(msg, { flows }));
+        } catch (err) {
+          sendTo(ws, buildError(`Failed to list flows: ${err.message}`, msg.id));
         }
         break;
       }

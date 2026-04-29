@@ -329,6 +329,59 @@ export async function createTools() {
       },
     },
 
+    // ---- PocketFlow flows ----
+
+    {
+      name: 'flow_define',
+      label: 'Define Flow',
+      description: 'Save a PocketFlow flow (Python source) to ~/.agentidev/flows/<name>.py. PocketFlow is a 99-line graph-based orchestration framework — see extension/sidepanel/agent/skills/pocketflow.md for the API. Use flows for any multi-step task with branching: research pipelines, verify-and-repair workflows, batch enrichment. The source must end with an `if __name__ == "__main__":` block that reads shared from stdin and writes final shared to stdout (see examples/flows/hello.py).',
+      parameters: T.Object({
+        name: T.String({ description: 'Flow name (alphanumeric, _, -). Becomes the .py filename.' }),
+        source: T.String({ description: 'Full Python source. Imports `from pocketflow import Flow, Node`. Vendored — no pip install needed.' }),
+      }),
+      execute: async (id, params) => {
+        const r = await sendToSW('FLOW_DEFINE', { name: params.name, source: params.source });
+        if (!r.success) return textResult('Flow define failed: ' + (r.error || 'unknown'), r);
+        return textResult('Flow saved: ' + params.name + '.py at ' + r.path + ' (' + params.source.length + ' bytes). Run with flow_run.', r);
+      },
+    },
+
+    {
+      name: 'flow_run',
+      label: 'Run Flow',
+      description: 'Run a saved PocketFlow flow with the given shared state. The bridge spawns python3 with the vendored pocketflow on PYTHONPATH, pipes shared-state JSON via stdin, and returns the final shared state when the flow exits. Synchronous: waits for completion (default 60s timeout).',
+      parameters: T.Object({
+        name: T.String({ description: 'Flow name (must match a saved flow from flow_define or flow_list)' }),
+        shared: T.Optional(T.Object({}, { additionalProperties: true, description: 'Initial shared state. Defaults to {}.' })),
+        timeout: T.Optional(T.Number({ description: 'Hard kill timeout in milliseconds. Default 60000.' })),
+      }),
+      execute: async (id, params) => {
+        const r = await sendToSW('FLOW_RUN', { name: params.name, shared: params.shared || {}, timeout: params.timeout });
+        if (!r.success) {
+          const msg = 'Flow run failed: ' + (r.error || 'unknown');
+          const stderr = r.stderr ? '\n\nstderr:\n' + r.stderr : '';
+          return textResult(msg + stderr, r);
+        }
+        return textResult('Flow completed. Final shared state:\n' + JSON.stringify(r.shared, null, 2), r);
+      },
+    },
+
+    {
+      name: 'flow_list',
+      label: 'List Flows',
+      description: 'List all saved flows in ~/.agentidev/flows/. Returns name, path, size, and modification time for each.',
+      parameters: T.Object({}),
+      execute: async (id, params) => {
+        const r = await sendToSW('FLOW_LIST', {});
+        if (!r.flows) return textResult('Flow list failed: ' + (r.error || 'unknown'), r);
+        if (r.flows.length === 0) return textResult('No flows saved yet. Use flow_define to save one.', r);
+        const lines = r.flows.map(f =>
+          `- ${f.name} (${f.size} bytes, modified ${new Date(f.modifiedAt).toLocaleString()})`
+        );
+        return textResult(`${r.flows.length} flow(s):\n${lines.join('\n')}`, r);
+      },
+    },
+
     // ---- Testing ----
 
     {

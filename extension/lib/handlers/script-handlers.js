@@ -68,6 +68,33 @@ export function register(handlers) {
     return { success: true, ...result };
   };
 
+  // ---- PocketFlow flows ----
+
+  handlers['FLOW_DEFINE'] = async (msg) => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge' };
+    }
+    const { name, source } = msg;
+    if (!name || !source) return { success: false, error: 'name and source required' };
+    return await bridgeClient.flowDefine(name, source);
+  };
+
+  handlers['FLOW_RUN'] = async (msg) => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge' };
+    }
+    const { name, shared, timeout } = msg;
+    if (!name) return { success: false, error: 'name required' };
+    return await bridgeClient.flowRun(name, shared || {}, timeout);
+  };
+
+  handlers['FLOW_LIST'] = async () => {
+    if (!bridgeClient.isConnected()) {
+      return { success: false, error: 'Not connected to bridge', flows: [] };
+    }
+    return await bridgeClient.flowList();
+  };
+
   handlers['SCRIPT_PAUSE'] = async (msg) => {
     const scriptId = msg.scriptId || msg.id;
     const result = await bridgeClient.pauseScript(scriptId, msg.reason);

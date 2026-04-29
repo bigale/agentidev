@@ -353,6 +353,9 @@ const CLI_COMMANDS = {
   'app:load':           (p) => _sendRequest(MSG.BRIDGE_AF_APP_LOAD, p),
   'app:save':           (p) => _sendRequest(MSG.BRIDGE_AF_APP_SAVE, p),
   'app:delete':         (p) => _sendRequest(MSG.BRIDGE_AF_APP_DELETE, p),
+  'flow:define':        (p) => _sendRequest(MSG.BRIDGE_FLOW_DEFINE, p),
+  'flow:run':           (p) => _sendRequest(MSG.BRIDGE_FLOW_RUN, p, 90000),
+  'flow:list':          () => _sendRequest(MSG.BRIDGE_FLOW_LIST, {}),
 };
 
 async function runCLI() {
