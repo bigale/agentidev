@@ -88,6 +88,11 @@ function _rendererDispatchAsync(messageType, payload, timeoutMs) {
       id: id,
       messageType: messageType,
       payload: payload || {},
+      // Forward the caller's timeout so bridge.js can extend its own timer
+      // beyond the 15s default. Without this, long-running runtimes (CheerpX
+      // boot, claude-p, etc.) time out at the bridge layer even though the
+      // button declared a longer _timeoutMs.
+      timeoutMs: timeout,
     }, '*');
   });
 }
@@ -137,9 +142,21 @@ var RESULT_FORMATTERS = {
   },
 };
 
-function formatResult(value, fullResponse, formatterName) {
+function formatResult(value, fullResponse, formatterName, resultPath) {
   var fmt = RESULT_FORMATTERS[formatterName] || RESULT_FORMATTERS.json;
-  return fmt(value === undefined ? fullResponse : value);
+  if (value !== undefined) return fmt(value);
+  // No value at the requested path. If a path was specified, the caller asked
+  // for a specific field — silently swapping in the whole response produces
+  // useless "[object Object]" output via String(). Surface the failure
+  // instead, with the raw response as JSON for diagnosis.
+  if (resultPath) {
+    var raw = '<pre style="margin:4px 0 0 0;font-size:11px;line-height:1.4;color:#aaa;background:#1a1a1a;padding:6px;border-radius:3px;">'
+      + escapeHtml(JSON.stringify(fullResponse, null, 2)) + '</pre>';
+    return '<div style="color:#f44336;font-size:12px;">No <code>' + escapeHtml(resultPath)
+      + '</code> field in response. Raw:</div>' + raw;
+  }
+  // No path requested — fall back to the full response (legacy behavior).
+  return fmt(fullResponse);
 }
 
 // ---- Cell formatters ----
@@ -297,7 +314,7 @@ var ACTION_MAP = {
       target.setContents('<em style="color:#888;">Running ' + escapeHtml(node._messageType) + '...</em>');
       _rendererDispatchAsync(node._messageType, payload, node._timeoutMs).then(function (response) {
         var value = extractByPath(response, node._resultPath);
-        var html = formatResult(value, response, node._resultFormatter);
+        var html = formatResult(value, response, node._resultFormatter, node._resultPath);
         target.setContents(html);
       }).catch(function (err) {
         target.setContents('<span style="color:#f44336;">Error: ' + escapeHtml(err.message || String(err)) + '</span>');

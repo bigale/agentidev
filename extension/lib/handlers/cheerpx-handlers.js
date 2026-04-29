@@ -152,9 +152,14 @@ async function ensureCheerpXTab() {
       }
     }
 
-    // Wait for the bridge to signal ready
+    // Wait for the bridge to signal ready. CheerpX cold boot is documented
+    // at 25s+; an extension reload kills the content-script connection and
+    // forces re-injection, so we have to wait for the runtime to re-handshake.
+    // Use 60s — generous enough to cover cold-boot, fail-fast if something
+    // is genuinely broken.
+    const TAB_READY_TIMEOUT_MS = 60000;
     const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('CheerpX tab ready timeout (15s)')), 15000));
+      setTimeout(() => reject(new Error(`CheerpX tab ready timeout (${TAB_READY_TIMEOUT_MS / 1000}s)`)), TAB_READY_TIMEOUT_MS));
     await Promise.race([_readyPromise, timeout]);
     console.log('[CheerpX] tab ready');
   })();

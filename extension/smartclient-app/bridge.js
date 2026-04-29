@@ -608,10 +608,14 @@ window.addEventListener('message', async (event) => {
   // Action proxy — forward arbitrary chrome.runtime.sendMessage calls from sandbox
   if (msg.source === 'smartclient-action') {
     const outMsg = { type: msg.messageType, ...msg.payload };
-    // Session recording commands can take longer (playwright-cli exec)
+    // Caller-supplied timeout takes precedence (renderer forwards _timeoutMs
+    // from the action descriptor). Falls back to a category default for old
+    // callers that don't pass one.
     const isLongRunning = outMsg.type && outMsg.type.startsWith('SESSION_');
-    const timeout = isLongRunning ? 30000 : MSG_TIMEOUT_MS;
-    console.log('[Bridge] Action relay:', JSON.stringify(outMsg));
+    const timeout = typeof msg.timeoutMs === 'number'
+      ? msg.timeoutMs
+      : (isLongRunning ? 30000 : MSG_TIMEOUT_MS);
+    console.log('[Bridge] Action relay:', JSON.stringify(outMsg), 'timeout=' + timeout);
     sendMessageWithTimeout(outMsg, timeout).then((response) => {
       try {
         iframe.contentWindow.postMessage({
