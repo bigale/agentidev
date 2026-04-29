@@ -3,6 +3,7 @@
   "plugins": [
     "hello-runtime",
     "sqlite-query",
-    "csv-analyzer"
+    "csv-analyzer",
+    "pf-text-converter"
   ]
 }

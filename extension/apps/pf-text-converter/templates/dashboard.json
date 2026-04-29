@@ -1,0 +1,114 @@
+{
+  "layout": {
+    "_type": "VLayout",
+    "ID": "pfTextConverterRoot",
+    "width": "100%",
+    "height": "100%",
+    "padding": 16,
+    "membersMargin": 12,
+    "members": [
+      {
+        "_type": "Label",
+        "height": 28,
+        "contents": "<div style='font-size:18px;font-weight:600;color:#a8b4ff;'>PocketFlow Text Converter</div>"
+      },
+      {
+        "_type": "Label",
+        "height": 50,
+        "contents": "<div style='font-size:12px;color:#888;line-height:1.5;'>Each click writes <code>~/.agentidev/flows/pf-text-converter.py</code> (idempotent) and runs it via the bridge's flow runner. The Python flow is a 3-node PocketFlow graph: <code>Validate</code> branches to <code>Transform</code> on the happy path or to <code>Reject</code> when input is bad. Adapted from <code>cookbook/pocketflow-flow</code>.</div>"
+      },
+      {
+        "_type": "DynamicForm",
+        "ID": "convertForm",
+        "width": "100%",
+        "height": 180,
+        "numCols": 2,
+        "colWidths": [80, "*"],
+        "fields": [
+          {
+            "name": "text",
+            "title": "Text",
+            "type": "textArea",
+            "height": 80,
+            "width": "*",
+            "defaultValue": "  Hello from   PocketFlow  "
+          },
+          {
+            "name": "choice",
+            "title": "Op",
+            "type": "select",
+            "width": 240,
+            "defaultValue": "upper",
+            "valueMap": {
+              "upper": "Convert to UPPERCASE",
+              "lower": "Convert to lowercase",
+              "reverse": "Reverse text",
+              "collapse": "Collapse whitespace"
+            }
+          }
+        ]
+      },
+      {
+        "_type": "HLayout",
+        "height": 36,
+        "membersMargin": 8,
+        "members": [
+          {
+            "_type": "Button",
+            "ID": "btnRunFlow",
+            "title": "Convert (run flow)",
+            "width": 200,
+            "_action": "dispatchAndDisplay",
+            "_messageType": "PF_TEXT_CONVERT",
+            "_payloadFrom": "convertForm",
+            "_targetCanvas": "outputFlow",
+            "_resultPath": "result",
+            "_resultFormatter": "stdoutPre",
+            "_timeoutMs": 30000
+          },
+          {
+            "_type": "Button",
+            "ID": "btnShowShared",
+            "title": "Show shared state",
+            "width": 200,
+            "_action": "dispatchAndDisplay",
+            "_messageType": "PF_TEXT_CONVERT",
+            "_payloadFrom": "convertForm",
+            "_targetCanvas": "outputShared",
+            "_resultFormatter": "json",
+            "_timeoutMs": 30000
+          }
+        ]
+      },
+      {
+        "_type": "Label",
+        "height": 18,
+        "contents": "<div style='font-size:11px;color:#666;'>Result (extracted via <code>_resultPath: \"result\"</code>)</div>"
+      },
+      {
+        "_type": "HTMLFlow",
+        "ID": "outputFlow",
+        "height": 70,
+        "padding": 4,
+        "contents": "<em style='color:#888;'>Click \"Convert\" to run the flow.</em>"
+      },
+      {
+        "_type": "Label",
+        "height": 18,
+        "contents": "<div style='font-size:11px;color:#666;'>Full shared state (raw JSON — shows how the flow mutated state)</div>"
+      },
+      {
+        "_type": "HTMLFlow",
+        "ID": "outputShared",
+        "height": 200,
+        "padding": 4,
+        "contents": "<em style='color:#888;'>Click \"Show shared state\" to see the full response.</em>"
+      },
+      {
+        "_type": "Label",
+        "height": 26,
+        "contents": "<div style='font-size:12px;color:#666;line-height:1.5;'>Source: <code>extension/apps/pf-text-converter/handlers.js</code> (FLOW_SOURCE constant). Flow runs as: bridge dispatches PF_TEXT_CONVERT &rarr; handler calls FLOW_DEFINE then FLOW_RUN &rarr; bridge spawns python3 with vendored pocketflow.</div>"
+      }
+    ]
+  }
+}

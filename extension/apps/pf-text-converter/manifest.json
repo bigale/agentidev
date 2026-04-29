@@ -1,0 +1,14 @@
+{
+  "id": "pf-text-converter",
+  "name": "PocketFlow Text Converter",
+  "version": "0.1.0",
+  "description": "Adapts the pocketflow-flow cookbook example into an agentidev plugin. Demonstrates a 3-node PocketFlow graph (Validate -> Transform | Reject) running through the bridge's flow runner.",
+  "modes": ["pf-text-converter"],
+  "templates": {
+    "dashboard": "templates/dashboard.json"
+  },
+  "handlers": "handlers.js",
+  "requires": {
+    "hostCapabilities": ["message"]
+  }
+}

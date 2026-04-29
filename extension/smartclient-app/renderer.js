@@ -297,7 +297,8 @@ var ACTION_MAP = {
    *     "title": "Run",
    *     "_action": "dispatchAndDisplay",
    *     "_messageType": "PLUGIN_FOO",
-   *     "_messagePayload": {...},        // optional
+   *     "_messagePayload": {...},        // optional static payload
+   *     "_payloadFrom": "myForm",        // optional ID of form/grid to pull values from
    *     "_targetCanvas": "outputFlow",   // ID of component to setContents on
    *     "_resultPath": "stdout",         // optional dot-path to extract from response
    *     "_resultFormatter": "stdoutPre"  // optional, see RESULT_FORMATTERS
@@ -311,6 +312,17 @@ var ACTION_MAP = {
         return;
       }
       var payload = Object.assign({}, node._messagePayload || {});
+      if (node._payloadFrom) {
+        var source = resolveRef(node._payloadFrom);
+        if (source) {
+          if (source.getValues) {
+            Object.assign(payload, source.getValues() || {});
+          } else if (source.getSelectedRecord) {
+            var record = source.getSelectedRecord();
+            if (record) Object.assign(payload, record);
+          }
+        }
+      }
       target.setContents('<em style="color:#888;">Running ' + escapeHtml(node._messageType) + '...</em>');
       _rendererDispatchAsync(node._messageType, payload, node._timeoutMs).then(function (response) {
         var value = extractByPath(response, node._resultPath);
