@@ -83,9 +83,32 @@ export function register(handlers) {
     if (!bridgeClient.isConnected()) {
       return { success: false, error: 'Not connected to bridge' };
     }
-    const { name, shared, timeout } = msg;
+    const { name, shared, timeout, pluginId } = msg;
     if (!name) return { success: false, error: 'name required' };
-    return await bridgeClient.flowRun(name, shared || {}, timeout);
+    const t0 = Date.now();
+    const result = await bridgeClient.flowRun(name, shared || {}, timeout);
+    const durationMs = Date.now() - t0;
+    // Auto-record into the `plugin-runs` IndexedDB store. The generic DS
+    // handler auto-creates the store on first add. Non-fatal on failure —
+    // flow result is what matters; recording is observability.
+    try {
+      await dsAdd({
+        dataSource: 'plugin-runs',
+        data: {
+          pluginId: pluginId || null,
+          flowName: name,
+          ts: t0,
+          durationMs,
+          success: !!result.success,
+          error: result.error || null,
+          sharedIn: shared || {},
+          sharedOut: result.shared || null,
+        },
+      });
+    } catch (e) {
+      console.warn('[FLOW_RUN] run-record save failed (non-fatal):', e.message);
+    }
+    return result;
   };
 
   handlers['FLOW_LIST'] = async () => {

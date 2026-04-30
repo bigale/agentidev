@@ -1,9 +1,26 @@
 {
+  "dataSources": [
+    {
+      "ID": "plugin-runs",
+      "fields": [
+        { "name": "id",         "type": "integer", "primaryKey": true },
+        { "name": "pluginId",   "type": "text" },
+        { "name": "flowName",   "type": "text" },
+        { "name": "ts",         "type": "integer" },
+        { "name": "durationMs", "type": "integer" },
+        { "name": "success",    "type": "boolean" },
+        { "name": "error",      "type": "text" },
+        { "name": "sharedIn",   "type": "text" },
+        { "name": "sharedOut",  "type": "text" }
+      ]
+    }
+  ],
   "layout": {
     "_type": "VLayout",
     "ID": "pfResumeParserRoot",
     "width": "100%",
     "height": "100%",
+    "overflow": "auto",
     "padding": 16,
     "membersMargin": 12,
     "members": [
@@ -39,8 +56,7 @@
             "type": "textArea",
             "height": 60,
             "width": "*",
-            "defaultValue": "Team leadership, CRM software, Project management, Public speaking, Microsoft Office, Python, Data Analysis",
-            "hint": "Comma-separated list of target skills the parser will look for"
+            "defaultValue": "Team leadership, CRM software, Project management, Public speaking, Microsoft Office, Python, Data Analysis"
           },
           {
             "name": "prompt_template",
@@ -48,10 +64,14 @@
             "type": "textArea",
             "height": 280,
             "width": "*",
-            "defaultValue": "Extract structured fields from the resume below.\n\n**Resume:**\n```\n{resume}\n```\n\n**Target Skills (use these indexes):**\n```\n{skills}\n```\n\nReturn:\n- name (string): full name extracted from the resume\n- email (string): email address\n- experience: array of {title, company} objects, one per job\n- skill_indexes: array of integer indexes into the target skills list, one per skill found in the resume",
-            "hint": "Editable prompt template. {resume} and {skills} are substituted at run time."
+            "defaultValue": "Extract structured fields from the resume below.\n\n**Resume:**\n```\n{resume}\n```\n\n**Target Skills (use these indexes):**\n```\n{skills}\n```\n\nReturn:\n- name (string): full name extracted from the resume\n- email (string): email address\n- experience: array of {title, company} objects, one per job\n- skill_indexes: array of integer indexes into the target skills list, one per skill found in the resume"
           }
         ]
+      },
+      {
+        "_type": "Label",
+        "height": 36,
+        "contents": "<div style='font-size:11px;color:#888;line-height:1.4;'><b>Skills:</b> comma-separated list of target skills the parser will look for. <b>Prompt:</b> editable template — markers <code>{resume}</code> and <code>{skills}</code> are substituted at run time.</div>"
       },
       {
         "_type": "HLayout",
@@ -95,6 +115,7 @@
         "ID": "outputParsed",
         "height": 220,
         "padding": 4,
+        "overflow": "auto",
         "contents": "<em style='color:#888;'>Click \"Parse Resume\" to extract structured fields.</em>"
       },
       {
@@ -107,7 +128,54 @@
         "ID": "outputShared",
         "height": 200,
         "padding": 4,
+        "overflow": "auto",
         "contents": "<em style='color:#888;'>Click \"Show full state\" for the complete response.</em>"
+      },
+      {
+        "_type": "Label",
+        "height": 22,
+        "contents": "<div style='font-size:12px;color:#aaa;font-weight:600;margin-top:8px;'>Run history</div>"
+      },
+      {
+        "_type": "HLayout",
+        "height": 28,
+        "membersMargin": 8,
+        "members": [
+          {
+            "_type": "Button",
+            "ID": "btnRefreshHistory",
+            "title": "Refresh",
+            "width": 100,
+            "_action": "dsFetch",
+            "_targetGrid": "runHistoryGrid"
+          },
+          {
+            "_type": "Label",
+            "height": 24,
+            "width": "*",
+            "contents": "<div style='font-size:11px;color:#888;'>Every Parse run is recorded in IndexedDB (<code>plugin-runs</code> store). Click a row to inspect the run.</div>"
+          }
+        ]
+      },
+      {
+        "_type": "ListGrid",
+        "ID": "runHistoryGrid",
+        "height": 220,
+        "dataSource": "plugin-runs",
+        "autoFetchData": true,
+        "initialCriteria": { "pluginId": "pf-resume-parser" },
+        "sortField": "ts",
+        "sortDirection": "descending",
+        "showHeader": true,
+        "canEdit": false,
+        "emptyMessage": "No runs yet — click Parse to record one.",
+        "fields": [
+          { "name": "ts",         "title": "When",       "width": 160, "_formatter": "timestamp" },
+          { "name": "durationMs", "title": "Duration",   "width": 90,  "align": "right" },
+          { "name": "success",    "title": "OK",         "width": 50,  "type": "boolean" },
+          { "name": "flowName",   "title": "Flow",       "width": 140 },
+          { "name": "error",      "title": "Error",      "width": "*"  }
+        ]
       }
     ]
   }

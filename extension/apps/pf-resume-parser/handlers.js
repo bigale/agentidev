@@ -166,6 +166,7 @@ export function register(handlers) {
 
     const runRes = await handlers['FLOW_RUN']({
       name: FLOW_NAME,
+      pluginId: 'pf-resume-parser',
       shared: {
         resume_text: resumeText,
         target_skills: targetSkills,

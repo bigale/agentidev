@@ -121,7 +121,14 @@ export function register(handlers /*, { manifest } */) {
     }
 
     // Step 2: Run with shared state seeded from the UI inputs
-    const runRes = await handlers['FLOW_RUN']({ name: FLOW_NAME, shared: { text, choice }, timeout: 30000 });
+    // pluginId tags the run record in the plugin-runs IndexedDB store so the
+    // run-history grid can filter by plugin.
+    const runRes = await handlers['FLOW_RUN']({
+      name: FLOW_NAME,
+      pluginId: 'pf-text-converter',
+      shared: { text, choice },
+      timeout: 30000,
+    });
     if (!runRes.success) {
       return {
         success: false,

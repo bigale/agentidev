@@ -4,6 +4,7 @@
     "ID": "pfTextConverterRoot",
     "width": "100%",
     "height": "100%",
+    "overflow": "auto",
     "padding": 16,
     "membersMargin": 12,
     "members": [
@@ -90,6 +91,7 @@
         "ID": "outputFlow",
         "height": 70,
         "padding": 4,
+        "overflow": "auto",
         "contents": "<em style='color:#888;'>Click \"Convert\" to run the flow.</em>"
       },
       {
@@ -102,6 +104,7 @@
         "ID": "outputShared",
         "height": 200,
         "padding": 4,
+        "overflow": "auto",
         "contents": "<em style='color:#888;'>Click \"Show shared state\" to see the full response.</em>"
       },
       {
