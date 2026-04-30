@@ -33,6 +33,8 @@ import { register as registerCsvAnalyzer } from './csv-analyzer/handlers.js';
 import { register as registerPfTextConverter } from './pf-text-converter/handlers.js';
 import { register as registerPfResumeParser } from './pf-resume-parser/handlers.js';
 import { register as registerPfHelloWorld } from './pf-hello-world/handlers.js';
+import { register as registerPfJudge } from './pf-judge/handlers.js';
+import { register as registerPfMajorityVote } from './pf-majority-vote/handlers.js';
 
 export const PLUGIN_REGISTRARS = {
   'hello-runtime': registerHelloRuntime,
@@ -41,4 +43,6 @@ export const PLUGIN_REGISTRARS = {
   'pf-text-converter': registerPfTextConverter,
   'pf-resume-parser': registerPfResumeParser,
   'pf-hello-world': registerPfHelloWorld,
+  'pf-judge': registerPfJudge,
+  'pf-majority-vote': registerPfMajorityVote,
 };

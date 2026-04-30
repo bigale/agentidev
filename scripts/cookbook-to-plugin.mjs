@@ -125,20 +125,55 @@ if (/\bcall_llm\s*\(/.test(combined) && !/from\s+agentidev_llm\s+import\s+call_l
   combined = 'from agentidev_llm import call_llm\n\n' + combined;
 }
 
-// Detect available `flow` symbol at module scope to decide stdin/stdout shim
-const flowSymbolMatch = combined.match(/^\s*([a-z_][a-z0-9_]*)\s*=\s*Flow\s*\(/im);
+// Detect available `flow` symbol at module scope to decide stdin/stdout shim.
+// Three fallbacks in order:
+//  1. `<sym> = Flow(...)` at module scope (no leading whitespace)
+//  2. `def create_*_flow():` factory function (call it to get the flow)
+//  3. `def main():` (call it directly — least reliable, often won't accept
+//     our shared state)
+const flowSymbolMatch = combined.match(/^([a-z_][a-z0-9_]*)\s*=\s*Flow\s*\(/m);
 const flowSymbol = flowSymbolMatch ? flowSymbolMatch[1] : null;
+const flowFactoryMatch = !flowSymbol && combined.match(/^def\s+(create_[a-z_]+_flow)\s*\(/m);
+const flowFactory = flowFactoryMatch ? flowFactoryMatch[1] : null;
+const hasMainFn = !flowSymbol && !flowFactory && /^def\s+main\s*\(/m.test(combined);
 
-// Detect input fields from prep() shared.get / shared["x"] usage
-const inputFields = new Set();
+// Detect input fields from prep() shared.get / shared["x"] usage. Two
+// passes: first collect every reference, then subtract write-only fields
+// (those that appear ONLY on the LHS of an assignment — they're output
+// destinations populated by post(), not user inputs).
+const allRefs = new Set();
+const writes = new Set();
 const sharedGetRe = /shared\.get\s*\(\s*["']([a-zA-Z_][a-zA-Z0-9_]*)["']/g;
 const sharedIdxRe = /shared\s*\[\s*["']([a-zA-Z_][a-zA-Z0-9_]*)["']\s*\]/g;
+const sharedWriteRe = /shared\s*\[\s*["']([a-zA-Z_][a-zA-Z0-9_]*)["']\s*\]\s*=/g;
 let m;
-while ((m = sharedGetRe.exec(combined)) !== null) inputFields.add(m[1]);
-while ((m = sharedIdxRe.exec(combined)) !== null) inputFields.add(m[1]);
-// Filter out obvious internal keys plugins shouldn't surface
+while ((m = sharedGetRe.exec(combined)) !== null) allRefs.add(m[1]);
+while ((m = sharedIdxRe.exec(combined)) !== null) allRefs.add(m[1]);
+while ((m = sharedWriteRe.exec(combined)) !== null) writes.add(m[1]);
+
+// shared.get reads (definitely inputs) — keep all
+const reads = new Set();
+sharedGetRe.lastIndex = 0;
+while ((m = sharedGetRe.exec(combined)) !== null) reads.add(m[1]);
+// shared["x"] reads — count non-write occurrences
+sharedIdxRe.lastIndex = 0;
+const idxReads = new Set();
+while ((m = sharedIdxRe.exec(combined)) !== null) {
+  // Look at the next 30 chars after the closing bracket. If we see `=` (and it's
+  // not `==`, `>=`, `<=`), it's a write site; otherwise it's a read.
+  const after = combined.slice(m.index + m[0].length, m.index + m[0].length + 30);
+  if (!/^\s*=(?!=)/.test(after)) idxReads.add(m[1]);
+}
+
+const inputFields = new Set([...reads, ...idxReads]);
+// Subtract anything that only appears as a write
 for (const k of Array.from(inputFields)) {
-  if (/^(messages|history|results?|errors?|out|output|response)$/i.test(k)) inputFields.delete(k);
+  if (writes.has(k) && !reads.has(k) && !idxReads.has(k)) inputFields.delete(k);
+}
+// Filter out obvious output/internal-shaped names
+const outputShaped = /^(messages|history|results?|errors?|out|output|response|attempts|iterations|revision_count|final_|majority_)/i;
+for (const k of Array.from(inputFields)) {
+  if (outputShaped.test(k)) inputFields.delete(k);
 }
 
 // Detect warnings
@@ -155,23 +190,66 @@ if (/call_llm\s*\(\s*messages\s*\)/.test(combined)) {
 
 // ---- Compose the flow source ----
 
-const flowMain = flowSymbol
-  ? `if __name__ == "__main__":
-    import json, sys
+const stdinShim = `import json, sys
     shared = {}
     if not sys.stdin.isatty():
         raw = sys.stdin.read()
         if raw.strip():
             try: shared = json.loads(raw)
-            except json.JSONDecodeError: shared = {}
+            except json.JSONDecodeError: shared = {}`;
+
+// Cookbook examples print progress to stdout. Our run-flow contract is
+// "stdout = final JSON shared state" — so we redirect stdout to stderr
+// while the flow is running, then emit the JSON at the end.
+const stdoutGuard = `_real_stdout = sys.stdout
+    sys.stdout = sys.stderr`;
+
+let flowMain;
+if (flowSymbol) {
+  flowMain = `if __name__ == "__main__":
+    ${stdinShim}
+    ${stdoutGuard}
     try:
         ${flowSymbol}.run(shared)
     except Exception as e:
         shared["error"] = str(e)
+    sys.stdout = _real_stdout
     json.dump(shared, sys.stdout, indent=2, default=str)
     sys.stdout.write("\\n")
-`
-  : `# WARNING: no `+'`flow = Flow(...)`'+` symbol detected — add a stdin/stdout shim manually.\n`;
+`;
+} else if (flowFactory) {
+  flowMain = `if __name__ == "__main__":
+    ${stdinShim}
+    ${stdoutGuard}
+    try:
+        ${flowFactory}().run(shared)
+    except Exception as e:
+        shared["error"] = str(e)
+    sys.stdout = _real_stdout
+    json.dump(shared, sys.stdout, indent=2, default=str)
+    sys.stdout.write("\\n")
+`;
+} else if (hasMainFn) {
+  // The cookbook example wraps the flow in main(). main() typically reads its
+  // own arguments; calling it with our shared dict won't always work, but it
+  // gets us closer than nothing — flag for review.
+  flowMain = `if __name__ == "__main__":
+    ${stdinShim}
+    ${stdoutGuard}
+    try:
+        # main() detected but signature unknown. Calls without args first; if
+        # that fails, tries main(shared). Hand-edit if neither works.
+        try: main()
+        except TypeError: main(shared)
+    except Exception as e:
+        shared["error"] = str(e)
+    sys.stdout = _real_stdout
+    json.dump(shared, sys.stdout, indent=2, default=str)
+    sys.stdout.write("\\n")
+`;
+} else {
+  flowMain = `# WARNING: no module-scope \`Flow(...)\` or \`def main()\` found — add a stdin/stdout shim manually.\n`;
+}
 
 const finalFlowSource = `"""\n${PLUGIN_ID} — generated from cookbook/${exampleName}\n\nGenerated by scripts/cookbook-to-plugin.mjs. Edit the plugin's handlers.js\n(FLOW_SOURCE constant) to customize. Each click on the plugin re-saves\nthe flow to ~/.agentidev/flows/${PLUGIN_ID}.py.\n"""\n${combined}\n\n${flowMain}`;
 

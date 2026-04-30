@@ -6,6 +6,8 @@
     "csv-analyzer",
     "pf-text-converter",
     "pf-resume-parser",
-    "pf-hello-world"
+    "pf-hello-world",
+    "pf-judge",
+    "pf-majority-vote"
   ]
 }
