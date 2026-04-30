@@ -55,26 +55,12 @@ RESUME_SCHEMA = {
 }
 
 
-def build_prompt(resume_text, target_skills):
-    skill_list = "\\n".join(f"{i}: {s}" for i, s in enumerate(target_skills))
-    return f"""Extract structured fields from the resume below.
-
-**Resume:**
-\`\`\`
-{resume_text}
-\`\`\`
-
-**Target Skills (use these indexes):**
-\`\`\`
-{skill_list}
-\`\`\`
-
-Return:
-- name (string): full name extracted from the resume
-- email (string): email address
-- experience: array of {{title, company}} objects, one per job
-- skill_indexes: array of integer indexes into the target skills list, one per skill found in the resume
-"""
+# Pattern A prompt injection: the prompt template is provided via shared
+# state (set by the plugin handler from a UI form field). Markers \`{resume}\`
+# and \`{skills}\` are substituted via simple string.replace() — using
+# str.format() instead would break on curly braces in user content.
+def apply_template(template, resume_text, skills_str):
+    return template.replace("{resume}", resume_text).replace("{skills}", skills_str)
 
 
 class ResumeParser(Node):
@@ -83,19 +69,24 @@ class ResumeParser(Node):
 
     def prep(self, shared):
         return {
-            "resume_text": shared.get("resume_text", ""),
-            "target_skills": shared.get("target_skills", []),
+            "resume_text":     shared.get("resume_text", ""),
+            "target_skills":   shared.get("target_skills", []),
+            "prompt_template": shared.get("prompt_template", ""),
         }
 
     def exec(self, prep_res):
-        resume = prep_res["resume_text"]
-        skills = prep_res["target_skills"]
+        resume   = prep_res["resume_text"]
+        skills   = prep_res["target_skills"]
+        template = prep_res["prompt_template"]
         if not resume.strip():
             raise ValueError("resume_text is empty")
+        if not template.strip():
+            raise ValueError("prompt_template is empty (UI clears it; reload the plugin to restore default)")
         if not skills:
             skills = ["Team leadership", "CRM software", "Project management",
                       "Public speaking", "Microsoft Office", "Python", "Data Analysis"]
-        prompt = build_prompt(resume, skills)
+        skills_str = "\\n".join(f"{i}: {s}" for i, s in enumerate(skills))
+        prompt = apply_template(template, resume, skills_str)
         # Schema mode: bridge returns the parsed JSON dict directly.
         result = call_llm(prompt, schema=RESUME_SCHEMA, timeout_ms=60000)
 
@@ -158,9 +149,13 @@ export function register(handlers) {
   handlers['PF_RESUME_PARSE'] = async (msg) => {
     const resumeText = (msg && typeof msg.resume_text === 'string') ? msg.resume_text : '';
     const targetSkills = parseSkills(msg && msg.target_skills);
+    const promptTemplate = (msg && typeof msg.prompt_template === 'string') ? msg.prompt_template : '';
 
     if (!resumeText.trim()) {
       return { success: false, error: 'resume_text is required' };
+    }
+    if (!promptTemplate.trim()) {
+      return { success: false, error: 'prompt_template is required (the UI form should provide it)' };
     }
 
     // Idempotent define — keeps plugin source as the source of truth.
@@ -171,7 +166,11 @@ export function register(handlers) {
 
     const runRes = await handlers['FLOW_RUN']({
       name: FLOW_NAME,
-      shared: { resume_text: resumeText, target_skills: targetSkills },
+      shared: {
+        resume_text: resumeText,
+        target_skills: targetSkills,
+        prompt_template: promptTemplate,
+      },
       timeout: 90000,
     });
 

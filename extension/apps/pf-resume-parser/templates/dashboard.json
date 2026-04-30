@@ -15,13 +15,13 @@
       {
         "_type": "Label",
         "height": 50,
-        "contents": "<div style='font-size:12px;color:#888;line-height:1.5;'>Single-Node PocketFlow flow with retries. Calls the bridge's <code>/llm</code> endpoint with a strict JSON schema; the LLM returns parsed structured fields (name, email, experience, matched skills). Adapted from <code>cookbook/pocketflow-structured-output</code>.</div>"
+        "contents": "<div style='font-size:12px;color:#888;line-height:1.5;'>Single-Node PocketFlow flow with retries. Calls the bridge's <code>/llm</code> endpoint with a strict JSON schema; the LLM returns parsed structured fields. The <b>prompt template is editable below</b> — change the wording and re-run to see how it affects extraction. Markers <code>{resume}</code> and <code>{skills}</code> get substituted at run time.</div>"
       },
       {
         "_type": "DynamicForm",
         "ID": "parseForm",
         "width": "100%",
-        "height": 320,
+        "height": 600,
         "numCols": 2,
         "colWidths": [80, "*"],
         "fields": [
@@ -29,7 +29,7 @@
             "name": "resume_text",
             "title": "Resume",
             "type": "textArea",
-            "height": 220,
+            "height": 200,
             "width": "*",
             "defaultValue": "# JOHN SMTIH\n\n**Email:** johnsmtih1983@gnail.com\n**Phone:** (555) 123-4556\n\n## WORK EXPERIENCE\n\n### SALES MANAGER\n**ABC Corporation** | June 2018 - Present\n- Oversee a team of 12 sales representatives\n- Implemented new CRM system that improved efficiency by 15%\n- Collaborate with Marketing team on campaigns\n\n### ASSISTANT MANAGER\n**XYZ Industries** | March 2015 - May 2018\n- Managed inventory and vendor relations\n- Trained junior staff using Microsoft Office tools\n\n## EDUCATION\n**Bachelor of Business Administration** | University of Somewhere | 2010"
           },
@@ -37,10 +37,19 @@
             "name": "target_skills",
             "title": "Skills",
             "type": "textArea",
-            "height": 70,
+            "height": 60,
             "width": "*",
             "defaultValue": "Team leadership, CRM software, Project management, Public speaking, Microsoft Office, Python, Data Analysis",
             "hint": "Comma-separated list of target skills the parser will look for"
+          },
+          {
+            "name": "prompt_template",
+            "title": "Prompt",
+            "type": "textArea",
+            "height": 280,
+            "width": "*",
+            "defaultValue": "Extract structured fields from the resume below.\n\n**Resume:**\n```\n{resume}\n```\n\n**Target Skills (use these indexes):**\n```\n{skills}\n```\n\nReturn:\n- name (string): full name extracted from the resume\n- email (string): email address\n- experience: array of {title, company} objects, one per job\n- skill_indexes: array of integer indexes into the target skills list, one per skill found in the resume",
+            "hint": "Editable prompt template. {resume} and {skills} are substituted at run time."
           }
         ]
       },
