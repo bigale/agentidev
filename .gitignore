@@ -72,6 +72,7 @@ extension/apps/*
 !extension/apps/hello-runtime/
 !extension/apps/sqlite-query/
 !extension/apps/csv-analyzer/
+!extension/apps/pf-hello-world/
 !extension/apps/pf-text-converter/
 !extension/apps/pf-resume-parser/
 !extension/apps/horsebread/

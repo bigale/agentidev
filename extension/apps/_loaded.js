@@ -32,6 +32,7 @@ import { register as registerSqliteQuery } from './sqlite-query/handlers.js';
 import { register as registerCsvAnalyzer } from './csv-analyzer/handlers.js';
 import { register as registerPfTextConverter } from './pf-text-converter/handlers.js';
 import { register as registerPfResumeParser } from './pf-resume-parser/handlers.js';
+import { register as registerPfHelloWorld } from './pf-hello-world/handlers.js';
 
 export const PLUGIN_REGISTRARS = {
   'hello-runtime': registerHelloRuntime,
@@ -39,4 +40,5 @@ export const PLUGIN_REGISTRARS = {
   'csv-analyzer': registerCsvAnalyzer,
   'pf-text-converter': registerPfTextConverter,
   'pf-resume-parser': registerPfResumeParser,
+  'pf-hello-world': registerPfHelloWorld,
 };
