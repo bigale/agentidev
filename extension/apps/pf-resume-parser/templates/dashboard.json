@@ -1,0 +1,105 @@
+{
+  "layout": {
+    "_type": "VLayout",
+    "ID": "pfResumeParserRoot",
+    "width": "100%",
+    "height": "100%",
+    "padding": 16,
+    "membersMargin": 12,
+    "members": [
+      {
+        "_type": "Label",
+        "height": 28,
+        "contents": "<div style='font-size:18px;font-weight:600;color:#a8b4ff;'>Resume Parser (PocketFlow)</div>"
+      },
+      {
+        "_type": "Label",
+        "height": 50,
+        "contents": "<div style='font-size:12px;color:#888;line-height:1.5;'>Single-Node PocketFlow flow with retries. Calls the bridge's <code>/llm</code> endpoint with a strict JSON schema; the LLM returns parsed structured fields (name, email, experience, matched skills). Adapted from <code>cookbook/pocketflow-structured-output</code>.</div>"
+      },
+      {
+        "_type": "DynamicForm",
+        "ID": "parseForm",
+        "width": "100%",
+        "height": 320,
+        "numCols": 2,
+        "colWidths": [80, "*"],
+        "fields": [
+          {
+            "name": "resume_text",
+            "title": "Resume",
+            "type": "textArea",
+            "height": 220,
+            "width": "*",
+            "defaultValue": "# JOHN SMTIH\n\n**Email:** johnsmtih1983@gnail.com\n**Phone:** (555) 123-4556\n\n## WORK EXPERIENCE\n\n### SALES MANAGER\n**ABC Corporation** | June 2018 - Present\n- Oversee a team of 12 sales representatives\n- Implemented new CRM system that improved efficiency by 15%\n- Collaborate with Marketing team on campaigns\n\n### ASSISTANT MANAGER\n**XYZ Industries** | March 2015 - May 2018\n- Managed inventory and vendor relations\n- Trained junior staff using Microsoft Office tools\n\n## EDUCATION\n**Bachelor of Business Administration** | University of Somewhere | 2010"
+          },
+          {
+            "name": "target_skills",
+            "title": "Skills",
+            "type": "textArea",
+            "height": 70,
+            "width": "*",
+            "defaultValue": "Team leadership, CRM software, Project management, Public speaking, Microsoft Office, Python, Data Analysis",
+            "hint": "Comma-separated list of target skills the parser will look for"
+          }
+        ]
+      },
+      {
+        "_type": "HLayout",
+        "height": 36,
+        "membersMargin": 8,
+        "members": [
+          {
+            "_type": "Button",
+            "ID": "btnParse",
+            "title": "Parse Resume",
+            "width": 200,
+            "_action": "dispatchAndDisplay",
+            "_messageType": "PF_RESUME_PARSE",
+            "_payloadFrom": "parseForm",
+            "_targetCanvas": "outputParsed",
+            "_resultPath": "parsed",
+            "_resultFormatter": "json",
+            "_timeoutMs": 90000
+          },
+          {
+            "_type": "Button",
+            "ID": "btnShared",
+            "title": "Show full state",
+            "width": 200,
+            "_action": "dispatchAndDisplay",
+            "_messageType": "PF_RESUME_PARSE",
+            "_payloadFrom": "parseForm",
+            "_targetCanvas": "outputShared",
+            "_resultFormatter": "json",
+            "_timeoutMs": 90000
+          }
+        ]
+      },
+      {
+        "_type": "Label",
+        "height": 18,
+        "contents": "<div style='font-size:11px;color:#666;'>Parsed fields (extracted via <code>_resultPath: \"parsed\"</code>)</div>"
+      },
+      {
+        "_type": "HTMLFlow",
+        "ID": "outputParsed",
+        "height": 220,
+        "padding": 4,
+        "contents": "<em style='color:#888;'>Click \"Parse Resume\" to extract structured fields.</em>"
+      },
+      {
+        "_type": "Label",
+        "height": 18,
+        "contents": "<div style='font-size:11px;color:#666;'>Full shared state (after the flow runs)</div>"
+      },
+      {
+        "_type": "HTMLFlow",
+        "ID": "outputShared",
+        "height": 200,
+        "padding": 4,
+        "contents": "<em style='color:#888;'>Click \"Show full state\" for the complete response.</em>"
+      }
+    ]
+  }
+}

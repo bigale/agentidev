@@ -73,6 +73,7 @@ extension/apps/*
 !extension/apps/sqlite-query/
 !extension/apps/csv-analyzer/
 !extension/apps/pf-text-converter/
+!extension/apps/pf-resume-parser/
 !extension/apps/horsebread/
 extension/apps/horsebread/*
 !extension/apps/horsebread/PLAN.md

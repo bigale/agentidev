@@ -1,0 +1,14 @@
+{
+  "id": "pf-resume-parser",
+  "name": "Resume Parser (PocketFlow)",
+  "version": "0.1.0",
+  "description": "Adapts cookbook/pocketflow-structured-output into an agentidev plugin. Single-node PocketFlow flow with retries on parse failure. Calls the LLM via the bridge's /llm endpoint — no API key needed.",
+  "modes": ["pf-resume-parser"],
+  "templates": {
+    "dashboard": "templates/dashboard.json"
+  },
+  "handlers": "handlers.js",
+  "requires": {
+    "hostCapabilities": ["message"]
+  }
+}

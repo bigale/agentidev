@@ -4,6 +4,7 @@
     "hello-runtime",
     "sqlite-query",
     "csv-analyzer",
-    "pf-text-converter"
+    "pf-text-converter",
+    "pf-resume-parser"
   ]
 }
