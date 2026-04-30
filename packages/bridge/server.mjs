@@ -1100,6 +1100,65 @@ async function startServer() {
       return;
     }
 
+    // ---- LLM completion: POST /llm ----
+    // HTTP wrapper around BRIDGE_LLM_COMPLETE — lets PocketFlow flows (and any
+    // language without a bridge WebSocket client) call the LLM via plain HTTP.
+    // Body: { prompt, system?, model?, schema?, timeout? }
+    // Reply: { success, result, error? }
+    if (urlPath === '/llm' || urlPath === '/llm/') {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Content-Type', 'application/json');
+      if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
+      if (req.method !== 'POST') {
+        res.writeHead(405);
+        res.end(JSON.stringify({ success: false, error: 'POST only' }));
+        return;
+      }
+      try {
+        const chunks = [];
+        for await (const chunk of req) chunks.push(chunk);
+        const bodyText = Buffer.concat(chunks).toString('utf-8');
+        const body = bodyText ? JSON.parse(bodyText) : {};
+        const { system, prompt, model, schema, timeout } = body;
+        if (!prompt || !String(prompt).trim()) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ success: false, error: 'prompt is required' }));
+          return;
+        }
+        const llmModel = model || 'sonnet';
+        const llmTimeout = timeout || 120000;
+        let llmSystem = system || '';
+        if (schema) {
+          llmSystem = (llmSystem ? llmSystem + '\n\n' : '') +
+            'IMPORTANT: Output ONLY a single valid JSON object that matches this schema. ' +
+            'No prose, no markdown fences, no explanation before or after. ' +
+            'Schema:\n' + JSON.stringify(schema, null, 2);
+        }
+        console.log(`[Bridge] /llm (${llmModel}): "${String(prompt).trim().slice(0, 80)}..."`);
+        const raw = await spawnClaude(llmModel, llmSystem, prompt, { timeout: llmTimeout });
+        let result;
+        if (schema) {
+          result = parseClaudeJsonResponse(raw);
+        } else {
+          try {
+            const env = JSON.parse(raw);
+            result = env.result || raw;
+          } catch {
+            result = raw;
+          }
+        }
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, result }));
+      } catch (err) {
+        console.error('[Bridge] /llm error:', err.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+      return;
+    }
+
     // Serve web UI static files
     const filePath = pathResolve(WEB_UI_DIR, '.' + urlPath);
 
