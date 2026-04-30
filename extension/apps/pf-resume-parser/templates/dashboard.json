@@ -20,161 +20,208 @@
     "ID": "pfResumeParserRoot",
     "width": "100%",
     "height": "100%",
-    "overflow": "auto",
-    "padding": 16,
-    "membersMargin": 12,
+    "padding": 12,
+    "membersMargin": 8,
     "members": [
       {
         "_type": "Label",
-        "height": 28,
-        "contents": "<div style='font-size:18px;font-weight:600;color:#a8b4ff;'>Resume Parser (PocketFlow)</div>"
+        "height": 26,
+        "contents": "<div style='font-size:16px;font-weight:600;color:#a8b4ff;'>Resume Parser <span style='font-size:11px;color:#888;font-weight:400;margin-left:8px;'>PocketFlow cookbook plugin · structured-output pattern</span></div>"
       },
       {
-        "_type": "Label",
-        "height": 50,
-        "contents": "<div style='font-size:12px;color:#888;line-height:1.5;'>Single-Node PocketFlow flow with retries. Calls the bridge's <code>/llm</code> endpoint with a strict JSON schema; the LLM returns parsed structured fields. The <b>prompt template is editable below</b> — change the wording and re-run to see how it affects extraction. Markers <code>{resume}</code> and <code>{skills}</code> get substituted at run time.</div>"
-      },
-      {
-        "_type": "DynamicForm",
-        "ID": "parseForm",
+        "_type": "TabSet",
+        "ID": "parserTabs",
         "width": "100%",
-        "height": 600,
-        "numCols": 2,
-        "colWidths": [80, "*"],
-        "fields": [
+        "height": "*",
+        "tabs": [
           {
-            "name": "resume_text",
-            "title": "Resume",
-            "type": "textArea",
-            "height": 200,
-            "width": "*",
-            "defaultValue": "# JOHN SMTIH\n\n**Email:** johnsmtih1983@gnail.com\n**Phone:** (555) 123-4556\n\n## WORK EXPERIENCE\n\n### SALES MANAGER\n**ABC Corporation** | June 2018 - Present\n- Oversee a team of 12 sales representatives\n- Implemented new CRM system that improved efficiency by 15%\n- Collaborate with Marketing team on campaigns\n\n### ASSISTANT MANAGER\n**XYZ Industries** | March 2015 - May 2018\n- Managed inventory and vendor relations\n- Trained junior staff using Microsoft Office tools\n\n## EDUCATION\n**Bachelor of Business Administration** | University of Somewhere | 2010"
+            "title": "Run",
+            "ID": "tabRun",
+            "pane": {
+              "_type": "VLayout",
+              "padding": 12,
+              "membersMargin": 8,
+              "overflow": "auto",
+              "members": [
+                {
+                  "_type": "DynamicForm",
+                  "ID": "parseForm",
+                  "width": "100%",
+                  "height": 280,
+                  "numCols": 2,
+                  "colWidths": [70, "*"],
+                  "titleOrientation": "left",
+                  "fields": [
+                    {
+                      "name": "resume_text",
+                      "title": "Resume",
+                      "type": "textArea",
+                      "height": 200,
+                      "width": "*",
+                      "defaultValue": "# JOHN SMTIH\n\n**Email:** johnsmtih1983@gnail.com\n**Phone:** (555) 123-4556\n\n## WORK EXPERIENCE\n\n### SALES MANAGER\n**ABC Corporation** | June 2018 - Present\n- Oversee a team of 12 sales representatives\n- Implemented new CRM system that improved efficiency by 15%\n- Collaborate with Marketing team on campaigns\n\n### ASSISTANT MANAGER\n**XYZ Industries** | March 2015 - May 2018\n- Managed inventory and vendor relations\n- Trained junior staff using Microsoft Office tools\n\n## EDUCATION\n**Bachelor of Business Administration** | University of Somewhere | 2010"
+                    },
+                    {
+                      "name": "target_skills",
+                      "title": "Skills",
+                      "type": "textArea",
+                      "height": 60,
+                      "width": "*",
+                      "defaultValue": "Team leadership, CRM software, Project management, Public speaking, Microsoft Office, Python, Data Analysis"
+                    }
+                  ]
+                },
+                {
+                  "_type": "HLayout",
+                  "height": 32,
+                  "membersMargin": 8,
+                  "members": [
+                    {
+                      "_type": "Button",
+                      "ID": "btnParse",
+                      "title": "Parse Resume",
+                      "width": 160,
+                      "_action": "dispatchAndDisplay",
+                      "_messageType": "PF_RESUME_PARSE",
+                      "_payloadFrom": ["parseForm", "promptForm"],
+                      "_targetCanvas": "outputParsed",
+                      "_resultPath": "parsed",
+                      "_resultFormatter": "json",
+                      "_timeoutMs": 90000
+                    },
+                    {
+                      "_type": "Button",
+                      "ID": "btnShared",
+                      "title": "Show full state",
+                      "width": 160,
+                      "_action": "dispatchAndDisplay",
+                      "_messageType": "PF_RESUME_PARSE",
+                      "_payloadFrom": ["parseForm", "promptForm"],
+                      "_targetCanvas": "outputShared",
+                      "_resultFormatter": "json",
+                      "_timeoutMs": 90000
+                    },
+                    {
+                      "_type": "Label",
+                      "width": "*",
+                      "contents": "<div style='font-size:11px;color:#888;line-height:1.4;'>Skills: comma-separated. The prompt template lives on the <b>Prompt</b> tab.</div>"
+                    }
+                  ]
+                },
+                {
+                  "_type": "Label",
+                  "height": 16,
+                  "contents": "<div style='font-size:11px;color:#666;'>Parsed fields</div>"
+                },
+                {
+                  "_type": "HTMLFlow",
+                  "ID": "outputParsed",
+                  "height": 220,
+                  "padding": 4,
+                  "overflow": "auto",
+                  "contents": "<em style='color:#888;'>Click \"Parse Resume\" to extract structured fields.</em>"
+                },
+                {
+                  "_type": "Label",
+                  "height": 16,
+                  "contents": "<div style='font-size:11px;color:#666;'>Full shared state</div>"
+                },
+                {
+                  "_type": "HTMLFlow",
+                  "ID": "outputShared",
+                  "height": 200,
+                  "padding": 4,
+                  "overflow": "auto",
+                  "contents": "<em style='color:#888;'>Click \"Show full state\" for the complete response.</em>"
+                }
+              ]
+            }
           },
           {
-            "name": "target_skills",
-            "title": "Skills",
-            "type": "textArea",
-            "height": 60,
-            "width": "*",
-            "defaultValue": "Team leadership, CRM software, Project management, Public speaking, Microsoft Office, Python, Data Analysis"
-          },
-          {
-            "name": "prompt_template",
             "title": "Prompt",
-            "type": "textArea",
-            "height": 280,
-            "width": "*",
-            "defaultValue": "Extract structured fields from the resume below.\n\n**Resume:**\n```\n{resume}\n```\n\n**Target Skills (use these indexes):**\n```\n{skills}\n```\n\nReturn:\n- name (string): full name extracted from the resume\n- email (string): email address\n- experience: array of {title, company} objects, one per job\n- skill_indexes: array of integer indexes into the target skills list, one per skill found in the resume"
-          }
-        ]
-      },
-      {
-        "_type": "Label",
-        "height": 36,
-        "contents": "<div style='font-size:11px;color:#888;line-height:1.4;'><b>Skills:</b> comma-separated list of target skills the parser will look for. <b>Prompt:</b> editable template — markers <code>{resume}</code> and <code>{skills}</code> are substituted at run time.</div>"
-      },
-      {
-        "_type": "HLayout",
-        "height": 36,
-        "membersMargin": 8,
-        "members": [
-          {
-            "_type": "Button",
-            "ID": "btnParse",
-            "title": "Parse Resume",
-            "width": 200,
-            "_action": "dispatchAndDisplay",
-            "_messageType": "PF_RESUME_PARSE",
-            "_payloadFrom": "parseForm",
-            "_targetCanvas": "outputParsed",
-            "_resultPath": "parsed",
-            "_resultFormatter": "json",
-            "_timeoutMs": 90000
+            "ID": "tabPrompt",
+            "pane": {
+              "_type": "VLayout",
+              "padding": 12,
+              "membersMargin": 8,
+              "members": [
+                {
+                  "_type": "Label",
+                  "height": 36,
+                  "contents": "<div style='font-size:12px;color:#888;line-height:1.5;'>Editable prompt sent to the LLM. Markers <code>{resume}</code> and <code>{skills}</code> are substituted at run time. Edit and click <b>Parse Resume</b> on the Run tab — the new prompt is used immediately.</div>"
+                },
+                {
+                  "_type": "DynamicForm",
+                  "ID": "promptForm",
+                  "width": "100%",
+                  "height": "*",
+                  "numCols": 1,
+                  "fields": [
+                    {
+                      "name": "prompt_template",
+                      "title": "Prompt template",
+                      "type": "textArea",
+                      "height": "*",
+                      "width": "*",
+                      "showTitle": false,
+                      "defaultValue": "Extract structured fields from the resume below.\n\n**Resume:**\n```\n{resume}\n```\n\n**Target Skills (use these indexes):**\n```\n{skills}\n```\n\nReturn:\n- name (string): full name extracted from the resume\n- email (string): email address\n- experience: array of {title, company} objects, one per job\n- skill_indexes: array of integer indexes into the target skills list, one per skill found in the resume"
+                    }
+                  ]
+                }
+              ]
+            }
           },
           {
-            "_type": "Button",
-            "ID": "btnShared",
-            "title": "Show full state",
-            "width": 200,
-            "_action": "dispatchAndDisplay",
-            "_messageType": "PF_RESUME_PARSE",
-            "_payloadFrom": "parseForm",
-            "_targetCanvas": "outputShared",
-            "_resultFormatter": "json",
-            "_timeoutMs": 90000
+            "title": "History",
+            "ID": "tabHistory",
+            "pane": {
+              "_type": "VLayout",
+              "padding": 12,
+              "membersMargin": 8,
+              "members": [
+                {
+                  "_type": "HLayout",
+                  "height": 28,
+                  "membersMargin": 8,
+                  "members": [
+                    {
+                      "_type": "Button",
+                      "ID": "btnRefreshHistory",
+                      "title": "Refresh",
+                      "width": 100,
+                      "_action": "dsFetch",
+                      "_targetGrid": "runHistoryGrid"
+                    },
+                    {
+                      "_type": "Label",
+                      "width": "*",
+                      "contents": "<div style='font-size:11px;color:#888;line-height:1.4;'>Every Parse run is recorded in the <code>plugin-runs</code> IndexedDB store. Survives page refresh.</div>"
+                    }
+                  ]
+                },
+                {
+                  "_type": "ListGrid",
+                  "ID": "runHistoryGrid",
+                  "height": "*",
+                  "dataSource": "plugin-runs",
+                  "autoFetchData": true,
+                  "criteria": { "pluginId": "pf-resume-parser" },
+                  "initialCriteria": { "pluginId": "pf-resume-parser" },
+                  "sortField": "ts",
+                  "sortDirection": "descending",
+                  "showHeader": true,
+                  "canEdit": false,
+                  "emptyMessage": "No runs yet — click Parse to record one.",
+                  "fields": [
+                    { "name": "ts",         "title": "When",     "width": 160, "_formatter": "timestamp" },
+                    { "name": "durationMs", "title": "Duration", "width": 90,  "align": "right" },
+                    { "name": "success",    "title": "OK",       "width": 50,  "type": "boolean" },
+                    { "name": "flowName",   "title": "Flow",     "width": 140 },
+                    { "name": "error",      "title": "Error",    "width": "*"  }
+                  ]
+                }
+              ]
+            }
           }
-        ]
-      },
-      {
-        "_type": "Label",
-        "height": 18,
-        "contents": "<div style='font-size:11px;color:#666;'>Parsed fields (extracted via <code>_resultPath: \"parsed\"</code>)</div>"
-      },
-      {
-        "_type": "HTMLFlow",
-        "ID": "outputParsed",
-        "height": 220,
-        "padding": 4,
-        "overflow": "auto",
-        "contents": "<em style='color:#888;'>Click \"Parse Resume\" to extract structured fields.</em>"
-      },
-      {
-        "_type": "Label",
-        "height": 18,
-        "contents": "<div style='font-size:11px;color:#666;'>Full shared state (after the flow runs)</div>"
-      },
-      {
-        "_type": "HTMLFlow",
-        "ID": "outputShared",
-        "height": 200,
-        "padding": 4,
-        "overflow": "auto",
-        "contents": "<em style='color:#888;'>Click \"Show full state\" for the complete response.</em>"
-      },
-      {
-        "_type": "Label",
-        "height": 22,
-        "contents": "<div style='font-size:12px;color:#aaa;font-weight:600;margin-top:8px;'>Run history</div>"
-      },
-      {
-        "_type": "HLayout",
-        "height": 28,
-        "membersMargin": 8,
-        "members": [
-          {
-            "_type": "Button",
-            "ID": "btnRefreshHistory",
-            "title": "Refresh",
-            "width": 100,
-            "_action": "dsFetch",
-            "_targetGrid": "runHistoryGrid"
-          },
-          {
-            "_type": "Label",
-            "height": 24,
-            "width": "*",
-            "contents": "<div style='font-size:11px;color:#888;'>Every Parse run is recorded in IndexedDB (<code>plugin-runs</code> store). Click a row to inspect the run.</div>"
-          }
-        ]
-      },
-      {
-        "_type": "ListGrid",
-        "ID": "runHistoryGrid",
-        "height": 220,
-        "dataSource": "plugin-runs",
-        "autoFetchData": true,
-        "initialCriteria": { "pluginId": "pf-resume-parser" },
-        "sortField": "ts",
-        "sortDirection": "descending",
-        "showHeader": true,
-        "canEdit": false,
-        "emptyMessage": "No runs yet — click Parse to record one.",
-        "fields": [
-          { "name": "ts",         "title": "When",       "width": 160, "_formatter": "timestamp" },
-          { "name": "durationMs", "title": "Duration",   "width": 90,  "align": "right" },
-          { "name": "success",    "title": "OK",         "width": 50,  "type": "boolean" },
-          { "name": "flowName",   "title": "Flow",       "width": 140 },
-          { "name": "error",      "title": "Error",      "width": "*"  }
         ]
       }
     ]

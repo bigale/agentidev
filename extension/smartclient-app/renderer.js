@@ -267,11 +267,16 @@ var ACTION_MAP = {
     component.click = function () {
       var grid = resolveRef(node._targetGrid);
       if (!grid) return;
-      var criteria = {};
-      if (node._payloadFrom) {
-        var source = resolveRef(node._payloadFrom);
-        if (source && source.getValues) criteria = source.getValues() || {};
+      // No filter form provided -> re-fetch with the grid's existing
+      // criteria (initialCriteria from the config). fetchData({}) would
+      // clobber initialCriteria and return everything, which is wrong for
+      // a "Refresh" button on a per-plugin filtered grid.
+      if (!node._payloadFrom) {
+        grid.invalidateCache();
+        return;
       }
+      var source = resolveRef(node._payloadFrom);
+      var criteria = (source && source.getValues) ? (source.getValues() || {}) : {};
       grid.fetchData(criteria);
     };
   },
@@ -313,8 +318,13 @@ var ACTION_MAP = {
       }
       var payload = Object.assign({}, node._messagePayload || {});
       if (node._payloadFrom) {
-        var source = resolveRef(node._payloadFrom);
-        if (source) {
+        // _payloadFrom may be a single ID or an array of IDs; merge values
+        // from each in declaration order (later sources win on key conflict).
+        // Useful when a form is split across TabSet tabs.
+        var sources = Array.isArray(node._payloadFrom) ? node._payloadFrom : [node._payloadFrom];
+        for (var si = 0; si < sources.length; si++) {
+          var source = resolveRef(sources[si]);
+          if (!source) continue;
           if (source.getValues) {
             Object.assign(payload, source.getValues() || {});
           } else if (source.getSelectedRecord) {
@@ -884,7 +894,18 @@ function createDataSource(dsConfig) {
       dataProtocol: 'clientCustom',
       fields: dsConfig.fields,
       transformRequest: function (dsRequest) {
-        sendDSRequest(dsRequest).then(function (resp) {
+        // For fetch operations, SmartClient stuffs criteria into dsRequest.data
+        // when callers use ds.fetchData(criteria). For add/update, dsRequest.data
+        // is the record. Disambiguate so the SW handler gets criteria where it
+        // expects them.
+        var normalized = dsRequest;
+        if (dsRequest.operationType === 'fetch') {
+          normalized = Object.assign({}, dsRequest, {
+            criteria: dsRequest.criteria || dsRequest.data || null,
+            data: undefined,
+          });
+        }
+        sendDSRequest(normalized).then(function (resp) {
           this.processResponse(dsRequest.requestId, {
             status: resp.status || 0,
             data: resp.data,
