@@ -1009,6 +1009,37 @@ function createComponent(node, nodePath) {
   // Wire actions after creation (needs component reference)
   wireAction(component, node);
 
+  // _replayInto: when a row is clicked on a history grid, populate one or
+  // more forms with that record's sharedIn snapshot. Optionally switch to
+  // a named tab via _replaySwitchTab: ["tabsetId", "tabIdOrIndex"].
+  // Used by the plugin run-history grids to "replay" a prior run.
+  if (Array.isArray(node._replayInto) && component.addProperties) {
+    component.addProperties({
+      recordClick: function (viewer, record) {
+        if (!record) return;
+        var src = record.sharedIn;
+        if (typeof src === 'string') {
+          try { src = JSON.parse(src); } catch (e) { src = {}; }
+        }
+        if (!src || typeof src !== 'object') return;
+        // Format array values back to comma-separated strings — text
+        // inputs hold strings, the flow's prep splits on commas.
+        var formValues = {};
+        for (var k in src) {
+          formValues[k] = Array.isArray(src[k]) ? src[k].join(', ') : src[k];
+        }
+        for (var i = 0; i < node._replayInto.length; i++) {
+          var form = resolveRef(node._replayInto[i]);
+          if (form && form.setValues) form.setValues(formValues);
+        }
+        if (Array.isArray(node._replaySwitchTab) && node._replaySwitchTab.length >= 2) {
+          var tabset = resolveRef(node._replaySwitchTab[0]);
+          if (tabset && tabset.selectTab) tabset.selectTab(node._replaySwitchTab[1]);
+        }
+      },
+    });
+  }
+
   // Inspector click-to-select: attach mouseDown handler for components with IDs
   if (node.ID && component.addProperties && node._nodePath) {
     (function (nodePath) {

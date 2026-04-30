@@ -210,7 +210,9 @@
                   "sortDirection": "descending",
                   "showHeader": true,
                   "canEdit": false,
-                  "emptyMessage": "No runs yet — click Parse to record one.",
+                  "_replayInto": ["parseForm", "promptForm"],
+                  "_replaySwitchTab": ["parserTabs", "tabRun"],
+                  "emptyMessage": "No runs yet — click Parse to record one. Click any row to replay its inputs.",
                   "fields": [
                     { "name": "ts",         "title": "When",     "width": 160, "_formatter": "timestamp" },
                     { "name": "durationMs", "title": "Duration", "width": 90,  "align": "right" },
