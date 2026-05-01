@@ -84,10 +84,11 @@ try {
   const form = await page.getSCObject('//DynamicForm[ID="calcForm"]');
   // page.getSCObject returns an object with .values containing form values
   const initialValues = await page.evaluate(() => calcForm.getValues());
-  client.assert(initialValues.principal === 350000, 'principal default is 350000');
-  client.assert(initialValues.downPayment === 50000, 'downPayment default is 50000');
-  client.assert(initialValues.rate === 7, 'rate default is 7');
-  client.assert(initialValues.years === 30, 'years default is 30');
+  // Fields are type:"text" so values are strings; calculate() parses to numbers.
+  client.assert(String(initialValues.principal) === '350000', 'principal default is 350000');
+  client.assert(String(initialValues.downPayment) === '50000', 'downPayment default is 50000');
+  client.assert(String(initialValues.rate) === '7', 'rate default is 7');
+  client.assert(String(initialValues.years) === '30', 'years default is 30');
 
   const initialStatus = await page.evaluate(() => shareStatus.getContents());
   client.assert(/Click Calculate/i.test(initialStatus), 'fresh load shows "Click Calculate" status');
@@ -134,11 +135,12 @@ try {
   // (waitForElement is strict about the DOM element it expects), so we
   // verify the wiring statically and exercise behavior via setValue + the
   // same refreshStatus call the change handler would make.
+  // Field uses `changed` (fires after value commit) not `change` (per-keystroke).
   const changeWired = await page.evaluate(() => {
     const item = calcForm.getItem('rate');
-    return typeof (item.change || (item._typeProp && item._typeProp.change)) === 'function';
+    return typeof (item.changed || item.change) === 'function';
   });
-  client.assert(changeWired, 'rate field has a change handler wired');
+  client.assert(changeWired, 'rate field has a changed/change handler wired');
 
   await page.evaluate(() => {
     calcForm.setValue('rate', 6);
