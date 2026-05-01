@@ -189,3 +189,100 @@ isc.AutoTest.getLocator(document.elementFromPoint(x, y))
 // Get locator for a known component by ID
 isc.AutoTest.getLocator(isc.AutoTest.getObject('//ListGrid[ID="scriptsGrid"]').getCell(0, 0))
 ```
+
+## Critical SmartClient module dependencies
+
+**`ISC_DataBinding.js` is required for forms to accept input** — even when you don't use a DataSource. SC's form change handler internally calls `RPCManager.startQueue()` which lives in DataBinding. Without it:
+
+- typing into a field updates the DOM input
+- but SC's model never gets the new value (`handleChange` throws a silent `TypeError: Cannot read properties of undefined (reading 'startQueue')`)
+- on blur, SC reverts the visible input back to the model's stale value
+- `change`/`changed` handlers never fire
+- the form looks editable but every save captures the original defaults
+
+**Minimum module set for a working form** (raw → brotli@5):
+- `ISC_Core` (1.9 MB → 389 KB)
+- `ISC_Foundation` (479 KB → 91 KB)
+- `ISC_Containers` (190 KB → 37 KB)
+- `ISC_Forms` (1.2 MB → 221 KB)
+- `ISC_DataBinding` (1.9 MB → 393 KB)  *required even without DataSource*
+- Tahoe `load_skin.js` + `skin_styles.css` (~40 KB brotli)
+
+Total wire size: ~1.4 MB brotli. `HTMLFlow` also lives in `ISC_DataBinding`, so loading it gets you that for free.
+
+## Standalone SmartClient app testing (Playwright via bridge)
+
+For testing **standalone web apps** (no extension iframe), use Playwright through the bridge's playwright-shim — assertions and screenshots surface in the dashboard's Test Results portlet.
+
+```javascript
+import { chromium, client } from '../packages/bridge/playwright-shim.mjs';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+// Vendored at packages/bridge/vendor/sc-playwright-commands.cjs (.cjs forces
+// CommonJS interpretation; resolves @playwright/test from our node_modules).
+const { extendPage } = require('../packages/bridge/vendor/sc-playwright-commands.cjs');
+
+const browser = await chromium.launch({ headless: true });
+const page = await (await browser.newContext()).newPage();
+extendPage(page);
+page.configureSC({ scAutoWait: false, scLogLevel: 'silent' });
+```
+
+`@playwright/test` must be a dev dep (the SC commands.cjs requires it).
+
+### When to use which interaction primitive
+
+| Goal | Use | Notes |
+|---|---|---|
+| Click a SC button | `clickSC('//Button[ID="..."]')` | Real mouse events, fires SC click handler |
+| Read a SC component's state | `page.evaluate(() => isc.AutoTest.getObject('...').getX())` | Most flexible |
+| Fill a SC text item | `page.evaluate(() => calcForm.setValue('x', 'val'))` | `typeSC` often fails — see below |
+| Verify model state after async | `waitForFunction(() => location.hash === expected, ...)` | Deterministic signals |
+| Trigger an async function and await it | `page.evaluate(() => fnReturningPromise())` | SC click handlers don't await returned promises |
+
+### `typeSC` and form-item locators don't reliably work
+
+The vendored commands.cjs uses `isc.AutoTest.waitForElement` (stricter than `getObject`) and **doesn't resolve `//DynamicForm[ID="X"]/item[name="Y"]` locators** — `typeSC` fails for most form items. Workaround: drive the form via `calcForm.setValue(name, value)` programmatically. SC's `setValue` does NOT fire change handlers (intentional, prevents loops), so verify the change handler is wired statically as a separate assertion:
+
+```javascript
+const wired = await page.evaluate(() => typeof calcForm.getItem('rate').changed === 'function');
+client.assert(wired, 'change handler is wired');
+
+await page.evaluate(() => {
+  calcForm.setValue('rate', 6);
+  refreshStatus();  // mirror what the change handler does on real keystroke
+});
+```
+
+For tests that need to simulate true user typing (e.g., regression tests for a typing-broken bug), use Playwright's keyboard:
+```javascript
+await page.locator('input[name="rate"]').click({ clickCount: 3 });
+await page.keyboard.type('6.5', { delay: 30 });
+await page.keyboard.press('Tab');
+```
+
+### `scAutoWait` and `waitForSCDone` cautions
+
+`isc.AutoTest.waitForSystemDone` can hang indefinitely on pages that bump SC's busy counter — most commonly **data-URI images** (e.g., a QR code rendered as `<img src="data:...">`). Symptom: `waitForSCDone` times out at the configured timeout, your script dies.
+
+- **Disable** `scAutoWait: false` in `configureSC` and replace `waitForSCDone` with explicit signals: `waitForFunction(() => calcForm.getValue('x') === expected)` or `waitForTimeout(150)`.
+- **Vendored bug fix**: the SDK's `waitForSCDone` references `timeout` in its catch block but declares it inside the try (out of scope → ReferenceError swallows the actual timeout error). Hoist it to outer scope when vendoring.
+
+### Async click handlers
+
+SC button click handlers **don't await async function returns**. If your handler calls `async function save()`, the `clickSC` returns immediately and your `waitForFunction` may race the async work.
+
+For testing, pick the path:
+- Test the button-to-handler integration **once** with `clickSC` + a deterministic wait
+- Test subsequent invocations with `page.evaluate(() => save())` so you can `await` the promise
+
+### Layout gotcha — Label `valign`
+
+SmartClient `Label` defaults to `valign: "center"`. If you use a Label as a container for stacked HTML rows (e.g., a recents list), set `valign: "top"` explicitly — otherwise a single row appears mid-container with empty space above.
+
+### `change` vs `changed` handler
+
+- `change` — fires per-keystroke when `changeOnKeypress: true` (default for most items). Receives `(form, item, value, oldValue)`.
+- `changed` — fires after the value is committed (blur, programmatic change, etc.).
+
+For an explicit Calculate-button workflow, `changed` is usually the right choice — `change` would fire too eagerly while the user is still typing.
