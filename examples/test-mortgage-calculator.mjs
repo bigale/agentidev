@@ -117,7 +117,7 @@ try {
   client.assert(/Saved/.test(statusAfterSave), 'status shows "Saved" after save');
   const recentsCount1 = await page.evaluate(() => getRecents().length);
   client.assert(recentsCount1 === 1, `1 entry in recents (got ${recentsCount1})`);
-  const anchorCount = await page.evaluate(() => document.querySelectorAll('a[href^="javascript:location.hash"]').length);
+  const anchorCount = await page.evaluate(() => document.querySelectorAll('a[href^="javascript:"]').length);
   client.assert(anchorCount === 1, 'recents row rendered as anchor in DOM');
   await client.artifact({
     type: 'screenshot',
@@ -230,12 +230,14 @@ try {
   });
   await client.checkpoint('snapshot-restore');
 
-  // ===== Test 8: Recents → restore =====
+  // ===== Test 8: Recents → restore (real anchor click) =====
   // Recents persist in localStorage across navigations (same origin). The
   // store has Test 3's $350K@7% and Test 4's $350K@6% saves. Form is
-  // currently at $250K (from Test 7's snapshot URL). Drive the same data
-  // path the anchor click triggers: set location.hash to the saved entry,
-  // hashchange listener fires, restoreFromHash populates the form.
+  // currently at $250K (from Test 7's snapshot URL). CLICKING the anchor
+  // (vs setting location.hash via evaluate) is what catches the
+  // `javascript:` URL footgun: an href like `javascript:location.hash="X"`
+  // evaluates to a string, which the browser then renders as the entire
+  // page body unless wrapped in `void(...)`.
   const recentsBefore = await page.evaluate(() => {
     const all = getRecents();
     return { count: all.length, labels: all.map((r) => r.label) };
@@ -243,15 +245,65 @@ try {
   client.assert(recentsBefore.count >= 2,
     `recents persist across navigation (${recentsBefore.count} entries: ${JSON.stringify(recentsBefore.labels)})`);
 
-  await page.evaluate(() => {
-    const target = getRecents().find((r) => r.label.includes('$350,000 @ 7%'));
-    if (target) location.hash = 'i=' + target.hash;
-  });
-  await page.waitForFunction(() => calcForm.getValue('principal') === 350000, { timeout: 5000 });
+  // Click the anchor whose label contains $350,000 @ 7%.
+  // page.locator('a:has-text(...)') would match too broadly if multiple anchors
+  // share text — use evaluate to pick the right one and then page.click.
+  const targetLabel = '$350,000 @ 7%';
+  const targetAnchor = await page.evaluateHandle((label) => {
+    const anchors = Array.from(document.querySelectorAll('a[href^="javascript:"]'));
+    return anchors.find((a) => a.textContent.includes(label)) || null;
+  }, targetLabel);
+  client.assert(await targetAnchor.evaluate((a) => !!a), `recent anchor for "${targetLabel}" present in DOM`);
+  await targetAnchor.asElement().click();
+  await page.waitForTimeout(300);
+
+  // Real-anchor-click regression: page must still have its layout (not be
+  // replaced by the string return value of `location.hash="..."`).
+  const stillRendered = await page.evaluate(() => !!isc.AutoTest.getObject('//VLayout[ID="root"]'));
+  client.assert(stillRendered, 'page survives anchor click (no javascript: URL string-render)');
+
+  await page.waitForFunction(() => calcForm.getValue('principal') == 350000, { timeout: 5000 });
   const afterClick = await page.evaluate(() => calcForm.getValues());
-  client.assert(afterClick.principal === 350000, 'restored principal from recent');
-  client.assert(afterClick.rate === 7, 'restored rate from recent');
+  client.assert(String(afterClick.principal) === '350000', 'restored principal from recent');
+  client.assert(String(afterClick.rate) === '7', 'restored rate from recent');
   await client.checkpoint('recents-click');
+
+  // ===== Test 9: Regression — real user typing must reach the model =====
+  // Locks in the ISC_DataBinding fix. If DataBinding is dropped from the
+  // bundle, SC's form change handler throws silently on every keystroke,
+  // input reverts on blur, and Save captures the OLD value — exactly the
+  // user-reported "edits don't take" bug.
+  //
+  // Strategy: navigate to a clean URL, type a fresh value via real
+  // keyboard events, click Save, verify the URL hash encodes the typed
+  // value (not the default).
+  await page.goto(TEST_URL, { waitUntil: 'networkidle' });
+  await page.waitForFunction(() => typeof calcForm !== 'undefined', null, { timeout: 10000 });
+
+  await page.locator('input[name="principal"]').click({ clickCount: 3 });
+  await page.keyboard.type('425000', { delay: 30 });
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(200);
+
+  // Both the DOM AND the SC model should now show 425000.
+  const typedState = await page.evaluate(() => ({
+    inputVal: document.querySelector('input[name="principal"]').value,
+    scVal: calcForm.getValue('principal'),
+  }));
+  client.assert(typedState.inputVal === '425000',
+    `DOM input shows typed value ('${typedState.inputVal}')`);
+  client.assert(String(typedState.scVal) === '425000',
+    `SC model received typed value ('${typedState.scVal}') — fails if ISC_DataBinding missing`);
+
+  // Click Calculate then Save; the URL hash should encode 425000.
+  await page.clickSC('//Button[ID="btnCalc"]');
+  await page.waitForTimeout(150);
+  await page.evaluate(() => saveScenario());
+  const recents9 = await page.evaluate(() => getRecents());
+  const newest = recents9[0];
+  client.assert(newest && newest.label.includes('$425,000'),
+    `Save captured the typed principal ('${newest && newest.label}')`);
+  await client.checkpoint('typing-regression');
 
   // ===== Wrap up =====
   const exitCode = client.summarize();
