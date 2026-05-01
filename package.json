@@ -29,7 +29,15 @@
     "ai:check": "node packages/ai-context/sync.mjs --check",
     "ai:adapt": "node packages/ai-context/adapt.mjs",
     "wiki:sync": "node scripts/sync-wiki.mjs",
-    "wiki:dry-run": "node scripts/sync-wiki.mjs --dry-run"
+    "wiki:dry-run": "node scripts/sync-wiki.mjs --dry-run",
+    "zato:up": "cd docker/zato && docker compose up -d",
+    "zato:down": "cd docker/zato && docker compose down",
+    "zato:setup": "node docker/zato/setup-channels.mjs",
+    "zato:logs": "docker logs -f agentidev-zato",
+    "zato:backup": "docker exec agentidev-zato cp /opt/zato/petstore.db /opt/zato/sql/petstore-backup.db",
+    "zato:reset": "cd docker/zato && docker compose down -v && docker compose up -d",
+    "zato:expose": "node docker/zato/expose.mjs",
+    "pod:serve": "node docker/browserpod/serve.mjs"
   },
   "repository": {
     "type": "git",
@@ -52,6 +60,7 @@
   },
   "homepage": "https://github.com/bigale/agentidev#readme",
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/chrome": "^0.0.254",
     "copy-webpack-plugin": "^11.0.0",
     "esbuild": "^0.28.0",
