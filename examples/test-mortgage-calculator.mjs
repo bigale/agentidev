@@ -117,8 +117,13 @@ try {
   client.assert(/Saved/.test(statusAfterSave), 'status shows "Saved" after save');
   const recentsCount1 = await page.evaluate(() => getRecents().length);
   client.assert(recentsCount1 === 1, `1 entry in recents (got ${recentsCount1})`);
-  const anchorCount = await page.evaluate(() => document.querySelectorAll('a[href^="javascript:"]').length);
-  client.assert(anchorCount === 1, 'recents row rendered as anchor in DOM');
+  // Save▾ split-button: open menu, expect 1 row matching the just-saved scenario.
+  await page.evaluate(() => openSavesMenu(btnSavesMenu));
+  await page.waitForTimeout(150);
+  const menuRowCount = await page.evaluate(() =>
+    document.querySelectorAll('#savesMenu .cssz-saves-menu-row').length);
+  client.assert(menuRowCount === 1, `Save▾ menu shows 1 row after save (got ${menuRowCount})`);
+  await page.evaluate(() => { document.getElementById('savesMenu').style.display = 'none'; });
   await client.artifact({
     type: 'screenshot',
     label: 'After Save',
@@ -230,14 +235,13 @@ try {
   });
   await client.checkpoint('snapshot-restore');
 
-  // ===== Test 8: Recents → restore (real anchor click) =====
-  // Recents persist in localStorage across navigations (same origin). The
+  // ===== Test 8: Save▾ menu → restore (real menu click) =====
+  // Saves persist in localStorage across navigations (same origin). The
   // store has Test 3's $350K@7% and Test 4's $350K@6% saves. Form is
-  // currently at $250K (from Test 7's snapshot URL). CLICKING the anchor
-  // (vs setting location.hash via evaluate) is what catches the
-  // `javascript:` URL footgun: an href like `javascript:location.hash="X"`
-  // evaluates to a string, which the browser then renders as the entire
-  // page body unless wrapped in `void(...)`.
+  // currently at $250K (from Test 7's snapshot URL). The Save▾ split-button
+  // dropdown replaces the old bottom "Your saves" row (2026-05-02). CLICKING
+  // the menu row (vs setting location.hash via evaluate) is what catches the
+  // dispatcher / event-handler regressions.
   const recentsBefore = await page.evaluate(() => {
     const all = getRecents();
     return { count: all.length, labels: all.map((r) => r.label) };
@@ -245,27 +249,26 @@ try {
   client.assert(recentsBefore.count >= 2,
     `recents persist across navigation (${recentsBefore.count} entries: ${JSON.stringify(recentsBefore.labels)})`);
 
-  // Click the anchor whose label contains $350,000 @ 7%.
-  // page.locator('a:has-text(...)') would match too broadly if multiple anchors
-  // share text — use evaluate to pick the right one and then page.click.
+  // Open Save▾ menu, find the row whose label contains $350,000 @ 7%, click it.
+  await page.evaluate(() => openSavesMenu(btnSavesMenu));
+  await page.waitForTimeout(150);
   const targetLabel = '$350,000 @ 7%';
-  const targetAnchor = await page.evaluateHandle((label) => {
-    const anchors = Array.from(document.querySelectorAll('a[href^="javascript:"]'));
-    return anchors.find((a) => a.textContent.includes(label)) || null;
+  const targetMenuRow = await page.evaluateHandle((label) => {
+    const rows = Array.from(document.querySelectorAll('#savesMenu .cssz-saves-menu-row'));
+    return rows.find((r) => r.textContent.includes(label)) || null;
   }, targetLabel);
-  client.assert(await targetAnchor.evaluate((a) => !!a), `recent anchor for "${targetLabel}" present in DOM`);
-  await targetAnchor.asElement().click();
+  client.assert(await targetMenuRow.evaluate((a) => !!a), `Save▾ menu row for "${targetLabel}" present`);
+  await targetMenuRow.asElement().click();
   await page.waitForTimeout(300);
 
-  // Real-anchor-click regression: page must still have its layout (not be
-  // replaced by the string return value of `location.hash="..."`).
+  // Page must still have its layout (no navigation regression).
   const stillRendered = await page.evaluate(() => !!isc.AutoTest.getObject('//VLayout[ID="root"]'));
-  client.assert(stillRendered, 'page survives anchor click (no javascript: URL string-render)');
+  client.assert(stillRendered, 'page survives menu row click');
 
   await page.waitForFunction(() => calcForm.getValue('principal') == 350000, { timeout: 5000 });
   const afterClick = await page.evaluate(() => calcForm.getValues());
-  client.assert(String(afterClick.principal) === '350000', 'restored principal from recent');
-  client.assert(String(afterClick.rate) === '7', 'restored rate from recent');
+  client.assert(String(afterClick.principal) === '350000', 'restored principal from menu row');
+  client.assert(String(afterClick.rate) === '7', 'restored rate from menu row');
   await client.checkpoint('recents-click');
 
   // ===== Test 9: Regression — real user typing must reach the model =====
@@ -322,16 +325,17 @@ try {
   client.assert(first.id === 'first-time-buyer-fha',
     `first archetype is first-time-buyer-fha (got ${first && first.id})`);
 
-  // Picker DOM has both subsection headers
+  // Picker DOM has the Common Scenarios header. The "Your saves" header was
+  // removed when saves moved into the Save▾ split-button dropdown (2026-05-02).
   const subsections = await page.evaluate(() => {
     const labels = Array.from(document.querySelectorAll('div')).map(d => d.textContent || '');
     return {
       hasCommonHeader: labels.some(t => t.trim() === 'Common scenarios'),
-      hasYourSavesHeader: labels.some(t => t.trim() === 'Your saves'),
+      hasSaveDropdownButton: !!document.querySelector('[eventproxy="btnSavesMenu"]'),
     };
   });
   client.assert(subsections.hasCommonHeader, 'Common scenarios subsection rendered');
-  client.assert(subsections.hasYourSavesHeader, 'Your saves subsection rendered');
+  client.assert(subsections.hasSaveDropdownButton, 'Save▾ dropdown button rendered');
 
   // Click handler: invoke loadArchetype directly (the click dispatcher).
   // This avoids hunting for the right anchor element + simulates the same
