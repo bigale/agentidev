@@ -548,6 +548,34 @@ try {
   client.assert(advAfterArchetype.visible, 'archetype click auto-expands advanced section');
   await client.checkpoint('form-expansion');
 
+  // ===== Test 13: iPhone-width responsive layout =====
+  // Regression guard for the iPhone-overflow bug: handset width must clamp
+  // to viewport (was hardcoded 520, iPhones are 375-430 → 25% horizontal scroll).
+  // Detection now falls back to viewport-width threshold since SC's
+  // isc.Browser.isHandset misses Chromium under Playwright (no touch events).
+  // Tests at 3 representative iPhone widths.
+  for (const [name, w] of [['iphone-se', 375], ['iphone-12', 390], ['iphone-15-pm', 430]]) {
+    const phoneCtx = await browser.newContext({
+      viewport: { width: w, height: 800 },
+      deviceScaleFactor: 2, isMobile: true,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1',
+    });
+    const phonePage = await phoneCtx.newPage();
+    await phonePage.goto(TEST_URL, { waitUntil: 'networkidle' });
+    await phonePage.waitForFunction(() => typeof advancedForm !== 'undefined', null, { timeout: 10000 });
+    await phonePage.waitForTimeout(400);
+    const dims = await phonePage.evaluate(() => ({
+      bodyW: document.body.scrollWidth,
+      btnTitle: btnCalc.getTitle(),
+    }));
+    client.assert(dims.bodyW <= w,
+      `${name} (vw=${w}): no horizontal overflow (body=${dims.bodyW})`);
+    client.assert(dims.btnTitle === 'Calc',
+      `${name}: action bar uses short button labels (got "${dims.btnTitle}")`);
+    await phoneCtx.close();
+  }
+  await client.checkpoint('iphone-responsive');
+
   // ===== Wrap up =====
   const exitCode = client.summarize();
   await client.complete({ assertions: client.getAssertionSummary() });
