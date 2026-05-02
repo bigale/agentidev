@@ -305,6 +305,63 @@ try {
     `Save captured the typed principal ('${newest && newest.label}')`);
   await client.checkpoint('typing-regression');
 
+  // ===== Test 10: Archetype picker — click first archetype card =====
+  // Verifies the bundle exposes archetypes and the picker click handler
+  // populates the form with the archetype's converted-to-4-input shape +
+  // displayedRate. Per spec docs/contexts/mortgage/specs/archetype-picker.md.
+  await page.goto(TEST_URL, { waitUntil: 'networkidle' });
+  await page.waitForFunction(() => typeof calcForm !== 'undefined' && window.MortgageBundle, null, { timeout: 10000 });
+
+  // Bundle exposes 6 archetypes
+  const bundleArchetypes = await page.evaluate(() => window.MortgageBundle.archetypes);
+  client.assert(Array.isArray(bundleArchetypes) && bundleArchetypes.length === 6,
+    `MortgageBundle.archetypes has 6 entries (got ${bundleArchetypes && bundleArchetypes.length})`);
+
+  // First archetype is first-time-buyer-fha
+  const first = bundleArchetypes[0];
+  client.assert(first.id === 'first-time-buyer-fha',
+    `first archetype is first-time-buyer-fha (got ${first && first.id})`);
+
+  // Picker DOM has both subsection headers
+  const subsections = await page.evaluate(() => {
+    const labels = Array.from(document.querySelectorAll('div')).map(d => d.textContent || '');
+    return {
+      hasCommonHeader: labels.some(t => t.trim() === 'Common scenarios'),
+      hasYourSavesHeader: labels.some(t => t.trim() === 'Your saves'),
+    };
+  });
+  client.assert(subsections.hasCommonHeader, 'Common scenarios subsection rendered');
+  client.assert(subsections.hasYourSavesHeader, 'Your saves subsection rendered');
+
+  // Click handler: invoke loadArchetype directly (the click dispatcher).
+  // This avoids hunting for the right anchor element + simulates the same
+  // path a real click takes.
+  await page.evaluate(() => loadArchetype('first-time-buyer-fha'));
+  await page.waitForTimeout(400);  // hashchange → restoreFromHash → recalc
+
+  // Form populated with the archetype's converted shape
+  const afterArchetype = await page.evaluate(() => calcForm.getValues());
+  client.assert(String(afterArchetype.principal) === '200000',
+    `archetype loaded principal ('${afterArchetype.principal}' from $200K starter home)`);
+  client.assert(String(afterArchetype.downPayment) === '7000',
+    `archetype loaded downPayment ('${afterArchetype.downPayment}' from 3.5% × $200K)`);
+  client.assert(String(afterArchetype.years) === '30',
+    `archetype loaded years ('${afterArchetype.years}')`);
+
+  // displayedRate flows into the rate field. For First-time Buyer (FHA, Good
+  // credit, 96.5% LTV, 30y, Current env): 6.5 base + 0 (30y) - 0.25 (FHA)
+  // + 0.25 (Good) + 0.25 (LTV>95) = 6.75%.
+  client.assert(String(afterArchetype.rate) === '6.75',
+    `archetype displayedRate flows to rate field ('${afterArchetype.rate}', expected 6.75 for First-time Buyer FHA)`);
+
+  // Result panel shows the archetype's monthly P&I. $193,000 loan @ 6.75% × 30y
+  // = $1,251.79 (exact via standard amortization formula). Match $1,251.XX
+  // pattern in the result panel HTML.
+  const resultText = await page.evaluate(() => result.getContents());
+  client.assert(/\$1,251\.\d{2}/.test(resultText),
+    `result panel shows archetype monthly ($1,251.XX expected)`);
+  await client.checkpoint('archetype-click');
+
   // ===== Wrap up =====
   const exitCode = client.summarize();
   await client.complete({ assertions: client.getAssertionSummary() });
