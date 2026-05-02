@@ -28,6 +28,7 @@
     "ai:sync": "node packages/ai-context/sync.mjs",
     "ai:check": "node packages/ai-context/sync.mjs --check",
     "ai:adapt": "node packages/ai-context/adapt.mjs",
+    "build:mortgage-skin": "node scripts/build-mortgage-skin.mjs",
     "wiki:sync": "node scripts/sync-wiki.mjs",
     "wiki:dry-run": "node scripts/sync-wiki.mjs --dry-run",
     "zato:up": "cd docker/zato && docker compose up -d",
