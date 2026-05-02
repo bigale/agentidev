@@ -1,0 +1,54 @@
+/*
+ * CSSZ Engine v0.1
+ * A minimal, variable-driven CSS engine.
+ */
+
+/* General container styling */
+.cssz-container {
+  background-color: var(--cssz-bg, #fff);
+  color: var(--cssz-text, #000);
+  font-family: var(--cssz-font-family, sans-serif);
+  padding: var(--cssz-container-padding, 2rem);
+  border: var(--cssz-container-border, none);
+  border-radius: var(--cssz-border-radius, 0);
+  transition: background-color 0.3s, color 0.3s;
+}
+
+/* Basic button styling */
+.cssz-button {
+  background-color: var(--cssz-button-bg, #333);
+  color: var(--cssz-button-text, #fff);
+  font-weight: var(--cssz-button-font-weight, bold);
+  border: var(--cssz-button-border, none);
+  border-radius: var(--cssz-border-radius, 4px);
+  padding: var(--cssz-button-padding, 0.75rem 1.5rem);
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.2s;
+}
+
+.cssz-button:hover {
+  background-color: var(--cssz-button-hover-bg, #555);
+  transform: var(--cssz-button-hover-transform, translateY(-2px));
+}
+
+/* Card component styling */
+.cssz-card {
+  background-color: var(--cssz-card-bg, #fff);
+  color: var(--cssz-card-text, #000);
+  border: var(--cssz-card-border, 1px solid #eee);
+  border-radius: var(--cssz-border-radius, 4px);
+  padding: var(--cssz-card-padding, 1.5rem);
+  box-shadow: var(--cssz-card-shadow, 0 4px 8px rgba(0,0,0,0.1));
+  margin-top: var(--cssz-spacing-md, 1rem);
+  margin-bottom: var(--cssz-spacing-md, 1rem);
+}
+
+.cssz-card h3 {
+  margin-top: 0;
+  color: var(--cssz-primary, #007bff);
+}
+
+/* Utility classes */
+.cssz-mt-md {
+  margin-top: var(--cssz-spacing-md, 1rem);
+}

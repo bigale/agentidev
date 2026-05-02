@@ -287,3 +287,55 @@ SmartClient `Label` defaults to `valign: "center"`. If you use a Label as a cont
 - `changed` — fires after the value is committed (blur, programmatic change, etc.).
 
 For an explicit Calculate-button workflow, `changed` is usually the right choice — `change` would fire too eagerly while the user is still typing.
+
+### State-suffixed class names (no space)
+
+SC stamps state on a widget by *replacing* the class name with a suffixed variant — no compound selectors, no separate state class. Always-no-space conventions:
+
+| Base class | State variants you'll encounter |
+|---|---|
+| `formTitle` | `formTitleFocused`, `formTitleOver`, `formTitleDisabled` |
+| `formCell` | `formCellFocused`, `formCellOver`, `formCellDisabled` |
+| `textItem` | `textItemFocused`, `textItemDisabled`, `textItemError` |
+| `textItemLite` | `textItemLiteFocused`, `textItemLiteDisabled` (the *Lite* family is what Tahoe stamps on the actual `<input>`, not `textItem`) |
+| `tab` | `tabSelected`, `tabOver`, `tabDisabled` |
+| `button` | `buttonOver`, `buttonDown`, `buttonSelected`, `buttonFocused`, `buttonDisabled`, `buttonPrimary` |
+| `gridRow` | `gridRowOver`, `gridRowSelected` |
+| `listGridCell` | `listGridCellOver`, `listGridCellSelected`, `listGridCellSelectedOver` |
+| `sectionHeader` | `sectionHeaderopened`, `sectionHeaderclosed` (lowercase suffixes — outlier) |
+
+**Rule for CSS overrides and test selectors:** any time you target a base class, also enumerate its state variants. A rule like `.textItem { color: ... }` won't match the focused `<input>` (which has `textItemLiteFocused`). Use `[class*="textItem"]` for selectors that should catch any state.
+
+### SectionStack — recreates section item DOMs on animate
+
+`SectionStack` rebuilds the inner DOM of each section's items when expanding/collapsing any section (including its siblings). Direct DOM manipulation inside a section's Label contents (e.g., `host.innerHTML=''; d3.append('svg')`) gets orphaned — your SVG/canvas/widget goes with the old detached element. Verified by tagging the host div with `data-tag` before an animation: tag was lost after a sibling expanded/collapsed.
+
+**Rule for chart/canvas content in a section:** build into a *detached* `<div>`, then `Label.setContents(htmlString)`. SC then owns the contents and re-applies them across reflows automatically — they can't be wiped. Use viewBox + `preserveAspectRatio="none"` + CSS `width:100%; height:100%` on the SVG so it scales to whatever container size SC ends up giving you (you can't read `clientWidth` on a detached element).
+
+```js
+const tmp = document.createElement('div');
+const svg = d3.select(tmp).append('svg')
+  .attr('viewBox', '0 0 480 224').attr('preserveAspectRatio', 'none')
+  .style('width', '100%').style('height', '100%');
+// ...build chart inside svg...
+sectionLabel.setContents(
+  "<div id='chartHost' style='width:100%;height:224px;'>" + tmp.innerHTML + "</div>"
+);
+```
+
+### SectionStack — callbacks fire inconsistently
+
+SC's documented `sectionExpanded` / `sectionCollapsed` callbacks **don't fire on programmatic** `expandSection(name)` / `collapseSection(name)`, and may fire inconsistently on user clicks depending on version. Don't depend on them.
+
+**Robust pattern:** delegated DOM click listener on `[class*="sectionHeader"], [eventproxy^="isc_SectionHeader_"]`, deferred (~350ms) so SC's animation settles before reading section state:
+
+```js
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('[class*="sectionHeader"], [eventproxy^="isc_SectionHeader_"]')) return;
+  setTimeout(() => {
+    if (myStack.sectionIsExpanded('section_x')) { /* ... */ }
+  }, 350);
+});
+```
+
+Header height in Tahoe is **37px** (verified via inline style probe). Compute total stack height = `(37 × N sections) + sum(expanded section content heights) + small pad`. SC SectionStack defaults to fixed height; if total expanded content exceeds the declared `height:` value, content overflows and clips. Either declare a tall-enough `height:` for the all-expanded state, or `setHeight` dynamically from the click listener above.
