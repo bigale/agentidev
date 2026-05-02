@@ -362,6 +362,89 @@ try {
     `result panel shows archetype monthly ($1,251.XX expected)`);
   await client.checkpoint('archetype-click');
 
+  // ===== Test 11: Calc Layout v2 =====
+  // Verifies the layout reorg shipped:
+  // - composition chart removed (no #amortChart element)
+  // - balance chart has 3 line series (cumulative chart)
+  // - Details section exists, default closed; expanding shows income input
+  //   + grouped grid; income change updates DTI in real time
+  // - Picker is side-by-side with form on desktop (isHandset=false)
+  // Per spec docs/contexts/mortgage/specs/calc-layout-v2.md.
+  await page.goto(TEST_URL, { waitUntil: 'networkidle' });
+  await page.waitForFunction(() => typeof isc !== 'undefined' && window.MortgageBundle, null, { timeout: 10000 });
+  await page.waitForTimeout(800);
+  await page.evaluate(() => recalc());
+  await page.waitForTimeout(400);
+
+  // Composition chart gone
+  const noCompositionChart = await page.evaluate(() => !document.getElementById('amortChart'));
+  client.assert(noCompositionChart, 'composition chart (#amortChart) removed');
+
+  // Balance chart now has 3 line paths (balance, cum-principal, cum-interest)
+  const balanceLineCount = await page.evaluate(() => {
+    const host = document.getElementById('balanceChartHost');
+    if (!host) return 0;
+    return host.querySelectorAll('path[class*="balance-line"], path[class*="cum-principal"], path[class*="cum-interest"]').length;
+  });
+  client.assert(balanceLineCount === 3,
+    `balance chart has 3 line series (got ${balanceLineCount})`);
+
+  // Details section exists; default closed
+  const detailsClosed = await page.evaluate(() => !exploreStack.sectionIsExpanded('section_details'));
+  client.assert(detailsClosed, 'Details section default closed');
+
+  // Expand Details → income input + DTI row appear
+  await page.evaluate(() => {
+    exploreStack.expandSection('section_details');
+    setupDetailsIncome();
+    renderDetails(getInput());
+  });
+  await page.waitForTimeout(300);
+
+  const detailsState = await page.evaluate(() => ({
+    incomeValue: document.getElementById('incomeInput')?.value,
+    hasLoanGroup: document.querySelector('.cssz-details-section-title')?.textContent === 'Loan',
+    hasDTIRow: Array.from(document.querySelectorAll('.cssz-details-row span')).some(s => s.textContent.trim() === 'DTI'),
+  }));
+  client.assert(detailsState.incomeValue === '65000',
+    `income input default $65,000 (got '${detailsState.incomeValue}')`);
+  client.assert(detailsState.hasLoanGroup, 'Details first group is "Loan"');
+  client.assert(detailsState.hasDTIRow, 'Details Borrower group has DTI row');
+
+  // Change income → DTI updates
+  const dtiBefore = await page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('.cssz-details-row'));
+    const dtiRow = rows.find(r => r.textContent.includes('DTI'));
+    return dtiRow?.querySelector('.cssz-details-val')?.textContent;
+  });
+  await page.evaluate(() => onIncomeChange(150000));
+  await page.waitForTimeout(300);
+  const dtiAfter = await page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('.cssz-details-row'));
+    const dtiRow = rows.find(r => r.textContent.includes('DTI'));
+    return dtiRow?.querySelector('.cssz-details-val')?.textContent;
+  });
+  client.assert(dtiBefore !== dtiAfter,
+    `DTI updates when income changes ('${dtiBefore}' → '${dtiAfter}')`);
+
+  // Picker side-by-side with form on desktop. archetypesList is one widget;
+  // the form column is in the same HLayout.
+  const layoutCheck = await page.evaluate(() => {
+    const archetypesEl = document.querySelector('[eventproxy="archetypesList"]');
+    const formEl = document.querySelector('[eventproxy="calcForm"]');
+    if (!archetypesEl || !formEl) return null;
+    const archRect = archetypesEl.getBoundingClientRect();
+    const formRect = formEl.getBoundingClientRect();
+    return {
+      archX: archRect.x,
+      formX: formRect.x,
+      archIsRightOfForm: archRect.x > formRect.x + formRect.width / 2,
+    };
+  });
+  client.assert(layoutCheck && layoutCheck.archIsRightOfForm,
+    `picker is side-by-side right of form (formX=${layoutCheck?.formX}, archX=${layoutCheck?.archX})`);
+  await client.checkpoint('layout-v2');
+
   // ===== Wrap up =====
   const exitCode = client.summarize();
   await client.complete({ assertions: client.getAssertionSummary() });
