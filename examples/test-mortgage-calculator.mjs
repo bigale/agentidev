@@ -445,6 +445,109 @@ try {
     `picker is side-by-side right of form (formX=${layoutCheck?.formX}, archX=${layoutCheck?.archX})`);
   await client.checkpoint('layout-v2');
 
+  // ===== Test 12: Form Expansion =====
+  // Verifies the 3 advanced fields (loan_type / credit_tier / occupancy) ship:
+  // - "Show advanced options" toggle present + initially hidden form
+  // - Click toggle → advancedForm visible with 3 SelectItems
+  // - Switching loan_type to FHA shifts the displayed rate (FHA -0.5%)
+  // - Switching credit_tier to Subprime shifts the rate again (+1.5%)
+  // - URL hash with old format (4 fields) still decodes (backwards-compat)
+  // - Archetype click auto-expands advanced section + sets all 3 fields
+  // Per spec docs/contexts/mortgage/specs/form-expansion.md.
+  await page.goto(TEST_URL, { waitUntil: 'networkidle' });
+  await page.evaluate(() => localStorage.removeItem('sc-mortgage:advanced-shown'));
+  await page.goto(TEST_URL + '?v=' + Date.now(), { waitUntil: 'networkidle' });
+  await page.waitForFunction(() => typeof advancedForm !== 'undefined' && window.MortgageBundle, null, { timeout: 10000 });
+  await page.waitForTimeout(500);
+
+  // Toggle present + form initially hidden
+  const toggleInitial = await page.evaluate(() => ({
+    toggleHasShowText: !!Array.from(document.querySelectorAll("a[onclick*='toggleAdvanced']"))
+                          .find(a => a.textContent.includes('Show advanced options')),
+    advHidden: !advancedForm.isVisible(),
+  }));
+  client.assert(toggleInitial.toggleHasShowText, '"Show advanced options" toggle present on first load');
+  client.assert(toggleInitial.advHidden, 'advancedForm initially hidden');
+
+  // Click toggle → advancedForm visible
+  await page.evaluate(() => toggleAdvanced());
+  await page.waitForTimeout(200);
+  const toggleClicked = await page.evaluate(() => ({
+    toggleHasHideText: !!Array.from(document.querySelectorAll("a[onclick*='toggleAdvanced']"))
+                          .find(a => a.textContent.includes('Hide advanced options')),
+    advVisible: advancedForm.isVisible(),
+  }));
+  client.assert(toggleClicked.toggleHasHideText, 'toggle text flips to "Hide advanced options" after click');
+  client.assert(toggleClicked.advVisible, 'advancedForm visible after toggle');
+
+  // FHA recomputes rate. Use form input pulse via setValue + handler.
+  const beforeFHA = await page.evaluate(() => calcForm.getValue('rate'));
+  await page.evaluate(() => {
+    advancedForm.setValue('loan_type', 'FHA');
+    _recomputeDisplayedRate();
+    recalc();
+  });
+  await page.waitForTimeout(200);
+  const afterFHA = await page.evaluate(() => calcForm.getValue('rate'));
+  client.assert(parseFloat(afterFHA) < parseFloat(beforeFHA),
+    `loan_type=FHA drops displayed rate (${beforeFHA} → ${afterFHA})`);
+
+  // Subprime bumps rate above the FHA-only rate.
+  await page.evaluate(() => {
+    advancedForm.setValue('credit_tier', 'Subprime');
+    _recomputeDisplayedRate();
+    recalc();
+  });
+  await page.waitForTimeout(200);
+  const afterSub = await page.evaluate(() => calcForm.getValue('rate'));
+  client.assert(parseFloat(afterSub) > parseFloat(afterFHA),
+    `credit_tier=Subprime bumps rate above FHA-only (${afterFHA} → ${afterSub})`);
+
+  // getInput merges all 7 fields, including the 3 advanced.
+  const fullInput = await page.evaluate(() => getInput());
+  client.assert(fullInput.loan_type === 'FHA' && fullInput.credit_tier === 'Subprime'
+                && fullInput.occupancy === 'Primary',
+    `getInput merges advanced fields (loan_type=${fullInput.loan_type}, credit_tier=${fullInput.credit_tier}, occupancy=${fullInput.occupancy})`);
+
+  // Backwards-compat: load an old 4-field hash → defaults applied to advancedForm.
+  const oldHash = await encodeShared({ principal: 350000, downPayment: 50000, rate: 7, years: 30 });
+  await page.evaluate((h) => { location.hash = 'i=' + h; }, oldHash);
+  await page.waitForTimeout(500);
+  const afterOldHash = await page.evaluate(() => advancedForm.getValues());
+  client.assert(afterOldHash.loan_type === 'Conventional'
+                && afterOldHash.credit_tier === 'Good'
+                && afterOldHash.occupancy === 'Primary',
+    `old 4-field hash leaves advancedForm at defaults (${JSON.stringify(afterOldHash)})`);
+
+  // Forward-compat: load a 7-field hash → advancedForm restored, section auto-expanded.
+  const sevenFieldHash = await encodeShared({
+    principal: 425000, downPayment: 85000, rate: 6.25, years: 30,
+    loan_type: 'VA', credit_tier: 'Excellent', occupancy: 'Investment',
+  });
+  await page.evaluate((h) => { location.hash = 'i=' + h; }, sevenFieldHash);
+  await page.waitForTimeout(500);
+  const afterNewHash = await page.evaluate(() => ({
+    adv: advancedForm.getValues(),
+    visible: advancedForm.isVisible(),
+  }));
+  client.assert(afterNewHash.adv.loan_type === 'VA'
+                && afterNewHash.adv.credit_tier === 'Excellent'
+                && afterNewHash.adv.occupancy === 'Investment',
+    `7-field hash restores advancedForm (${JSON.stringify(afterNewHash.adv)})`);
+  client.assert(afterNewHash.visible, '7-field hash auto-expands advanced section');
+
+  // Archetype click flows 3 advanced fields through the hash → form.
+  await page.evaluate(() => loadArchetype('first-time-buyer-fha'));
+  await page.waitForTimeout(500);
+  const advAfterArchetype = await page.evaluate(() => ({
+    adv: advancedForm.getValues(),
+    visible: advancedForm.isVisible(),
+  }));
+  client.assert(advAfterArchetype.adv.loan_type === 'FHA',
+    `archetype "first-time-buyer-fha" sets loan_type=FHA on advancedForm (got ${advAfterArchetype.adv.loan_type})`);
+  client.assert(advAfterArchetype.visible, 'archetype click auto-expands advanced section');
+  await client.checkpoint('form-expansion');
+
   // ===== Wrap up =====
   const exitCode = client.summarize();
   await client.complete({ assertions: client.getAssertionSummary() });
