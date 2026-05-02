@@ -1,0 +1,18 @@
+{
+  "id": "pf-hello-world",
+  "name": "Hello World",
+  "version": "0.1.0",
+  "description": "Your first PocketFlow application! This simple example demonstrates how to create a basic PocketFlow app from scratch. ## Project Structure",
+  "modes": [
+    "pf-hello-world"
+  ],
+  "templates": {
+    "dashboard": "templates/dashboard.json"
+  },
+  "handlers": "handlers.js",
+  "requires": {
+    "hostCapabilities": [
+      "message"
+    ]
+  }
+}

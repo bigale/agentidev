@@ -1,0 +1,18 @@
+{
+  "id": "pf-majority-vote",
+  "name": "Majority Vote",
+  "version": "0.1.0",
+  "description": "This project demonstrates a majority vote implementation that enables LLMs to solve complex reasoning problems by aggregating multiple independent attempts. It's designed to improve problem-solving ac",
+  "modes": [
+    "pf-majority-vote"
+  ],
+  "templates": {
+    "dashboard": "templates/dashboard.json"
+  },
+  "handlers": "handlers.js",
+  "requires": {
+    "hostCapabilities": [
+      "message"
+    ]
+  }
+}

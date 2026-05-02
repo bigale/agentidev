@@ -1,0 +1,113 @@
+/* =============================================================================
+ * theme-modern.css — CSSZ vocabulary for the Modern aesthetic
+ * =============================================================================
+ *
+ * Linear/Vercel-leaning: flat, neutral, sharp. Restrained accents.
+ * Inter for UI, JetBrains Mono for monospace. oklch-based neutrals.
+ *
+ * Pairs with `sc-cssz-adapter.css`. Activate by adding `theme-modern` to any
+ * container (typically <body> or the SmartClient root). Add `dark` for the
+ * dark variant. Subtree theming: drop the same vars (or any subset) on a
+ * descendant and it rescopes — that's the CSSZ recursive-scoping property.
+ *
+ *   <body class="sc theme-modern">              ← light
+ *   <body class="sc theme-modern dark">         ← dark
+ *
+ * The adapter's fallbacks mean these vars override SC's stock skin wherever
+ * they're set; everywhere else, SC defaults still show through.
+ * ============================================================================= */
+
+.theme-modern {
+  /* Type */
+  --cssz-font: "Inter", -apple-system, system-ui, sans-serif;
+  --cssz-mono: "JetBrains Mono", ui-monospace, monospace;
+  --cssz-fs: 12.5px;
+
+  /* Spacing */
+  --cssz-pad: 8px;
+  --cssz-radius: 6px;
+  --cssz-input-pad: 6px 8px;
+
+  /* Semantic color */
+  --cssz-bg: oklch(98.4% 0.002 95);
+  --cssz-surface: #ffffff;
+  --cssz-surface-mute: oklch(96% 0.005 270);
+  --cssz-text: oklch(20% 0.01 270);
+  --cssz-text-mute: oklch(55% 0.01 270);
+  --cssz-muted: oklch(55% 0.01 270);
+  --cssz-border: oklch(92% 0.005 270);
+  --cssz-border-soft: oklch(95% 0.005 270);
+  --cssz-accent: oklch(58% 0.18 270);
+  --cssz-on-accent: #ffffff;
+  --cssz-icon: currentColor;
+
+  /* Row state (lists, grids) */
+  --cssz-row-over: oklch(96.5% 0.008 270);
+  --cssz-row-selected: oklch(94% 0.04 270);
+  --cssz-row-selected-text: oklch(25% 0.08 270);
+
+  /* Component overrides */
+  --cssz-button-bg: #ffffff;
+  --cssz-button-bg-over: oklch(96% 0.005 270);
+  --cssz-button-bg-down: oklch(94% 0.005 270);
+  --cssz-button-bg-disabled: oklch(96% 0.005 270);
+  --cssz-button-text: oklch(20% 0.01 270);
+
+  --cssz-tool-bg: oklch(98.5% 0.003 270);
+  --cssz-section-bg: oklch(98% 0.003 270);
+  --cssz-section-text: oklch(35% 0.01 270);
+  --cssz-header-bg: oklch(98% 0.003 270);
+
+  --cssz-window-bar-bg: oklch(99% 0.002 95);
+  --cssz-window-bar-text: oklch(20% 0.01 270);
+
+  --cssz-tab-bg: transparent;
+  --cssz-tab-text: oklch(50% 0.01 270);
+  --cssz-tab-selected-bg: transparent;
+  --cssz-tab-selected-text: oklch(20% 0.01 270);
+
+  --cssz-input-bg: oklch(98.4% 0.002 95);
+  --cssz-form-title: oklch(55% 0.01 270);
+  --cssz-form-title-align: left;
+}
+
+.theme-modern.dark {
+  --cssz-bg: oklch(16% 0.01 270);
+  --cssz-surface: oklch(20% 0.01 270);
+  --cssz-surface-mute: oklch(24% 0.01 270);
+  --cssz-text: oklch(95% 0.005 270);
+  --cssz-text-mute: oklch(60% 0.01 270);
+  --cssz-muted: oklch(60% 0.01 270);
+  --cssz-border: oklch(28% 0.01 270);
+  --cssz-border-soft: oklch(24% 0.01 270);
+  --cssz-accent: oklch(72% 0.16 270);
+  --cssz-on-accent: oklch(16% 0.01 270);
+
+  --cssz-row-over: oklch(24% 0.01 270);
+  --cssz-row-selected: oklch(32% 0.06 270);
+  --cssz-row-selected-text: oklch(95% 0.02 270);
+
+  --cssz-button-bg: oklch(24% 0.01 270);
+  --cssz-button-bg-over: oklch(28% 0.01 270);
+  --cssz-button-bg-down: oklch(30% 0.01 270);
+  --cssz-button-bg-disabled: oklch(22% 0.01 270);
+  --cssz-button-text: oklch(95% 0.005 270);
+
+  --cssz-tool-bg: oklch(22% 0.01 270);
+  --cssz-section-bg: oklch(22% 0.01 270);
+  --cssz-section-text: oklch(75% 0.01 270);
+  --cssz-header-bg: oklch(22% 0.01 270);
+
+  --cssz-window-bar-bg: oklch(20% 0.01 270);
+  --cssz-window-bar-text: oklch(95% 0.005 270);
+
+  --cssz-tab-selected-bg: oklch(26% 0.01 270);
+  --cssz-tab-selected-text: oklch(95% 0.005 270);
+  --cssz-tab-text: oklch(60% 0.01 270);
+
+  --cssz-input-bg: oklch(18% 0.01 270);
+  --cssz-form-title: oklch(60% 0.01 270);
+
+  /* Tahoe's headerIcons are near-white — render as-is on dark header. */
+  --cssz-window-icon-filter: none;
+}

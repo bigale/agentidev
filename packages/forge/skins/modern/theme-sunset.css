@@ -1,0 +1,39 @@
+/* =============================================================================
+ * theme-sunset.css — Demo tenant theme (warm orange brand)
+ * =============================================================================
+ *
+ * Pattern for white-labeling: a tenant theme overrides only the brand-relevant
+ * CSSZ vars on top of theme-modern.css. Light + dark variants both supplied.
+ *
+ * Activate by adding `theme-sunset` to <body> alongside `theme-modern`:
+ *   <body class="sc theme-modern theme-sunset">
+ *
+ * Or via URL param: ?tenant=sunset (loaded by the calc's tenant resolver).
+ *
+ * Override surface area is intentionally small — accent + selection tints +
+ * a hint of warm tone on the page bg. Most chrome stays neutral. Copy this
+ * file, swap the hue, change "sunset" everywhere → new tenant.
+ * ============================================================================= */
+
+.theme-sunset {
+  --cssz-accent: oklch(62% 0.16 50);
+  --cssz-on-accent: #ffffff;
+
+  /* Subtle warm tint to page bg so the rebrand reads even when the user isn't
+     focusing a field. */
+  --cssz-bg: oklch(98.5% 0.008 60);
+
+  /* Selection tints derived from the accent so highlighted rows feel branded. */
+  --cssz-row-selected: color-mix(in oklch, oklch(62% 0.16 50) 18%, white);
+  --cssz-row-selected-text: oklch(25% 0.08 50);
+}
+
+.theme-sunset.dark {
+  --cssz-accent: oklch(72% 0.14 50);
+  --cssz-on-accent: oklch(20% 0.05 50);
+
+  --cssz-bg: oklch(18% 0.015 50);
+
+  --cssz-row-selected: color-mix(in oklch, oklch(72% 0.14 50) 25%, oklch(16% 0.01 270));
+  --cssz-row-selected-text: oklch(95% 0.02 50);
+}

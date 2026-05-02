@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>CSSZ × SmartClient — Architecture Evaluation</title>
+<meta name="viewport" content="width=1280" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0e0f12;
+  --panel: #15171c;
+  --panel-2: #1b1e24;
+  --line: #262932;
+  --text: #e6e8ee;
+  --mut: #8b909c;
+  --soft: #b6bac4;
+  --accent: oklch(72% 0.14 255);
+  --accent-soft: oklch(35% 0.08 255);
+  --good: oklch(70% 0.15 150);
+  --warn: oklch(76% 0.15 75);
+  --bad: oklch(70% 0.18 25);
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: "Inter", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+  letter-spacing: -0.005em;
+}
+
+/* Top bar */
+.bar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 16px;
+  padding: 12px 28px;
+  background: rgba(14,15,18,0.85);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.bar .mark {
+  width: 26px; height: 26px; border-radius: 7px;
+  background: linear-gradient(135deg, oklch(68% 0.16 255), oklch(72% 0.13 195));
+  display: grid; place-items: center;
+  color: #0e0f12; font-weight: 700; font-size: 11px; font-family: var(--mono);
+}
+.bar .title { font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
+.bar .sub { color: var(--mut); font-size: 12.5px; margin-left: 4px; }
+.bar .spacer { flex: 1; }
+.bar nav { display: flex; gap: 2px; }
+.bar nav a {
+  padding: 6px 12px; border-radius: 6px;
+  color: var(--mut); text-decoration: none; font-size: 13px; font-weight: 500;
+}
+.bar nav a:hover { background: var(--panel); color: var(--text); }
+
+/* Layout */
+.shell {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  max-width: 1280px;
+  margin: 0 auto;
+}
+aside.toc {
+  position: sticky; top: 60px; align-self: start;
+  padding: 28px 16px 28px 28px;
+  font-size: 13px;
+  border-right: 1px solid var(--line);
+  height: calc(100vh - 60px);
+  overflow: auto;
+}
+aside.toc h4 {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--mut); margin: 14px 0 6px; font-weight: 600;
+}
+aside.toc a {
+  display: block; padding: 4px 8px;
+  color: var(--soft); text-decoration: none; border-radius: 5px;
+  font-size: 12.5px;
+}
+aside.toc a:hover { background: var(--panel); color: var(--text); }
+
+main {
+  padding: 28px 36px 100px;
+  min-width: 0;
+}
+
+/* Headline */
+.lede h1 {
+  font-size: 36px; font-weight: 700; letter-spacing: -0.02em;
+  margin: 12px 0 8px; line-height: 1.1;
+}
+.lede h1 .accent { color: var(--accent); }
+.lede .deck {
+  font-size: 16.5px; color: var(--soft);
+  max-width: 76ch; margin: 0 0 12px;
+}
+.lede .meta {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--mut); margin-bottom: 28px;
+}
+.lede .meta span { padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px; }
+
+/* TLDR */
+.tldr {
+  background: linear-gradient(180deg, oklch(22% 0.02 255), oklch(18% 0.01 255));
+  border: 1px solid oklch(35% 0.06 255);
+  border-radius: 12px;
+  padding: 22px 26px;
+  margin: 0 0 36px;
+}
+.tldr h2 {
+  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: oklch(78% 0.14 255); font-weight: 600; margin: 0 0 8px;
+}
+.tldr p { margin: 0 0 10px; font-size: 15px; color: var(--text); }
+.tldr p:last-child { margin: 0; }
+.tldr strong { color: oklch(82% 0.14 255); font-weight: 600; }
+
+/* Sections */
+section {
+  border-top: 1px solid var(--line);
+  padding: 36px 0;
+  scroll-margin-top: 80px;
+}
+section:first-of-type { border-top: 0; padding-top: 0; }
+section h2 {
+  font-size: 24px; font-weight: 600; letter-spacing: -0.01em;
+  margin: 0 0 6px;
+}
+section h2 .num {
+  font-family: var(--mono); font-weight: 500; font-size: 16px;
+  color: var(--mut); margin-right: 12px;
+}
+section h3 {
+  font-size: 16px; font-weight: 600; letter-spacing: -0.005em;
+  margin: 22px 0 6px;
+}
+section h4 {
+  font-size: 13px; font-weight: 600; margin: 16px 0 6px;
+  color: var(--soft);
+}
+section p { margin: 8px 0; max-width: 76ch; color: var(--soft); }
+section p strong { color: var(--text); font-weight: 600; }
+section ul, section ol { margin: 8px 0; padding-left: 22px; max-width: 76ch; }
+section li { margin: 4px 0; color: var(--soft); }
+section li strong { color: var(--text); }
+
+code {
+  font-family: var(--mono); font-size: 12.5px;
+  background: var(--panel); color: oklch(85% 0.06 200);
+  padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line);
+}
+pre {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 14px 16px;
+  overflow: auto;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+  color: var(--soft);
+  margin: 12px 0;
+}
+pre code { background: transparent; border: 0; padding: 0; color: inherit; }
+pre .k { color: oklch(78% 0.13 290); }
+pre .s { color: oklch(78% 0.12 140); }
+pre .c { color: var(--mut); font-style: italic; }
+pre .n { color: oklch(80% 0.12 70); }
+pre .t { color: oklch(82% 0.10 200); }
+
+/* Two-column compare */
+.cols {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  margin: 14px 0;
+}
+.col {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 16px 18px;
+}
+.col h4 {
+  margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--mut);
+}
+.col h4 .label-sc { color: oklch(78% 0.10 70); }
+.col h4 .label-cssz { color: oklch(78% 0.14 285); }
+.col p, .col li { font-size: 13px; }
+
+/* Verdict matrix */
+.matrix {
+  margin: 14px 0;
+  border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+}
+.matrix table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.matrix th, .matrix td {
+  padding: 10px 14px; text-align: left; vertical-align: top;
+  border-bottom: 1px solid var(--line);
+}
+.matrix th {
+  background: var(--panel-2);
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--mut); font-weight: 600;
+}
+.matrix tr:last-child td { border-bottom: 0; }
+.matrix .axis { font-weight: 600; color: var(--text); width: 22%; }
+.matrix .small { font-size: 12px; color: var(--mut); }
+.matrix code { font-size: 11.5px; }
+
+/* Pills */
+.pill {
+  display: inline-block; padding: 1px 8px; border-radius: 999px;
+  font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+  border: 1px solid var(--line); background: var(--panel);
+}
+.pill.good { color: var(--good); border-color: oklch(40% 0.1 150); }
+.pill.warn { color: var(--warn); border-color: oklch(40% 0.12 75); }
+.pill.bad  { color: var(--bad);  border-color: oklch(40% 0.14 25); }
+.pill.info { color: var(--accent); border-color: oklch(40% 0.1 255); }
+
+/* Diagram */
+.diagram {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 18px 20px;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.7;
+  color: var(--soft);
+  margin: 14px 0;
+}
+.diagram .lvl-0 { color: var(--text); font-weight: 600; }
+.diagram .arrow { color: oklch(60% 0.15 255); }
+.diagram .lbl   { color: var(--mut); font-style: italic; }
+
+/* Recommend cards */
+.recs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin: 16px 0; }
+.rec {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 14px 16px;
+}
+.rec .top {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.rec .top h4 { margin: 0; font-size: 13px; color: var(--text); }
+.rec p { font-size: 12.5px; margin: 4px 0 0; color: var(--soft); }
+.rec .pill { font-size: 10px; }
+
+/* Footnote */
+.foot {
+  margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--line);
+  font-size: 12px; color: var(--mut);
+}
+
+/* Inline tag for SmartClient class */
+.sc-class { color: oklch(82% 0.10 200); font-family: var(--mono); }
+.cssz-var { color: oklch(80% 0.14 285); font-family: var(--mono); }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="mark">SC</div>
+  <div>
+    <span class="title">CSSZ × SmartClient</span>
+    <span class="sub">/ architecture evaluation</span>
+  </div>
+  <div class="spacer"></div>
+  <nav>
+    <a href="#tldr">TL;DR</a>
+    <a href="#sc">SC skinning</a>
+    <a href="#cssz">CSSZ</a>
+    <a href="#fit">Fit analysis</a>
+    <a href="#hybrid">Hybrid design</a>
+    <a href="#risks">Risks</a>
+    <a href="#recommend">Recommendation</a>
+  </nav>
+</header>
+
+<div class="shell">
+
+<aside class="toc">
+  <h4>Sections</h4>
+  <a href="#tldr">TL;DR</a>
+  <a href="#sc">1. SmartClient skin system</a>
+  <a href="#cssz">2. CSSZ in one page</a>
+  <a href="#fit">3. Fit analysis</a>
+  <a href="#matrix">4. Capability matrix</a>
+  <a href="#hybrid">5. Hybrid: SC + CSSZ</a>
+  <a href="#example">6. Concrete example</a>
+  <a href="#risks">7. Risks &amp; gaps</a>
+  <a href="#recommend">8. Recommendation</a>
+  <h4>Reference</h4>
+  <a href="SmartClient Showcase.html">→ Skin showcase</a>
+  <a href="handoff/README.md">→ Handoff README</a>
+</aside>
+
+<main>
+
+<div class="lede">
+  <h1>Can <span class="accent">CSSZ</span> replace SmartClient&rsquo;s skin system?</h1>
+  <p class="deck">CSSZ is an HTML-driven, recursive, variable-only design system. SmartClient&rsquo;s skin system is a class-name contract plus image registry plus JS bootstrap. They overlap on <em>tokens</em> and conflict on <em>everything else</em>. Here&rsquo;s where each one wins, where they collide, and how to use them together.</p>
+  <div class="meta">
+    <span>Source: SmartClient Skinning docs</span>
+    <span>Source: SVG Symbols overview</span>
+    <span>Source: Sass Skinning guide</span>
+    <span>Source: cssz README + cssz.css/.js</span>
+    <span>Reference: Modern override skin (this project)</span>
+  </div>
+</div>
+
+<!-- ==================== TLDR ==================== -->
+<div class="tldr" id="tldr">
+  <h2>TL;DR</h2>
+  <p><strong>CSSZ is an excellent token + theme-scoping layer for SmartClient — and a poor replacement for its skin system.</strong> Use CSSZ to drive the <em>colors, type, spacing, radii, shadows, density</em>; keep SmartClient&rsquo;s class-name contract and <code>load_skin.js</code> for everything else (image registry, AutoChild defaults, sprite metrics, suffix-based statefulness).</p>
+  <p>The natural fit is a <strong>three-layer stack</strong>: SmartClient&rsquo;s base CSS owns <em>structure &amp; statefulness</em>, a thin <strong>SC↔CSSZ adapter</strong> stylesheet rewrites SC&rsquo;s hard-coded colors/fonts/sizes to <code>var(--cssz-*)</code> with safe fallbacks, and <strong>CSSZ blocks</strong> on any container provide the live, recursive theme. You get HTML-driven theming, sub-tree scoping, and instant dark-mode <em>without</em> abandoning the SmartClient runtime.</p>
+</div>
+
+<!-- ==================== 1. SC SKIN SYSTEM ==================== -->
+<section id="sc">
+  <h2><span class="num">01</span>How SmartClient skins actually work</h2>
+  <p>From the official skinning docs, a SmartClient skin is not just a stylesheet — it&rsquo;s a coordinated bundle of four moving parts:</p>
+
+  <div class="diagram">
+    <div class="lvl-0">SmartClient skin = bundle</div>
+    ├─ <strong>skin_styles.css</strong>            <span class="lbl">→ class-name contract: .button, .buttonOver, .listGridCell, .windowHeader, ...</span><br>
+    ├─ <strong>images/</strong>                   <span class="lbl">→ tree of PNG/SVG sprites organized by component</span><br>
+    ├─ <strong>load_skin.js</strong>              <span class="lbl">→ runtime defaults: AutoChild srcs, capSizes, baseStyles, useCSS3</span><br>
+    └─ <strong>template/sass/</strong> <span class="lbl">(modern skins only) → _base.scss + _userSettings.scss → compiled .css</span>
+  </div>
+
+  <p>Three things matter for an alternative system to be a real replacement:</p>
+
+  <h3>(a) Stateful suffixing is part of the contract</h3>
+  <p>SmartClient mutates DOM class names <em>and</em> image URLs by appending state suffixes — <code>buttonOver</code>, <code>buttonDown</code>, <code>buttonSelected</code>, <code>buttonDisabled</code>, <code>listGridCellSelectedOver</code>, etc. The framework reads style declarations to extract size/font info and reportedly fails on multi-class selectors and at-rules: <em>only single class-name selectors are officially supported</em>. That means any custom system has to expose those exact class names with the right metrics, or the framework misbehaves.</p>
+
+  <h3>(b) <code>load_skin.js</code> isn&rsquo;t optional</h3>
+  <p>It declares image URLs (<code>"[SKIN]/Window/minimize.png"</code>), ImgTab cap sizes, EdgedCanvas segments, sprite metrics, and the <code>useCSS3</code> flag. It also wires AutoChild defaults via <code>changeDefaults()</code>. None of this can be moved to CSS variables — it&rsquo;s consumed by JS at component-creation time.</p>
+
+  <h3>(c) Sass templates already do CSS variables — sort of</h3>
+  <p>Modern Flat-series skins (Tahoe, Stratus, Twilight, Obsidian) ship a <code>_base.scss</code> with named variables (<code>$highlight_color</code>, <code>$standard_button_border_radius</code>, …) and a <code>_userSettings.scss</code> for overrides. The compile step bakes them into the static <code>skin_styles.css</code>. This is design-time tokenization — not runtime, not recursive, not HTML-driven.</p>
+
+  <h3>(d) Density and SVG symbols are JS-side</h3>
+  <p>Density is JS: <code>resizeFonts(n)</code> + <code>resizeControls(n)</code> after skin load, before any component creation. SVG symbols use the <code>sprite:svg:#id</code> URL format with inline modifiers (<code>color</code>, <code>size</code>, <code>cssClass</code>, <code>statefulId</code>). Both bypass CSS entirely.</p>
+</section>
+
+<!-- ==================== 2. CSSZ ==================== -->
+<section id="cssz">
+  <h2><span class="num">02</span>CSSZ in one page</h2>
+  <p>CSSZ is three things stacked on top of CSS Custom Properties:</p>
+  <ol>
+    <li><strong>A naming convention.</strong> Every variable is <code>--cssz-*</code>. Engine classes are <code>.cssz-*</code>.</li>
+    <li><strong>An engine stylesheet</strong> (<code>cssz.css</code>) of ~50 lines: each <code>.cssz-{component}</code> rule reads variables with fallbacks and applies no concrete tokens of its own.</li>
+    <li><strong>A scoping discipline.</strong> The theme lives in <em>inline style</em> on a container; nested containers can override any subset; everything else inherits via CSS&rsquo;s normal cascade.</li>
+  </ol>
+
+  <p>The optional <code>cssz.js</code> is 24 lines: it just turns <code>{ key: value }</code> into <code>setProperty('--cssz-key', value)</code> on a target element. No dependency, no build step, no diff engine.</p>
+
+  <h3>What CSSZ is good at</h3>
+  <ul>
+    <li><strong>Recursive scoping</strong> — a sub-tree can override <code>--cssz-bg</code> and everything underneath updates without selectors.</li>
+    <li><strong>HTML as source of truth</strong> — the theme of a region is visible right next to its markup.</li>
+    <li><strong>Trivial dark mode and tenant theming</strong> — flip a few variables on <code>&lt;html&gt;</code> or any container.</li>
+    <li><strong>Zero build pipeline</strong> — compared to Sass compile + cache-bust, this is just a stylesheet load.</li>
+    <li><strong>Composable with other CSS</strong> — variables don&rsquo;t care who reads them. Any third-party stylesheet with <code>var(--cssz-*)</code> will participate.</li>
+  </ul>
+
+  <h3>What CSSZ doesn&rsquo;t do</h3>
+  <ul>
+    <li>Doesn&rsquo;t describe state machines (no equivalent of <code>.buttonOver</code>, no rollover/selected logic).</li>
+    <li>Doesn&rsquo;t register images, sprites, or AutoChild srcs.</li>
+    <li>Doesn&rsquo;t affect JS-side things — Density, ImgTab cap sizes, useCSS3.</li>
+    <li>Doesn&rsquo;t solve sprite metric coupling (background-position offsets that break when row heights change).</li>
+  </ul>
+</section>
+
+<!-- ==================== 3. FIT ANALYSIS ==================== -->
+<section id="fit">
+  <h2><span class="num">03</span>Fit analysis: where they overlap, where they collide</h2>
+
+  <div class="cols">
+    <div class="col">
+      <h4><span class="label-sc">SmartClient owns</span></h4>
+      <ul>
+        <li>Component DOM structure</li>
+        <li>Class-name contract (<span class="sc-class">.buttonOver</span>, <span class="sc-class">.listGridCellSelected</span>, …)</li>
+        <li>State machine + suffix mutation</li>
+        <li>Image registry &amp; sprite URLs</li>
+        <li><code>load_skin.js</code> AutoChild defaults</li>
+        <li>Density (resizeFonts/resizeControls)</li>
+        <li>SVG symbol pipeline (<code>sprite:svg:</code>)</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h4><span class="label-cssz">CSSZ owns (when adopted)</span></h4>
+      <ul>
+        <li>Token vocabulary (color, type, space, radius, shadow)</li>
+        <li>Theme scoping (sub-tree overrides)</li>
+        <li>Runtime theme switching (no recompile)</li>
+        <li>Tenant / per-page / per-widget theming</li>
+        <li>Designer-authored theme blocks (HTML-pasteable)</li>
+        <li>Reactive themes (time, battery, status)</li>
+      </ul>
+    </div>
+  </div>
+
+  <p>The collision is <strong>at the value layer of <code>skin_styles.css</code></strong>: SmartClient&rsquo;s class rules contain hard-coded <code>color: #29333c</code>, <code>background: linear-gradient(...)</code>, <code>font: 11px Arial</code>. CSSZ wants those values to be <code>var(--cssz-*)</code>. That collision is small and surgical to fix — and that&rsquo;s exactly what the &ldquo;modern override skin&rdquo; we already shipped does, just under SC&rsquo;s naming instead of <code>--cssz-*</code>.</p>
+
+  <h3>Three replacement strategies, ranked</h3>
+
+  <div class="recs">
+    <div class="rec">
+      <div class="top"><h4>1. Total replacement</h4><span class="pill bad">don&rsquo;t</span></div>
+      <p>Drop SmartClient skin, ship only CSSZ engine + classes on SC&rsquo;s DOM. Breaks state suffixing, image registry, AutoChild defaults, ImgTab metrics. Months of regression work; permanent fork from upstream.</p>
+    </div>
+    <div class="rec">
+      <div class="top"><h4>2. Override layer (current plan)</h4><span class="pill good">ship now</span></div>
+      <p>SmartClient skin loads first; a second stylesheet retargets the same class-name contract. No cssz vocabulary. This is what your <code>handoff/skin-modern.css</code> already is.</p>
+    </div>
+    <div class="rec">
+      <div class="top"><h4>3. Adapter + CSSZ tokens</h4><span class="pill info">strategic</span></div>
+      <p>Same as #2, but the override stylesheet&rsquo;s values are <code>var(--cssz-*)</code> with the SC defaults as fallbacks. Now any container can rescope the theme. Costs ~1 day on top of #2.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 4. MATRIX ==================== -->
+<section id="matrix">
+  <h2><span class="num">04</span>Capability matrix</h2>
+  <p>Concrete checklist: where each system sits on every axis you actually have to ship.</p>
+
+  <div class="matrix">
+    <table>
+      <thead>
+        <tr>
+          <th class="axis">Axis</th>
+          <th>SmartClient native skin</th>
+          <th>CSSZ as drop-in replacement</th>
+          <th>SC + CSSZ adapter (hybrid)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="axis">Tokens (color/type/space)</td>
+          <td>Sass vars, design-time only <span class="pill warn">build step</span></td>
+          <td>Inline CSS vars on any container <span class="pill good">runtime, recursive</span></td>
+          <td>CSS vars wired into SC class names <span class="pill good">runtime, recursive</span></td>
+        </tr>
+        <tr>
+          <td class="axis">State machine (over/down/selected)</td>
+          <td>Class+URL suffix mutation, JS-driven <span class="pill good">works</span></td>
+          <td>No mechanism <span class="pill bad">breaks</span></td>
+          <td>SC handles mutation; CSSZ values resolve per state <span class="pill good">works</span></td>
+        </tr>
+        <tr>
+          <td class="axis">Image / sprite registry</td>
+          <td><code>load_skin.js</code> + <code>[SKIN]</code> URLs <span class="pill good">works</span></td>
+          <td>None <span class="pill bad">missing</span></td>
+          <td>Unchanged from SC <span class="pill good">works</span></td>
+        </tr>
+        <tr>
+          <td class="axis">SVG symbol coloring</td>
+          <td><code>currentColor</code> + <code>sprite:svg:#id;color:</code> <span class="pill good">works</span></td>
+          <td>Doesn&rsquo;t reach SVG fragments <span class="pill warn">partial</span></td>
+          <td>Set <code>color: var(--cssz-icon)</code> on SC base styles → SVGs follow <span class="pill good">works + themable</span></td>
+        </tr>
+        <tr>
+          <td class="axis">Sub-tree theming (one panel different)</td>
+          <td>Hard. Fork the skin or write extra selectors. <span class="pill bad">heavy</span></td>
+          <td>Native. Wrap the panel, override vars. <span class="pill good">trivial</span></td>
+          <td>Native. Wrap any SC component, override vars. <span class="pill good">trivial</span></td>
+        </tr>
+        <tr>
+          <td class="axis">Dark mode</td>
+          <td>Separate skin (Twilight/Obsidian) or full recompile <span class="pill warn">heavy</span></td>
+          <td>Class toggle on root <span class="pill good">instant</span></td>
+          <td>Class toggle on root <span class="pill good">instant</span></td>
+        </tr>
+        <tr>
+          <td class="axis">Per-tenant / per-customer branding</td>
+          <td>Compile a tenant skin per build <span class="pill warn">slow</span></td>
+          <td>Inject one CSSZ block at runtime <span class="pill good">live</span></td>
+          <td>Inject one CSSZ block at runtime <span class="pill good">live</span></td>
+        </tr>
+        <tr>
+          <td class="axis">Designer handoff</td>
+          <td>Skin Editor tool + Sass <span class="pill good">supported</span></td>
+          <td>Paste a CSS-var block <span class="pill good">trivial</span></td>
+          <td>Paste a CSSZ block; Skin Editor still works for SC-side details <span class="pill good">both</span></td>
+        </tr>
+        <tr>
+          <td class="axis">Density</td>
+          <td><code>resizeFonts/Controls</code> <span class="pill good">works</span></td>
+          <td>Wrap as <code>--cssz-density-scale</code> driving JS calls <span class="pill warn">indirect</span></td>
+          <td>Same as SC; var optionally drives the JS call <span class="pill good">works</span></td>
+        </tr>
+        <tr>
+          <td class="axis">CSS3 mode</td>
+          <td><code>isc_css3Mode</code> global <span class="pill good">works</span></td>
+          <td>Irrelevant <span class="pill warn">n/a</span></td>
+          <td>Unchanged <span class="pill good">works</span></td>
+        </tr>
+        <tr>
+          <td class="axis">Upstream upgrades</td>
+          <td>Replace <code>_base.scss</code>, recompile <span class="pill good">supported</span></td>
+          <td>Re-implement on each upgrade <span class="pill bad">painful</span></td>
+          <td>SC upgrade unaffected; adapter rebased per release <span class="pill good">manageable</span></td>
+        </tr>
+        <tr>
+          <td class="axis">Single class-name selector rule</td>
+          <td>Required by SC <span class="pill good">honored</span></td>
+          <td>CSSZ engine rules are single-class — fine <span class="pill good">honored</span></td>
+          <td>Adapter writes single-class SC selectors <span class="pill good">honored</span></td>
+        </tr>
+        <tr>
+          <td class="axis">Build pipeline cost</td>
+          <td>Compass/Sass <span class="pill warn">non-trivial</span></td>
+          <td>None <span class="pill good">zero</span></td>
+          <td>Same as SC; adapter is plain CSS <span class="pill good">low</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ==================== 5. HYBRID ==================== -->
+<section id="hybrid">
+  <h2><span class="num">05</span>The hybrid: SmartClient + CSSZ adapter</h2>
+  <p>This is the architecture I&rsquo;d ship. Three layers, very thin glue.</p>
+
+  <div class="diagram">
+    <div class="lvl-0">Page boot order</div>
+    1. <strong>load_skin.js</strong>          <span class="lbl">→ images, AutoChild defaults, density, useCSS3 — unchanged</span><br>
+    2. <strong>skin_styles.css</strong>       <span class="lbl">→ SmartClient&rsquo;s class contract + state suffixes — unchanged</span><br>
+    3. <strong>cssz.css</strong>              <span class="lbl">→ optional: any standalone CSSZ engine classes you want for non-SC HTML</span><br>
+    4. <strong>sc-cssz-adapter.css</strong>   <span class="lbl">→ retargets SC classes to <code>var(--cssz-*)</code> with SC defaults as fallbacks</span><br>
+    5. <strong>theme block(s) in HTML</strong> <span class="lbl">→ on &lt;body&gt;, on any panel, on any subtree — recursive</span>
+  </div>
+
+  <h3>The adapter is &ldquo;modern override&rdquo; with one tweak</h3>
+  <p>You&rsquo;ve already built it once. Compare:</p>
+
+  <div class="cols">
+    <div class="col">
+      <h4>Before — values baked into class</h4>
+<pre><code><span class="c">/* skin-modern.css (what we shipped) */</span>
+<span class="t">.button</span> {
+  background: <span class="n">var(--sc-button-bg)</span>;
+  color: <span class="n">var(--sc-text)</span>;
+  border: <span class="n">1px</span> solid <span class="n">var(--sc-border)</span>;
+  border-radius: <span class="n">var(--sc-radius)</span>;
+}</code></pre>
+    </div>
+    <div class="col">
+      <h4>After — adapter speaks CSSZ</h4>
+<pre><code><span class="c">/* sc-cssz-adapter.css */</span>
+<span class="t">.button</span> {
+  background: <span class="n">var(--cssz-button-bg, var(--cssz-surface, #fff))</span>;
+  color: <span class="n">var(--cssz-text, #000)</span>;
+  border: <span class="n">1px</span> solid <span class="n">var(--cssz-border, #ababab)</span>;
+  border-radius: <span class="n">var(--cssz-radius, 0)</span>;
+}</code></pre>
+    </div>
+  </div>
+
+  <p>Now any SC component reads from CSSZ scope. Drop a CSSZ block on <code>&lt;body&gt;</code> and the whole app re-themes; drop one on a panel and only that panel does. <strong>The single-class selector rule is preserved.</strong> SC&rsquo;s state machine still mutates classes, and each state still resolves through CSSZ vars.</p>
+
+  <h3>State suffixes still work</h3>
+<pre><code><span class="t">.buttonOver</span>     { background: <span class="n">var(--cssz-button-bg-over,  var(--cssz-button-bg))</span>; }
+<span class="t">.buttonDown</span>     { background: <span class="n">var(--cssz-button-bg-down,  var(--cssz-button-bg))</span>; }
+<span class="t">.buttonDisabled</span> { background: <span class="n">var(--cssz-button-bg-disabled, var(--cssz-surface-mute))</span>;
+                  color:      <span class="n">var(--cssz-text-mute)</span>; }</code></pre>
+
+  <h3>SVG symbols become themable for free</h3>
+  <p>SC&rsquo;s SVG symbols inherit <code>color</code> via <code>currentColor</code>. Set <code>color: var(--cssz-icon, currentColor)</code> on SC&rsquo;s icon base styles in the adapter, and every <code>sprite:svg:</code> graphic that uses <code>currentColor</code> picks up your CSSZ scope. Per-tenant icon coloring with zero asset swap.</p>
+</section>
+
+<!-- ==================== 6. EXAMPLE ==================== -->
+<section id="example">
+  <h2><span class="num">06</span>Concrete example: tenant + dark mode in one HTML page</h2>
+
+<pre><code><span class="c">&lt;!-- one global theme --&gt;</span>
+&lt;<span class="k">body</span> <span class="t">style</span>=<span class="s">"
+  --cssz-bg: oklch(98.5% .002 250);
+  --cssz-text: oklch(20% .01 250);
+  --cssz-border: oklch(91% .005 250);
+  --cssz-button-bg: #fff;
+  --cssz-button-bg-over: oklch(96% .005 250);
+  --cssz-radius: 6px;
+  --cssz-font: 'Inter', system-ui, sans-serif;
+"</span>&gt;
+
+  <span class="c">&lt;!-- standard SC content gets the global theme --&gt;</span>
+  &lt;<span class="k">div</span> <span class="t">class</span>=<span class="s">"sectionStack"</span>&gt;...&lt;/<span class="k">div</span>&gt;
+
+  <span class="c">&lt;!-- one panel rescopes to dark on the fly --&gt;</span>
+  &lt;<span class="k">div</span> <span class="t">style</span>=<span class="s">"
+    --cssz-bg: oklch(18% .005 250);
+    --cssz-text: oklch(96% .003 250);
+    --cssz-border: oklch(28% .008 250);
+    --cssz-button-bg: oklch(22% .008 250);
+  "</span>&gt;
+    &lt;<span class="k">div</span> <span class="t">class</span>=<span class="s">"button"</span>&gt;Save&lt;/<span class="k">div</span>&gt;   <span class="c">&lt;!-- dark --&gt;</span>
+    &lt;<span class="k">div</span> <span class="t">class</span>=<span class="s">"buttonOver"</span>&gt;Hovered&lt;/<span class="k">div</span>&gt;
+  &lt;/<span class="k">div</span>&gt;
+
+  <span class="c">&lt;!-- a third panel pulls in &ldquo;Acme tenant&rdquo; brand --&gt;</span>
+  &lt;<span class="k">div</span> <span class="t">style</span>=<span class="s">"
+    --cssz-button-bg: oklch(58% .15 25);
+    --cssz-button-text: #fff;
+    --cssz-icon: oklch(58% .15 25);
+  "</span>&gt;...&lt;/<span class="k">div</span>&gt;
+&lt;/<span class="k">body</span>&gt;</code></pre>
+
+  <p>Three themes coexist on the same page. SmartClient&rsquo;s components don&rsquo;t know any of this is happening. They render their normal class names; the adapter resolves them against whichever CSSZ scope is closest.</p>
+</section>
+
+<!-- ==================== 7. RISKS ==================== -->
+<section id="risks">
+  <h2><span class="num">07</span>Risks &amp; gaps you should know about</h2>
+
+  <h3>The known-hostile bits of SC&rsquo;s skin contract</h3>
+  <ul>
+    <li><strong>Sprite metrics.</strong> Some skins (Enterprise, EnterpriseBlue, Graphite) embed <code>background-position</code> offsets that break if you change row height or padding via CSSZ. Either keep SC&rsquo;s baked metrics or set <code>isc_spriting = "off"</code>.</li>
+    <li><strong>Single-class selectors only.</strong> The framework reads style declarations from CSSOM and reportedly doesn&rsquo;t handle multi-class selectors or <code>@</code>-rules well. Your adapter must stay flat.</li>
+    <li><strong>Sizes that SC reads from CSS.</strong> Things like row height come back to JS via <code>getComputedStyle</code>. Changing them through <code>--cssz-row-h</code> works visually but make sure SC&rsquo;s autosize logic still gets a number — don&rsquo;t set heights via <code>calc()</code> that produces a value the framework can&rsquo;t round-trip.</li>
+    <li><strong>load_skin.js sets fixed pixel sizes</strong> for <code>capSize</code>, AutoChild srcs, etc. These don&rsquo;t flex with CSSZ and remain JS-controlled.</li>
+    <li><strong>Density still has to be JS.</strong> If you want CSSZ-driven density, expose <code>--cssz-density</code> and have a small bootstrap script call <code>resizeFonts/resizeControls</code> from it before component creation.</li>
+  </ul>
+
+  <h3>Things from the cssz research doc to be skeptical of</h3>
+  <ul>
+    <li><strong>&ldquo;Transpile Bootstrap to CSSZ&rdquo;</strong> — fine for Bootstrap; SmartClient is too dynamic. Don&rsquo;t try.</li>
+    <li><strong>&ldquo;Self-theming HTMZ fragments&rdquo;</strong> — beautiful pattern, but SC components are <em>created</em> by JS, not loaded as HTML fragments. The CSSZ block on the host element still works, but the fragment-loading story doesn&rsquo;t apply.</li>
+    <li><strong>&ldquo;CSSZ Crawler / AI generative themes&rdquo;</strong> — orthogonal to SmartClient. Cool, but not part of this evaluation.</li>
+  </ul>
+</section>
+
+<!-- ==================== 8. RECOMMENDATION ==================== -->
+<section id="recommend">
+  <h2><span class="num">08</span>Recommendation</h2>
+  <p><strong>Adopt CSSZ as a tokenization + theme-scoping layer over SmartClient. Don&rsquo;t replace the skin system.</strong></p>
+
+  <h3>Phased plan</h3>
+  <ol>
+    <li><strong>Ship the modern override skin you already have</strong> as <code>skin-modern.css</code>. Validates the visual direction with zero architectural risk. <span class="pill good">today</span></li>
+    <li><strong>Refactor it into <code>sc-cssz-adapter.css</code></strong> — same file, just rename internal vars from <code>--sc-*</code> to <code>--cssz-*</code> and add SC defaults as fallbacks. ~1 day of mechanical edit. <span class="pill info">week 1</span></li>
+    <li><strong>Add a default CSSZ block on <code>&lt;body&gt;</code></strong> (light) and a class-toggled dark variant. Verify dark/light parity in the showcase. <span class="pill info">week 1</span></li>
+    <li><strong>Document the CSSZ vocabulary</strong> for designers (the same subset you used for the override: bg, surface, text, mute, border, accent, focus, radius, font, density-scale, plus per-state variants for buttons/rows). <span class="pill info">week 2</span></li>
+    <li><strong>Pilot per-tenant theming</strong> by injecting a CSSZ block at login. Prove that the SC components reflect the brand without recompile. <span class="pill warn">milestone</span></li>
+    <li><strong>Defer SVG symbol theming &amp; density-via-cssz</strong> until the adapter is stable. Both are additive.</li>
+  </ol>
+
+  <h3>What this gives you that pure SC skinning doesn&rsquo;t</h3>
+  <ul>
+    <li>Live dark mode (no Twilight/Obsidian recompile).</li>
+    <li>Per-tenant brand without per-tenant build artifacts.</li>
+    <li>Sub-tree theming — wrap any panel, override the vars, done.</li>
+    <li>HTML-driven theme blocks — designers paste, devs ship.</li>
+    <li>CSSZ outside SC: any non-SC HTML on the page (marketing zones, embedded charts) participates in the same tokens.</li>
+  </ul>
+
+  <h3>What it costs</h3>
+  <ul>
+    <li>One small adapter stylesheet you maintain across SC upgrades.</li>
+    <li>A naming-convention discipline: every visible SC class style reads <em>only</em> from <code>var(--cssz-*)</code> with a SC-default fallback.</li>
+    <li>Awareness of the &ldquo;hostile bits&rdquo; in §7 — sprite metrics, pixel measurements SC reads back, density.</li>
+  </ul>
+
+  <p style="margin-top: 18px;"><strong>Bottom line:</strong> CSSZ doesn&rsquo;t replace SmartClient&rsquo;s skin system, it <em>completes</em> it. SC owns structure and statefulness; CSSZ owns design tokens and runtime scoping. The combined system is smaller than Tahoe&rsquo;s Sass build and more flexible than any builtin skin.</p>
+</section>
+
+<div class="foot">
+  <p>Sources: SmartClient <em>Skinning / Theming</em> overview · <em>Customizing Sass-based Skins</em> · <em>SVG Symbols Overview</em>; <code>uploads/README.md</code>, <code>uploads/css-native.md</code>, <code>uploads/cssz.css</code>, <code>uploads/cssz.js</code>, <code>uploads/index.html</code>; the <em>Modern</em> override skin in <code>handoff/skin-modern.css</code>.</p>
+</div>
+
+</main>
+</div>
+
+</body>
+</html>

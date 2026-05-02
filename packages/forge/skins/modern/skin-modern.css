@@ -1,0 +1,372 @@
+/* =============================================================================
+ * SmartClient — Modern Skin (override layer)
+ * =============================================================================
+ *
+ * Drop-in CSS override for the stock SmartClient EnterpriseSeries skin.
+ * Load this file AFTER skin_styles.css. Activate it by adding the classes
+ * "sc skin-modern" to the SmartClient root container element. Add "dark"
+ * for dark mode:  <body class="sc skin-modern">  or  "sc skin-modern dark".
+ *
+ * Strategy:
+ *   - Re-targets the same SmartClient class names the runtime stamps on
+ *     widgets (.button, .toolStrip, .sectionHeader, .listGridCell, .formCell,
+ *     .textItem, .selectItem, .windowHeader, .tabBar, etc).
+ *   - All values flow from CSS custom properties scoped to .sc.skin-modern,
+ *     so re-theming = changing tokens, not rules.
+ *   - Light + dark are the same token set with different values.
+ *   - Pure CSS — no SCSS rebuild, no sprite swaps for ~90% of the surface.
+ *
+ * Caveats (the other ~10%):
+ *   - SmartClient sometimes paints chrome via background-image sprites
+ *     (scrollbar grips, tab scroller arrows, some menu icons). Where that's
+ *     the case, you'll either see the original sprite leaking through, or
+ *     you must override the image URL too. Check rendering and patch.
+ *   - SC also writes inline styles for some computed sizes; this file uses
+ *     specificity from the .sc.skin-modern parent to win where possible.
+ *
+ * Tested against widgets demonstrated in the showcase: ToolStrip, SectionStack,
+ * DynamicForm (TextItem, SelectItem, CheckboxItem, DateChooser), Window,
+ * TabSet, ListGrid (light use), Button family.
+ * ============================================================================= */
+
+/* =========================================================================
+   .sc — the SmartClient surface. Everything inside .sc is styled by the
+   selected skin (skin-classic / skin-modern) and the light/dark mode.
+   We re-target SmartClient's real classnames so a future skin-swap is a
+   pure CSS change — no markup change in your SC pages.
+   ========================================================================= */
+
+/* ---------- MODERN (Linear/Vercel-leaning) ---------- */
+.sc.skin-modern {
+  --sc-font: "Inter", -apple-system, system-ui, sans-serif;
+  --sc-mono: "JetBrains Mono", ui-monospace, monospace;
+  --sc-fs: 12.5px;
+  --sc-pad: 8px;
+  --sc-radius: 6px;
+
+  --sc-page-bg: oklch(98.4% 0.002 95);
+  --sc-panel-bg: #ffffff;
+  --sc-text: oklch(20% 0.01 270);
+  --sc-muted: oklch(55% 0.01 270);
+  --sc-border: oklch(92% 0.005 270);
+  --sc-border-soft: oklch(95% 0.005 270);
+  --sc-focus: oklch(58% 0.18 270);
+
+  --sc-row-over: oklch(96.5% 0.008 270);
+  --sc-row-selected: oklch(94% 0.04 270);
+  --sc-row-selected-text: oklch(25% 0.08 270);
+
+  --sc-header-grad: oklch(98% 0.003 270);
+  --sc-button-grad: #ffffff;
+  --sc-button-over-grad: oklch(96% 0.005 270);
+  --sc-window-bar: oklch(99% 0.002 95);
+  --sc-window-bar-text: oklch(20% 0.01 270);
+  --sc-tool-bg: oklch(98.5% 0.003 270);
+  --sc-section-bg: oklch(98% 0.003 270);
+  --sc-section-text: oklch(35% 0.01 270);
+  --sc-tab-bg: transparent;
+  --sc-tab-selected-bg: var(--sc-panel-bg);
+  --sc-tab-selected-text: oklch(20% 0.01 270);
+  --sc-tab-text: oklch(50% 0.01 270);
+}
+.sc.skin-modern.dark {
+  --sc-page-bg: oklch(16% 0.01 270);
+  --sc-panel-bg: oklch(20% 0.01 270);
+  --sc-text: oklch(95% 0.005 270);
+  --sc-muted: oklch(60% 0.01 270);
+  --sc-border: oklch(28% 0.01 270);
+  --sc-border-soft: oklch(24% 0.01 270);
+  --sc-focus: oklch(72% 0.16 270);
+  --sc-row-over: oklch(24% 0.01 270);
+  --sc-row-selected: oklch(32% 0.06 270);
+  --sc-row-selected-text: oklch(95% 0.02 270);
+  --sc-header-grad: oklch(22% 0.01 270);
+  --sc-button-grad: oklch(24% 0.01 270);
+  --sc-button-over-grad: oklch(28% 0.01 270);
+  --sc-window-bar: oklch(20% 0.01 270);
+  --sc-window-bar-text: oklch(95% 0.005 270);
+  --sc-tool-bg: oklch(22% 0.01 270);
+  --sc-section-bg: oklch(22% 0.01 270);
+  --sc-section-text: oklch(75% 0.01 270);
+  --sc-tab-selected-bg: oklch(26% 0.01 270);
+  --sc-tab-selected-text: oklch(95% 0.005 270);
+  --sc-tab-text: oklch(60% 0.01 270);
+}
+
+/* ---------- Shared widget rules (read variables; don't define them) ---------- */
+.sc {
+  font-family: var(--sc-font);
+  font-size: var(--sc-fs);
+  color: var(--sc-text);
+  background: var(--sc-page-bg);
+}
+.sc, .sc * { box-sizing: border-box; }
+
+/* pageBackground / normal */
+.sc .pageBackground { background: var(--sc-page-bg); color: var(--sc-text); font-family: var(--sc-font); font-size: var(--sc-fs); }
+.sc .normal, .sc .normalFocused { color: var(--sc-text); font-family: var(--sc-font); font-size: var(--sc-fs); }
+.sc .normalDisabled { color: var(--sc-muted); font-family: var(--sc-font); font-size: var(--sc-fs); }
+
+/* Button family */
+.sc .button, .sc .buttonOver, .sc .buttonDown,
+.sc .buttonSelected, .sc .buttonFocused {
+  background: var(--sc-button-grad);
+  border: 1px solid var(--sc-border);
+  color: var(--sc-text);
+  font-family: var(--sc-font);
+  font-size: var(--sc-fs);
+  padding: calc(var(--sc-pad) - 2px) calc(var(--sc-pad) + 4px);
+  border-radius: var(--sc-radius);
+  display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer; user-select: none;
+  line-height: 1.4;
+}
+.sc .buttonOver { background: var(--sc-button-over-grad); }
+.sc .buttonDown { background: var(--sc-button-over-grad); }
+.sc .buttonSelected {
+  background: var(--sc-row-selected);
+  color: var(--sc-row-selected-text);
+  border-color: var(--sc-focus);
+}
+.sc .buttonPrimary {
+  background: var(--sc-focus);
+  color: #fff;
+  border-color: var(--sc-focus);
+}
+
+/* ToolStrip */
+.sc .toolStrip {
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 8px;
+  background: var(--sc-tool-bg);
+  border-bottom: 1px solid var(--sc-border);
+}
+.sc .toolStripSeparator {
+  width: 1px; align-self: stretch;
+  background: var(--sc-border);
+  margin: 4px 4px;
+}
+.sc .toolStripLabel { color: var(--sc-muted); font-size: calc(var(--sc-fs) - 1px); padding: 0 6px; }
+
+/* Window / Dialog */
+.sc .windowBackground { background: var(--sc-panel-bg); border: 1px solid var(--sc-border); }
+.sc .windowHeader {
+  background: var(--sc-window-bar);
+  color: var(--sc-window-bar-text);
+  padding: 6px 10px;
+  display: flex; align-items: center; gap: 8px;
+  border-bottom: 1px solid var(--sc-border);
+}
+.sc .windowHeaderText { color: inherit; font-family: var(--sc-font); font-size: var(--sc-fs); font-weight: 600; }
+.sc .windowBody, .sc .dialogBody { background: var(--sc-panel-bg); padding: var(--sc-pad); }
+
+/* SectionStack */
+.sc .sectionStack {
+  background: var(--sc-panel-bg);
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius);
+  overflow: hidden;
+}
+.sc .sectionHeader {
+  background: var(--sc-section-bg);
+  color: var(--sc-section-text);
+  font-family: var(--sc-font);
+  font-size: var(--sc-fs);
+  font-weight: 600;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--sc-border);
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer; user-select: none;
+}
+.sc .sectionHeader + .sectionHeader { border-top: 1px solid var(--sc-border); }
+.sc .sectionItem { padding: 10px 12px; border-bottom: 1px solid var(--sc-border-soft); background: var(--sc-panel-bg); }
+.sc .sectionItem:last-child { border-bottom: 0; }
+.sc .sectionHeader .twisty {
+  width: 10px; height: 10px;
+  display: inline-block;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><path d='M2 3 L5 7 L8 3 Z' fill='black'/></svg>") center/contain no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><path d='M2 3 L5 7 L8 3 Z' fill='black'/></svg>") center/contain no-repeat;
+  opacity: 0.7;
+}
+.sc .sectionHeader.collapsed .twisty { transform: rotate(-90deg); }
+
+/* Forms */
+.sc .formCell {
+  display: grid; grid-template-columns: 140px 1fr; gap: 8px;
+  padding: 5px 0;
+  align-items: center;
+}
+.sc .formTitle { color: var(--sc-text); font-family: var(--sc-font); font-size: var(--sc-fs); text-align: right; padding-right: 6px; }
+.sc.skin-modern .formTitle { color: var(--sc-muted); text-align: left; font-weight: 500; }
+.sc .textItem, .sc .selectItem, .sc .textAreaItem {
+  font-family: var(--sc-font); font-size: var(--sc-fs);
+  background: var(--sc-panel-bg);
+  color: var(--sc-text);
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius);
+  padding: 4px 6px;
+  width: 100%;
+  outline: none;
+}
+.sc.skin-modern .textItem,
+.sc.skin-modern .selectItem,
+.sc.skin-modern .textAreaItem { padding: 6px 8px; background: var(--sc-page-bg); }
+.sc .textItem:focus, .sc .selectItem:focus, .sc .textAreaItem:focus {
+  border-color: var(--sc-focus);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--sc-focus) 25%, transparent);
+}
+.sc .selectItem { appearance: none; -webkit-appearance: none; padding-right: 22px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 3 L5 7 L8 3' fill='none' stroke='%23888' stroke-width='1.5'/></svg>");
+  background-repeat: no-repeat; background-position: right 6px center;
+}
+.sc .checkboxItem { display: inline-flex; align-items: center; gap: 6px; font-family: var(--sc-font); font-size: var(--sc-fs); }
+.sc .checkboxItem input[type=checkbox] { accent-color: var(--sc-focus); width: 14px; height: 14px; margin: 0; }
+
+/* DateChooser (mini calendar) */
+.sc .dateChooser {
+  background: var(--sc-panel-bg);
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius);
+  padding: 6px;
+  display: inline-block;
+}
+.sc .dateChooserHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 6px; font-weight: 600;
+  background: var(--sc-section-bg); color: var(--sc-section-text);
+  border-radius: calc(var(--sc-radius) - 2px);
+  margin-bottom: 4px;
+}
+.sc .dateGrid { display: grid; grid-template-columns: repeat(7, 28px); gap: 0; }
+.sc .dateCell, .sc .dateHead {
+  width: 28px; height: 24px; display: grid; place-items: center;
+  font-size: calc(var(--sc-fs) - 1px); cursor: pointer;
+  color: var(--sc-text);
+}
+.sc .dateHead { color: var(--sc-muted); font-weight: 600; cursor: default; }
+.sc .dateCell.muted { color: var(--sc-muted); }
+.sc .dateCell:hover { background: var(--sc-row-over); border-radius: 3px; }
+.sc .dateCell.selected { background: var(--sc-focus); color: #fff; border-radius: 3px; }
+
+/* ListGrid (light use in master/detail) */
+.sc .listGrid { background: var(--sc-panel-bg); border: 1px solid var(--sc-border); border-radius: var(--sc-radius); overflow: hidden; }
+.sc .gridHeader {
+  display: grid; background: var(--sc-header-grad);
+  color: var(--sc-section-text);
+  font-weight: 600; font-size: var(--sc-fs); border-bottom: 1px solid var(--sc-border);
+}
+.sc .gridHeader .colHeader { padding: 6px 10px; border-right: 1px solid var(--sc-border); }
+.sc .gridHeader .colHeader:last-child { border-right: 0; }
+.sc .gridRow {
+  display: grid; padding: 0;
+  border-bottom: 1px solid var(--sc-border-soft);
+  cursor: pointer;
+}
+.sc .gridRow .cell { padding: 6px 10px; border-right: 1px solid var(--sc-border-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc .gridRow .cell:last-child { border-right: 0; }
+.sc .gridRow:hover { background: var(--sc-row-over); }
+.sc .gridRow.selected { background: var(--sc-row-selected); color: var(--sc-row-selected-text); }
+.sc .gridRow.selected .cell { color: var(--sc-row-selected-text); }
+.sc .mono { font-family: var(--sc-mono); font-size: calc(var(--sc-fs) - 0.5px); }
+
+/* Sidebar nav (HLayout/VLayout shell) */
+.sc .appShell { display: grid; grid-template-columns: 220px 1fr; min-height: 560px; }
+.sc .appSidebar { background: var(--sc-section-bg); border-right: 1px solid var(--sc-border); padding: 10px 0; }
+.sc.skin-modern .appSidebar { background: var(--sc-panel-bg); }
+.sc .appSidebar .navGroup { padding: 8px 14px 4px; color: var(--sc-muted); font-size: calc(var(--sc-fs) - 1px); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+.sc .appSidebar .navItem {
+  padding: 6px 14px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  color: var(--sc-text);
+}
+.sc .appSidebar .navItem:hover { background: var(--sc-row-over); }
+.sc .appSidebar .navItem.selected { background: var(--sc-row-selected); color: var(--sc-row-selected-text); font-weight: 600; }
+.sc.skin-modern .appSidebar .navItem { border-radius: var(--sc-radius); margin: 0 8px; padding: 5px 10px; }
+
+.sc .appTopBar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 12px;
+  background: var(--sc-window-bar); color: var(--sc-window-bar-text);
+  border-bottom: 1px solid var(--sc-border);
+}
+.sc .appTopBar .crumb { color: inherit; opacity: 0.85; }
+.sc .appTopBar .crumb-sep { opacity: 0.5; }
+.sc .appTopBar .spacer { flex: 1; }
+.sc .appTopBar .searchBox {
+  background: color-mix(in oklch, var(--sc-panel-bg) 60%, transparent);
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius);
+  padding: 4px 8px; font-size: var(--sc-fs); color: inherit; width: 240px;
+  font-family: var(--sc-font);
+}
+
+.sc .appContent { padding: 14px; overflow: auto; background: var(--sc-page-bg); }
+
+.sc .pageTitle { font-size: calc(var(--sc-fs) + 6px); font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; color: var(--sc-text); }
+.sc .pageSubtitle { color: var(--sc-muted); margin: 0 0 12px; font-size: var(--sc-fs); }
+
+/* Master/detail */
+.sc .masterDetail { display: grid; grid-template-columns: 360px 1fr; gap: 10px; }
+.sc .recordEditor { background: var(--sc-panel-bg); border: 1px solid var(--sc-border); border-radius: var(--sc-radius); padding: 14px; }
+.sc .recordEditor h3 { margin: 0 0 2px; font-size: calc(var(--sc-fs) + 4px); font-weight: 600; }
+.sc .recordEditor .rid { color: var(--sc-muted); font-family: var(--sc-mono); font-size: calc(var(--sc-fs) - 1px); margin-bottom: 12px; }
+
+/* TabSet (used in master detail editor) */
+.sc .tabSet { display: flex; flex-direction: column; }
+.sc .tabBar { display: flex; gap: 0; border-bottom: 1px solid var(--sc-border); padding: 0; background: var(--sc-tab-bg); }
+.sc .tab {
+  padding: 6px 14px;
+  background: transparent;
+  color: var(--sc-tab-text);
+  border: 1px solid transparent;
+  border-bottom: 0;
+  cursor: pointer; font-family: var(--sc-font); font-size: var(--sc-fs);
+  border-radius: var(--sc-radius) var(--sc-radius) 0 0;
+  position: relative; top: 1px;
+}
+.sc .tab.selected {
+  background: var(--sc-tab-selected-bg);
+  color: var(--sc-tab-selected-text);
+  border-color: var(--sc-border);
+  border-bottom-color: var(--sc-tab-selected-bg);
+  font-weight: 600;
+}
+.sc.skin-modern .tab.selected { box-shadow: 0 -2px 0 var(--sc-focus) inset; border-color: transparent; background: transparent; color: var(--sc-tab-selected-text); }
+.sc .tabBody { padding: 14px; background: var(--sc-panel-bg); border: 1px solid var(--sc-border); border-top: 0; border-radius: 0 0 var(--sc-radius) var(--sc-radius); }
+
+/* Status bar */
+.sc .statusBar {
+  border-top: 1px solid var(--sc-border);
+  padding: 4px 10px;
+  background: var(--sc-tool-bg);
+  color: var(--sc-muted);
+  font-family: var(--sc-mono); font-size: calc(var(--sc-fs) - 1px);
+  display: flex; gap: 16px; align-items: center;
+}
+.sc .statusBar .dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; display: inline-block; margin-right: 6px; }
+
+/* Icons (tiny inline svg via mask) */
+.sc .icon { width: 14px; height: 14px; display: inline-block; background: currentColor; opacity: 0.8; flex: none; }
+.sc .icon-search { -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='7' cy='7' r='4.5' fill='none' stroke='black' stroke-width='1.5'/><path d='M10.5 10.5 L14 14' stroke='black' stroke-width='1.5' fill='none'/></svg>") center/contain no-repeat; mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='7' cy='7' r='4.5' fill='none' stroke='black' stroke-width='1.5'/><path d='M10.5 10.5 L14 14' stroke='black' stroke-width='1.5' fill='none'/></svg>") center/contain no-repeat; }
+.sc .icon-plus { -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 3 V13 M3 8 H13' stroke='black' stroke-width='1.6' stroke-linecap='round'/></svg>") center/contain no-repeat; mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 3 V13 M3 8 H13' stroke='black' stroke-width='1.6' stroke-linecap='round'/></svg>") center/contain no-repeat; }
+.sc .icon-save { -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3 3 H11 L13 5 V13 H3 Z' fill='none' stroke='black' stroke-width='1.4'/><path d='M5 3 V7 H11 V3' fill='none' stroke='black' stroke-width='1.4'/></svg>") center/contain no-repeat; mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3 3 H11 L13 5 V13 H3 Z' fill='none' stroke='black' stroke-width='1.4'/><path d='M5 3 V7 H11 V3' fill='none' stroke='black' stroke-width='1.4'/></svg>") center/contain no-repeat; }
+.sc .icon-trash { -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3 5 H13 M5 5 V3 H11 V5 M5 5 V13 H11 V5' fill='none' stroke='black' stroke-width='1.4'/></svg>") center/contain no-repeat; mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3 5 H13 M5 5 V3 H11 V5 M5 5 V13 H11 V5' fill='none' stroke='black' stroke-width='1.4'/></svg>") center/contain no-repeat; }
+.sc .icon-folder { -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M2 4 H6 L7.5 5.5 H14 V12.5 H2 Z' fill='none' stroke='black' stroke-width='1.3'/></svg>") center/contain no-repeat; mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M2 4 H6 L7.5 5.5 H14 V12.5 H2 Z' fill='none' stroke='black' stroke-width='1.3'/></svg>") center/contain no-repeat; }
+.sc .icon-user { -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='6' r='2.6' fill='none' stroke='black' stroke-width='1.4'/><path d='M3 13 C3 10.5 5 9 8 9 C11 9 13 10.5 13 13' fill='none' stroke='black' stroke-width='1.4'/></svg>") center/contain no-repeat; mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='6' r='2.6' fill='none' stroke='black' stroke-width='1.4'/><path d='M3 13 C3 10.5 5 9 8 9 C11 9 13 10.5 13 13' fill='none' stroke='black' stroke-width='1.4'/></svg>") center/contain no-repeat; }
+.sc .icon-cog { -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='2' fill='none' stroke='black' stroke-width='1.4'/><path d='M8 1 V3 M8 13 V15 M1 8 H3 M13 8 H15 M3 3 L4.5 4.5 M11.5 11.5 L13 13 M3 13 L4.5 11.5 M11.5 4.5 L13 3' stroke='black' stroke-width='1.3'/></svg>") center/contain no-repeat; mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='2' fill='none' stroke='black' stroke-width='1.4'/><path d='M8 1 V3 M8 13 V15 M1 8 H3 M13 8 H15 M3 3 L4.5 4.5 M11.5 11.5 L13 13 M3 13 L4.5 11.5 M11.5 4.5 L13 3' stroke='black' stroke-width='1.3'/></svg>") center/contain no-repeat; }
+.sc .icon-chart { -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M2 14 H14 M4 14 V8 M7 14 V5 M10 14 V10 M13 14 V3' stroke='black' stroke-width='1.4' fill='none'/></svg>") center/contain no-repeat; mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M2 14 H14 M4 14 V8 M7 14 V5 M10 14 V10 M13 14 V3' stroke='black' stroke-width='1.4' fill='none'/></svg>") center/contain no-repeat; }
+.sc .icon-bell { -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 11 V7 C4 5 5.5 3.5 8 3.5 C10.5 3.5 12 5 12 7 V11 H13 V12 H3 V11 Z' fill='none' stroke='black' stroke-width='1.3'/><path d='M7 13 H9' stroke='black' stroke-width='1.3'/></svg>") center/contain no-repeat; mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 11 V7 C4 5 5.5 3.5 8 3.5 C10.5 3.5 12 5 12 7 V11 H13 V12 H3 V11 Z' fill='none' stroke='black' stroke-width='1.3'/><path d='M7 13 H9' stroke='black' stroke-width='1.3'/></svg>") center/contain no-repeat; }
+
+/* Pills */
+.sc .pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px; border-radius: 999px;
+  background: var(--sc-row-selected); color: var(--sc-row-selected-text);
+  font-size: calc(var(--sc-fs) - 1px);
+}
+.sc .pill.warn { background: #fff3c4; color: #7a4d00; }
+.sc .pill.ok { background: #ddf3e1; color: #155c2c; }
+.sc.dark .pill.warn { background: #4a3a14; color: #ffd479; }
+.sc.dark .pill.ok { background: #1a3a25; color: #6ee0a4; }
+

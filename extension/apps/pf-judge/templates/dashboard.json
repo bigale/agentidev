@@ -1,0 +1,243 @@
+{
+  "dataSources": [
+    {
+      "ID": "plugin-runs",
+      "fields": [
+        {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true
+        },
+        {
+          "name": "pluginId",
+          "type": "text"
+        },
+        {
+          "name": "flowName",
+          "type": "text"
+        },
+        {
+          "name": "ts",
+          "type": "integer"
+        },
+        {
+          "name": "durationMs",
+          "type": "integer"
+        },
+        {
+          "name": "success",
+          "type": "boolean"
+        },
+        {
+          "name": "error",
+          "type": "text"
+        },
+        {
+          "name": "sharedIn",
+          "type": "text"
+        },
+        {
+          "name": "sharedOut",
+          "type": "text"
+        }
+      ]
+    }
+  ],
+  "layout": {
+    "_type": "VLayout",
+    "ID": "pf_judgeRoot",
+    "width": "100%",
+    "height": "100%",
+    "padding": 12,
+    "membersMargin": 8,
+    "members": [
+      {
+        "_type": "Label",
+        "height": 26,
+        "contents": "<div style='font-size:16px;font-weight:600;color:#a8b4ff;'>Judge <span style='font-size:11px;color:#888;font-weight:400;margin-left:8px;'>cookbook/pocketflow-judge</span></div>"
+      },
+      {
+        "_type": "TabSet",
+        "ID": "pluginTabs",
+        "width": "100%",
+        "height": "*",
+        "tabs": [
+          {
+            "title": "Run",
+            "ID": "tabRun",
+            "pane": {
+              "_type": "VLayout",
+              "padding": 12,
+              "membersMargin": 8,
+              "overflow": "auto",
+              "members": [
+                {
+                  "_type": "DynamicForm",
+                  "ID": "inputForm",
+                  "width": "100%",
+                  "height": 270,
+                  "numCols": 2,
+                  "colWidths": [
+                    100,
+                    "*"
+                  ],
+                  "titleOrientation": "left",
+                  "fields": [
+                    {
+                      "name": "draft",
+                      "title": "draft",
+                      "type": "textArea",
+                      "height": 80,
+                      "width": "*",
+                      "defaultValue": ""
+                    },
+                    {
+                      "name": "feedback",
+                      "title": "feedback",
+                      "type": "textArea",
+                      "height": 80,
+                      "width": "*",
+                      "defaultValue": ""
+                    },
+                    {
+                      "name": "task",
+                      "title": "task",
+                      "type": "textArea",
+                      "height": 80,
+                      "width": "*",
+                      "defaultValue": ""
+                    }
+                  ]
+                },
+                {
+                  "_type": "HLayout",
+                  "height": 32,
+                  "membersMargin": 8,
+                  "members": [
+                    {
+                      "_type": "Button",
+                      "ID": "btnRun",
+                      "title": "Run",
+                      "width": 120,
+                      "_action": "dispatchAndDisplay",
+                      "_messageType": "PF_JUDGE",
+                      "_payloadFrom": "inputForm",
+                      "_targetCanvas": "outputShared",
+                      "_resultPath": "shared",
+                      "_resultFormatter": "json",
+                      "_timeoutMs": 90000
+                    },
+                    {
+                      "_type": "Label",
+                      "width": "*",
+                      "contents": "<div style='font-size:11px;color:#888;line-height:1.4;'>Form values flow into the Python flow as initial shared state.</div>"
+                    }
+                  ]
+                },
+                {
+                  "_type": "Label",
+                  "height": 16,
+                  "contents": "<div style='font-size:11px;color:#666;'>Final shared state</div>"
+                },
+                {
+                  "_type": "HTMLFlow",
+                  "ID": "outputShared",
+                  "height": "*",
+                  "padding": 4,
+                  "overflow": "auto",
+                  "contents": "<em style='color:#888;'>Click Run to execute the flow.</em>"
+                }
+              ]
+            }
+          },
+          {
+            "title": "History",
+            "ID": "tabHistory",
+            "pane": {
+              "_type": "VLayout",
+              "padding": 12,
+              "membersMargin": 8,
+              "members": [
+                {
+                  "_type": "HLayout",
+                  "height": 28,
+                  "membersMargin": 8,
+                  "members": [
+                    {
+                      "_type": "Button",
+                      "ID": "btnRefreshHistory",
+                      "title": "Refresh",
+                      "width": 100,
+                      "_action": "dsFetch",
+                      "_targetGrid": "runHistoryGrid"
+                    },
+                    {
+                      "_type": "Label",
+                      "width": "*",
+                      "contents": "<div style='font-size:11px;color:#888;line-height:1.4;'>Click any row to replay its inputs.</div>"
+                    }
+                  ]
+                },
+                {
+                  "_type": "ListGrid",
+                  "ID": "runHistoryGrid",
+                  "height": "*",
+                  "dataSource": "plugin-runs",
+                  "autoFetchData": true,
+                  "criteria": {
+                    "pluginId": "pf-judge"
+                  },
+                  "initialCriteria": {
+                    "pluginId": "pf-judge"
+                  },
+                  "sortField": "ts",
+                  "sortDirection": "descending",
+                  "showHeader": true,
+                  "canEdit": false,
+                  "_replayInto": [
+                    "inputForm"
+                  ],
+                  "_replaySwitchTab": [
+                    "pluginTabs",
+                    "tabRun"
+                  ],
+                  "emptyMessage": "No runs yet — click Run to record one.",
+                  "fields": [
+                    {
+                      "name": "ts",
+                      "title": "When",
+                      "width": 160,
+                      "_formatter": "timestamp"
+                    },
+                    {
+                      "name": "durationMs",
+                      "title": "Duration",
+                      "width": 90,
+                      "align": "right"
+                    },
+                    {
+                      "name": "success",
+                      "title": "OK",
+                      "width": 50,
+                      "type": "boolean"
+                    },
+                    {
+                      "name": "flowName",
+                      "title": "Flow",
+                      "width": 140
+                    },
+                    {
+                      "name": "error",
+                      "title": "Error",
+                      "width": "*"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

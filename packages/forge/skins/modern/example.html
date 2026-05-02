@@ -1,0 +1,80 @@
+<!doctype html>
+<!--
+  Minimal example of mounting the SC ↔ CSSZ adapter on top of SmartClient.
+
+  Load order:
+    1) SmartClient runtime (isc.js / your modules)
+    2) Stock skin_styles.css (e.g. EnterpriseSeries)
+    3) cssz.css (optional — only if you have non-SC HTML using .cssz-* classes)
+    4) sc-cssz-adapter.css (this skin's structural rules)
+    5) theme-modern.css (the CSSZ vocabulary defining the look)
+
+  Activation:
+    Add `sc theme-modern` to <body> (or the topmost SC container).
+    Add `dark` for dark mode: `sc theme-modern dark`.
+
+  Sub-tree theming:
+    Drop a CSSZ block (inline style or your own class) on any descendant.
+    Only the inline vars override; everything else inherits.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>SmartClient + CSSZ adapter (Modern theme)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- 1) SmartClient runtime (replace path with your install) -->
+  <!-- <script src="/isomorphic/system/modules/ISC_Core.js"></script> -->
+  <!-- <script src="/isomorphic/system/modules/ISC_Foundation.js"></script> -->
+  <!-- <script src="/isomorphic/system/modules/ISC_Containers.js"></script> -->
+  <!-- <script src="/isomorphic/system/modules/ISC_Grids.js"></script> -->
+  <!-- <script src="/isomorphic/system/modules/ISC_Forms.js"></script> -->
+
+  <!-- 2) Stock skin (Graphite / EnterpriseBlue / Tahoe / etc.) -->
+  <!-- <link rel="stylesheet" href="/isomorphic/skins/EnterpriseSeries/skin_styles.css"> -->
+
+  <!-- 3) Optional: CSSZ engine for non-SC HTML on the page -->
+  <link rel="stylesheet" href="./cssz.css">
+
+  <!-- 4) Adapter: maps SC class names to var(--cssz-*) -->
+  <link rel="stylesheet" href="./sc-cssz-adapter.css">
+
+  <!-- 5) Theme: defines the CSSZ vocabulary -->
+  <link rel="stylesheet" href="./theme-modern.css">
+</head>
+<body class="sc theme-modern">
+
+  <!-- Default: whole page picks up theme-modern (light) -->
+  <div class="toolStrip">
+    <div class="button">New</div>
+    <div class="buttonPrimary">Save</div>
+  </div>
+
+  <!--
+    Sub-tree override (CSSZ recursive scoping):
+    Wrap any panel and override a few vars; SC rules inside resolve to the
+    nearest scope. Useful for: per-panel dark mode, tenant branding, etc.
+  -->
+  <div style="
+    --cssz-accent: oklch(58% 0.15 25);
+    --cssz-row-selected: oklch(96% 0.04 25);
+    --cssz-button-bg: oklch(58% 0.15 25);
+    --cssz-button-text: #fff;
+  ">
+    <div class="buttonPrimary">Branded button (Acme red)</div>
+  </div>
+
+  <script>
+    // Toggle dark mode at runtime:
+    //   document.body.classList.toggle('dark');
+    //
+    // Persist + honor system preference:
+    //   const dark = localStorage.getItem('cssz-dark') === '1' ||
+    //     (localStorage.getItem('cssz-dark') === null &&
+    //      matchMedia('(prefers-color-scheme: dark)').matches);
+    //   document.body.classList.toggle('dark', dark);
+  </script>
+</body>
+</html>

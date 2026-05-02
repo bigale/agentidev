@@ -1,0 +1,453 @@
+/* =============================================================================
+ * SmartClient ↔ CSSZ Adapter (Phase 2 of the CSSZ × SC evaluation)
+ * =============================================================================
+ *
+ * Retargets SmartClient's class-name contract (.button, .toolStrip, .formCell,
+ * .windowHeader, .sectionHeader, .listGridCell, .tabBar, .tab, .tabSelected,
+ * .textItem, .selectItem, .dateChooser, etc.) to read from `var(--cssz-*)`
+ * with SC-ish defaults as fallbacks.
+ *
+ * Load order:
+ *   1) load_skin.js (SC runtime defaults — unchanged)
+ *   2) skin_styles.css (stock SC skin, e.g. EnterpriseSeries)
+ *   3) cssz.css (optional CSSZ engine for non-SC HTML)
+ *   4) sc-cssz-adapter.css (this file)
+ *   5) theme-modern.css (or any other CSSZ vocabulary block)
+ *
+ * Activation: anything inside an element with class `sc` participates. Drop a
+ * CSSZ block on any descendant (inline style or class) to rescope the theme.
+ *
+ * Discipline (per evaluation §7 — "the hostile bits"):
+ *   - Single-class selectors only. SC reads style declarations via CSSOM and
+ *     mishandles multi-class selectors / @-rules. State suffixes are real SC
+ *     class names (.buttonOver, .tabSelected, .listGridCellSelected) — not
+ *     compound selectors like .button.over.
+ *   - MAY set: color, background, font-family, font-weight, box-shadow,
+ *     border-radius, focus rings, accent-color, filter (for sprite recolor).
+ *   - MUST NOT set on SC-measured elements: padding, margin, display, gap,
+ *     width, height, border (changes box size), line-height, position. SC
+ *     reads these back via getComputedStyle to size/position children. Our
+ *     overrides cause clipping (windowHeader title), hidden chrome (close
+ *     icon), or row-height drift (listGrid).
+ *   - Border alternative: use `box-shadow: inset 0 -1px 0 var(--cssz-border)`
+ *     for a 1px separator without changing the box.
+ *   - No images. Any sprite-image chrome SC paints (scrollbar grips, tab
+ *     scroller arrows, some menu glyphs) is deliberately untouched here;
+ *     patch in a separate stylesheet if needed.
+ *   - For app-level breathing room (taller header, wider rows), set the SC
+ *     widget property in app code: `headerHeight: 28`, `rowHeight: 24`, etc.
+ * ============================================================================= */
+
+/* ---------- Surface (page background, base text) ---------------------------- */
+/* NOTE: Don't set `box-sizing: border-box` on .sc * — too broad. SC's internal
+   divs were authored against the browser default; flipping the model causes
+   subtle 1-2px sizing drift everywhere SC measures inline width/height. */
+
+.sc {
+  background: var(--cssz-bg, transparent);
+  color: var(--cssz-text, inherit);
+  font-family: var(--cssz-font, inherit);
+  font-size: var(--cssz-fs, inherit);
+}
+
+.sc .pageBackground {
+  background: var(--cssz-bg, transparent);
+  color: var(--cssz-text, inherit);
+  font-family: var(--cssz-font, inherit);
+  font-size: var(--cssz-fs, inherit);
+}
+.sc .normal {
+  color: var(--cssz-text, inherit);
+  font-family: var(--cssz-font, inherit);
+  font-size: var(--cssz-fs, inherit);
+}
+.sc .normalFocused { color: var(--cssz-text, inherit); }
+.sc .normalDisabled {
+  color: var(--cssz-text-mute, var(--cssz-muted, #999));
+  font-family: var(--cssz-font, inherit);
+  font-size: var(--cssz-fs, inherit);
+}
+
+/* ---------- Button family --------------------------------------------------- */
+/* Buttons are leaf nodes SC sizes from app code (width: 100, height: 24, etc.).
+   Padding inside is generally fine for typical sizes but will clip text on
+   buttons narrower than ~70px. Border + border-radius are OK; SC doesn't
+   measure button border thickness. */
+
+.sc .button {
+  background: var(--cssz-button-bg, var(--cssz-surface, #fff));
+  color: var(--cssz-button-text, var(--cssz-text, #000));
+  border: 1px solid var(--cssz-border, #ababab);
+  border-radius: var(--cssz-radius, 0);
+  font-family: var(--cssz-font, inherit);
+  font-weight: 500;
+  cursor: pointer; user-select: none;
+}
+.sc .buttonOver {
+  background: var(--cssz-button-bg-over, var(--cssz-row-over, #f5f5f5));
+  color: var(--cssz-button-text, var(--cssz-text, #000));
+  border: 1px solid var(--cssz-border, #ababab);
+  border-radius: var(--cssz-radius, 0);
+}
+.sc .buttonDown {
+  background: var(--cssz-button-bg-down, var(--cssz-row-over, #ededed));
+  color: var(--cssz-button-text, var(--cssz-text, #000));
+  border: 1px solid var(--cssz-border, #ababab);
+  border-radius: var(--cssz-radius, 0);
+}
+.sc .buttonSelected {
+  background: var(--cssz-row-selected, #e0e7ff);
+  color: var(--cssz-row-selected-text, var(--cssz-text, #000));
+  border: 1px solid var(--cssz-accent, #4f46e5);
+  border-radius: var(--cssz-radius, 0);
+}
+.sc .buttonFocused {
+  background: var(--cssz-button-bg, var(--cssz-surface, #fff));
+  color: var(--cssz-button-text, var(--cssz-text, #000));
+  border: 1px solid var(--cssz-accent, #4f46e5);
+  border-radius: var(--cssz-radius, 0);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--cssz-accent, #4f46e5) 25%, transparent);
+}
+.sc .buttonDisabled {
+  background: var(--cssz-button-bg-disabled, var(--cssz-surface-mute, #f5f5f5));
+  color: var(--cssz-text-mute, var(--cssz-muted, #999));
+  border: 1px solid var(--cssz-border, #ababab);
+  border-radius: var(--cssz-radius, 0);
+}
+.sc .buttonPrimary {
+  background: var(--cssz-accent, #4f46e5);
+  color: var(--cssz-on-accent, #fff);
+  border: 1px solid var(--cssz-accent, #4f46e5);
+  border-radius: var(--cssz-radius, 0);
+}
+
+/* ---------- ToolStrip ------------------------------------------------------- */
+/* SC sizes ToolStrip to a measured height (~26px stock). Don't set padding/
+   display:flex/gap — SC positions children inside via inline styles. Bottom
+   separator via inset box-shadow so it doesn't push content. */
+
+.sc .toolStrip {
+  background: var(--cssz-tool-bg, var(--cssz-surface, #fafafa));
+  box-shadow: inset 0 -1px 0 var(--cssz-border, #ababab);
+}
+.sc .toolStripSeparator {
+  background: var(--cssz-border, #ababab);
+}
+.sc .toolStripLabel {
+  color: var(--cssz-muted, #666);
+  font-family: var(--cssz-font, inherit);
+}
+
+/* ---------- Window / Dialog ------------------------------------------------- */
+/* Window header: visual-only. SC sizes the header to the Window's `headerHeight`
+   property; padding/display would clip the close icon and crop the title.
+   Use box-shadow for the separator. */
+
+.sc .windowBackground {
+  background: var(--cssz-surface, #fff);
+  /* SC may already draw a window border; box-shadow gives an outer hairline
+     without affecting Window's measured size. */
+  box-shadow: 0 0 0 1px var(--cssz-border, #ababab);
+}
+.sc .windowHeader {
+  background: var(--cssz-window-bar-bg, var(--cssz-surface, #fafafa));
+  color: var(--cssz-window-bar-text, var(--cssz-text, #000));
+  box-shadow: inset 0 -1px 0 var(--cssz-border, #ababab);
+}
+.sc .windowHeaderText {
+  color: inherit;
+  font-family: var(--cssz-font, inherit);
+  font-weight: 600;
+  /* Don't override font-size — Tahoe sizes the header for its 11px font.
+     For a larger header font, bump `headerHeight: 28` on the Window. */
+}
+/* Tahoe's headerIcons (close.png, maximize.png, etc.) are near-white PNGs
+   designed for a dark header. On a light --cssz-window-bar-bg they vanish.
+   Recolor via filter; theme-modern.dark sets this to `none` so the original
+   light icons show against the dark header. */
+.sc .windowHeader img,
+.sc .windowHeader .imgButton img {
+  filter: var(--cssz-window-icon-filter, brightness(0));
+}
+.sc .windowBody,
+.sc .dialogBody {
+  background: var(--cssz-surface, #fff);
+  /* No padding here — SC sizes windowBody inline. App code provides padding
+     via the Window's `items` (e.g. wrap content in a VLayout with padding). */
+}
+
+/* ---------- SectionStack ---------------------------------------------------- */
+/* SC sizes sectionStack and sectionHeader; padding/border on these will clip.
+   Border-radius and inset box-shadow are safe. */
+
+.sc .sectionStack {
+  background: var(--cssz-surface, #fff);
+  border-radius: var(--cssz-radius, 0);
+  box-shadow: 0 0 0 1px var(--cssz-border, #ababab);
+}
+.sc .sectionHeader {
+  background: var(--cssz-section-bg, var(--cssz-surface, #fafafa));
+  color: var(--cssz-section-text, var(--cssz-text, #000));
+  font-family: var(--cssz-font, inherit);
+  font-weight: 600;
+  box-shadow: inset 0 -1px 0 var(--cssz-border, #ababab);
+  cursor: pointer; user-select: none;
+}
+.sc .sectionItem {
+  background: var(--cssz-surface, #fff);
+  /* No padding — SC sizes section items. */
+}
+
+/* ---------- DynamicForm items ----------------------------------------------- */
+/* SC renders form cells as <td> in a table. We DO NOT override .formCell
+   layout — SC's table layout handles alignment. Only color/font on titles. */
+
+/* SC swaps .formTitle → .formTitleFocused/-Over/-Disabled per state. Cover all
+   four so the title stays consistent — focus is shown on the input border.
+   text-align is safe — affects text flow within the cell, not box dimensions. */
+.sc .formTitle,
+.sc .formTitleFocused,
+.sc .formTitleOver {
+  color: var(--cssz-form-title, var(--cssz-muted, #555));
+  font-family: var(--cssz-font, inherit);
+  font-weight: 500;
+  text-align: var(--cssz-form-title-align, left);
+}
+.sc .formTitleDisabled {
+  color: var(--cssz-text-mute, var(--cssz-muted, #999));
+  font-family: var(--cssz-font, inherit);
+  font-weight: 500;
+  text-align: var(--cssz-form-title-align, left);
+}
+
+/* Form items. SC's class names depend on the item type:
+   - .textItem family: bordered text input (legacy)
+   - .textItemLite family: bare input — what TextItem actually emits in Tahoe
+     (`textItemLite`, `textItemLiteFocused`, `textItemLiteDisabled`, etc.)
+   - .textAreaItem family
+   - .selectItem family
+   Cover all Lite/non-Lite variants so any TextItem on the page gets themed. */
+.sc .textItem,
+.sc .textItemLite,
+.sc .textItemFocused,
+.sc .textItemLiteFocused,
+.sc .textItemDisabled,
+.sc .textItemLiteDisabled,
+.sc .textItemError,
+.sc .textItemLiteError,
+.sc .textAreaItem,
+.sc .textAreaItemLite,
+.sc .textAreaItemFocused,
+.sc .textAreaItemLiteFocused,
+.sc .selectItem,
+.sc .selectItemText,
+.sc .selectItemTextFocused {
+  background: var(--cssz-input-bg, var(--cssz-surface, #fff));
+  color: var(--cssz-text, #000);
+  border: 1px solid var(--cssz-border, #ababab);
+  border-radius: var(--cssz-radius, 0);
+  font-family: var(--cssz-font, inherit);
+  outline: none;
+}
+/* Focused state — colored border + ring. SC sets :focus on real <input>s and
+   also stamps a *Focused class. Cover both. */
+.sc .textItem:focus,
+.sc .textItemLite:focus,
+.sc .textAreaItem:focus,
+.sc .textAreaItemLite:focus,
+.sc .selectItem:focus,
+.sc .textItemFocused,
+.sc .textItemLiteFocused,
+.sc .textAreaItemFocused,
+.sc .textAreaItemLiteFocused,
+.sc .selectItemTextFocused {
+  border-color: var(--cssz-accent, #4f46e5);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--cssz-accent, #4f46e5) 25%, transparent);
+}
+.sc .textItemDisabled,
+.sc .textItemLiteDisabled,
+.sc .textAreaItemDisabled {
+  color: var(--cssz-text-mute, var(--cssz-muted, #999));
+}
+/* Checkboxes — color only. Don't set width/height/margin; SC sizes them. */
+.sc .checkboxItem {
+  font-family: var(--cssz-font, inherit);
+}
+.sc .checkboxItem input[type=checkbox] {
+  accent-color: var(--cssz-accent, #4f46e5);
+}
+
+/* ---------- DateChooser ----------------------------------------------------- */
+/* SC sizes DateChooser and its inner cells. Color/font/border-radius only. */
+
+.sc .dateChooser {
+  background: var(--cssz-surface, #fff);
+  border-radius: var(--cssz-radius, 0);
+  box-shadow: 0 0 0 1px var(--cssz-border, #ababab);
+}
+.sc .dateChooserHeader {
+  background: var(--cssz-section-bg, var(--cssz-surface, #fafafa));
+  color: var(--cssz-section-text, var(--cssz-text, #000));
+  font-weight: 600;
+}
+.sc .dateCell,
+.sc .dateHead {
+  color: var(--cssz-text, inherit);
+  font-family: var(--cssz-font, inherit);
+}
+.sc .dateHead { color: var(--cssz-muted, #999); font-weight: 600; }
+.sc .dateCellOver {
+  background: var(--cssz-row-over, #f5f5f5);
+}
+.sc .dateCellSelected {
+  background: var(--cssz-accent, #4f46e5);
+  color: var(--cssz-on-accent, #fff);
+}
+
+/* ---------- ListGrid -------------------------------------------------------- */
+/* SC measures listGridCell heights to lay out rows. Don't set padding or
+   border-bottom on rows — over many rows even 1px drift breaks scrolling
+   math. Color/bg only. */
+
+.sc .listGrid {
+  background: var(--cssz-surface, #fff);
+  border-radius: var(--cssz-radius, 0);
+  box-shadow: 0 0 0 1px var(--cssz-border, #ababab);
+}
+.sc .gridHeader {
+  background: var(--cssz-header-bg, var(--cssz-section-bg, var(--cssz-surface, #fafafa)));
+  color: var(--cssz-section-text, var(--cssz-text, #000));
+  font-family: var(--cssz-font, inherit);
+  font-weight: 600;
+  box-shadow: inset 0 -1px 0 var(--cssz-border, #ababab);
+}
+.sc .gridBody { background: var(--cssz-surface, #fff); }
+.sc .gridRow {
+  /* No border-bottom — SC measures row heights. Use inset box-shadow on
+     listGridCell for visual separation if needed. */
+}
+.sc .gridRowOver { background: var(--cssz-row-over, #f5f5f5); }
+.sc .gridRowSelected {
+  background: var(--cssz-row-selected, #e0e7ff);
+  color: var(--cssz-row-selected-text, var(--cssz-text, #000));
+}
+.sc .listGridCell {
+  color: var(--cssz-text, inherit);
+  font-family: var(--cssz-font, inherit);
+  /* No padding — SC measures cell heights for row layout. */
+}
+.sc .listGridCellSelected {
+  background: var(--cssz-row-selected, #e0e7ff);
+  color: var(--cssz-row-selected-text, var(--cssz-text, #000));
+}
+.sc .listGridCellOver { background: var(--cssz-row-over, #f5f5f5); }
+.sc .listGridCellSelectedOver {
+  background: var(--cssz-row-selected, #e0e7ff);
+  color: var(--cssz-row-selected-text, var(--cssz-text, #000));
+}
+
+/* ---------- TabSet ---------------------------------------------------------- */
+/* SC measures tab widths/heights for tab strip layout. Don't set padding on
+   .tab — it will throw off the strip's calculated total width. Color/font/
+   border-radius only on tabs. Selected indicator via inset box-shadow. */
+
+.sc .tabBar {
+  background: var(--cssz-tab-bg, transparent);
+  box-shadow: inset 0 -1px 0 var(--cssz-border, #ababab);
+}
+.sc .tab {
+  background: transparent;
+  color: var(--cssz-tab-text, var(--cssz-muted, #666));
+  font-family: var(--cssz-font, inherit);
+  border-radius: var(--cssz-radius, 0) var(--cssz-radius, 0) 0 0;
+  cursor: pointer;
+}
+.sc .tabSelected {
+  background: var(--cssz-tab-selected-bg, var(--cssz-surface, #fff));
+  color: var(--cssz-tab-selected-text, var(--cssz-text, #000));
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--cssz-accent, #4f46e5);
+}
+.sc .tabBody {
+  background: var(--cssz-surface, #fff);
+  /* No border or padding — SC sizes the tabBody. */
+}
+
+/* ---------- Icon base ------------------------------------------------------- */
+/* `.icon` is for app-defined icons (mask-based or inline SVG). SC's own
+   icon imgs are handled separately under .windowHeader img above. */
+
+.sc .icon {
+  color: var(--cssz-icon, currentColor);
+}
+
+/* ---------- Smooth theme transitions ---------------------------------------- */
+/* When the body class flips between light/dark or light/tenant, color changes
+   glide instead of snap. transition is layout-safe — SC doesn't read it via
+   getComputedStyle. :where() keeps specificity 0 so SC's own rules still win. */
+
+body { transition: background-color 0.2s, color 0.2s; }
+.sc :where(
+  .button, .buttonOver, .buttonDown, .buttonSelected, .buttonPrimary,
+  .buttonDisabled, .buttonFocused,
+  .windowBackground, .windowHeader, .windowBody, .dialogBody,
+  .textItem, .textItemLite, .textItemFocused, .textItemLiteFocused,
+  .textAreaItem, .textAreaItemLite, .selectItem, .selectItemText,
+  .sectionStack, .sectionHeader, .sectionItem,
+  .listGrid, .gridHeader, .gridBody, .gridRow, .listGridCell,
+  .gridRowOver, .gridRowSelected,
+  .tabBar, .tab, .tabSelected, .tabBody,
+  .toolStrip, .toolStripSeparator,
+  .dateChooser, .dateChooserHeader, .dateCell
+) {
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+
+/* ---------- Scenario-load animation ----------------------------------------- */
+/* Triggered by adding `.cssz-loading` to <body> after a new scenario hydrates
+   (URL hash change, recent click). Self-clearing via setTimeout in app code.
+   - Form fields flash with a brief accent tint
+   - The result panel (wrapped in .cssz-result by app) fades + slides in
+   Both honor prefers-reduced-motion. */
+
+@keyframes cssz-field-flash {
+  /* sRGB blend — oklch hue interpolation rotates through unrelated hues
+     (e.g. warm-white 95° + indigo 270° passes through 180° green territory). */
+  0%   { background: var(--cssz-input-bg, var(--cssz-surface, #fff)); }
+  30%  { background: color-mix(in srgb, var(--cssz-accent, #4f46e5) 15%, var(--cssz-input-bg, #fff)); }
+  100% { background: var(--cssz-input-bg, var(--cssz-surface, #fff)); }
+}
+body.cssz-loading .textItem,
+body.cssz-loading .textItemLite,
+body.cssz-loading .textItemLiteFocused,
+body.cssz-loading .textItemFocused {
+  animation: cssz-field-flash 700ms ease-out;
+}
+
+@keyframes cssz-result-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+body.cssz-loading .cssz-result {
+  animation: cssz-result-in 400ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body, .sc :where(.button, .buttonOver, .buttonDown, .buttonSelected,
+    .buttonPrimary, .buttonDisabled, .buttonFocused, .windowBackground,
+    .windowHeader, .windowBody, .dialogBody, .textItem, .textItemLite,
+    .textItemFocused, .textItemLiteFocused, .textAreaItem, .textAreaItemLite,
+    .selectItem, .selectItemText, .sectionStack, .sectionHeader, .sectionItem,
+    .listGrid, .gridHeader, .gridBody, .gridRow, .listGridCell, .gridRowOver,
+    .gridRowSelected, .tabBar, .tab, .tabSelected, .tabBody, .toolStrip,
+    .toolStripSeparator, .dateChooser, .dateChooserHeader, .dateCell) {
+    transition: none !important;
+  }
+  body.cssz-loading .textItem,
+  body.cssz-loading .textItemLite,
+  body.cssz-loading .textItemLiteFocused,
+  body.cssz-loading .textItemFocused,
+  body.cssz-loading .cssz-result {
+    animation: none !important;
+  }
+}

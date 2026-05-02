@@ -88,6 +88,11 @@ function _rendererDispatchAsync(messageType, payload, timeoutMs) {
       id: id,
       messageType: messageType,
       payload: payload || {},
+      // Forward the caller's timeout so bridge.js can extend its own timer
+      // beyond the 15s default. Without this, long-running runtimes (CheerpX
+      // boot, claude-p, etc.) time out at the bridge layer even though the
+      // button declared a longer _timeoutMs.
+      timeoutMs: timeout,
     }, '*');
   });
 }
@@ -137,9 +142,21 @@ var RESULT_FORMATTERS = {
   },
 };
 
-function formatResult(value, fullResponse, formatterName) {
+function formatResult(value, fullResponse, formatterName, resultPath) {
   var fmt = RESULT_FORMATTERS[formatterName] || RESULT_FORMATTERS.json;
-  return fmt(value === undefined ? fullResponse : value);
+  if (value !== undefined) return fmt(value);
+  // No value at the requested path. If a path was specified, the caller asked
+  // for a specific field — silently swapping in the whole response produces
+  // useless "[object Object]" output via String(). Surface the failure
+  // instead, with the raw response as JSON for diagnosis.
+  if (resultPath) {
+    var raw = '<pre style="margin:4px 0 0 0;font-size:11px;line-height:1.4;color:#aaa;background:#1a1a1a;padding:6px;border-radius:3px;">'
+      + escapeHtml(JSON.stringify(fullResponse, null, 2)) + '</pre>';
+    return '<div style="color:#f44336;font-size:12px;">No <code>' + escapeHtml(resultPath)
+      + '</code> field in response. Raw:</div>' + raw;
+  }
+  // No path requested — fall back to the full response (legacy behavior).
+  return fmt(fullResponse);
 }
 
 // ---- Cell formatters ----
@@ -250,11 +267,16 @@ var ACTION_MAP = {
     component.click = function () {
       var grid = resolveRef(node._targetGrid);
       if (!grid) return;
-      var criteria = {};
-      if (node._payloadFrom) {
-        var source = resolveRef(node._payloadFrom);
-        if (source && source.getValues) criteria = source.getValues() || {};
+      // No filter form provided -> re-fetch with the grid's existing
+      // criteria (initialCriteria from the config). fetchData({}) would
+      // clobber initialCriteria and return everything, which is wrong for
+      // a "Refresh" button on a per-plugin filtered grid.
+      if (!node._payloadFrom) {
+        grid.invalidateCache();
+        return;
       }
+      var source = resolveRef(node._payloadFrom);
+      var criteria = (source && source.getValues) ? (source.getValues() || {}) : {};
       grid.fetchData(criteria);
     };
   },
@@ -280,7 +302,8 @@ var ACTION_MAP = {
    *     "title": "Run",
    *     "_action": "dispatchAndDisplay",
    *     "_messageType": "PLUGIN_FOO",
-   *     "_messagePayload": {...},        // optional
+   *     "_messagePayload": {...},        // optional static payload
+   *     "_payloadFrom": "myForm",        // optional ID of form/grid to pull values from
    *     "_targetCanvas": "outputFlow",   // ID of component to setContents on
    *     "_resultPath": "stdout",         // optional dot-path to extract from response
    *     "_resultFormatter": "stdoutPre"  // optional, see RESULT_FORMATTERS
@@ -294,10 +317,26 @@ var ACTION_MAP = {
         return;
       }
       var payload = Object.assign({}, node._messagePayload || {});
+      if (node._payloadFrom) {
+        // _payloadFrom may be a single ID or an array of IDs; merge values
+        // from each in declaration order (later sources win on key conflict).
+        // Useful when a form is split across TabSet tabs.
+        var sources = Array.isArray(node._payloadFrom) ? node._payloadFrom : [node._payloadFrom];
+        for (var si = 0; si < sources.length; si++) {
+          var source = resolveRef(sources[si]);
+          if (!source) continue;
+          if (source.getValues) {
+            Object.assign(payload, source.getValues() || {});
+          } else if (source.getSelectedRecord) {
+            var record = source.getSelectedRecord();
+            if (record) Object.assign(payload, record);
+          }
+        }
+      }
       target.setContents('<em style="color:#888;">Running ' + escapeHtml(node._messageType) + '...</em>');
       _rendererDispatchAsync(node._messageType, payload, node._timeoutMs).then(function (response) {
         var value = extractByPath(response, node._resultPath);
-        var html = formatResult(value, response, node._resultFormatter);
+        var html = formatResult(value, response, node._resultFormatter, node._resultPath);
         target.setContents(html);
       }).catch(function (err) {
         target.setContents('<span style="color:#f44336;">Error: ' + escapeHtml(err.message || String(err)) + '</span>');
@@ -855,7 +894,18 @@ function createDataSource(dsConfig) {
       dataProtocol: 'clientCustom',
       fields: dsConfig.fields,
       transformRequest: function (dsRequest) {
-        sendDSRequest(dsRequest).then(function (resp) {
+        // For fetch operations, SmartClient stuffs criteria into dsRequest.data
+        // when callers use ds.fetchData(criteria). For add/update, dsRequest.data
+        // is the record. Disambiguate so the SW handler gets criteria where it
+        // expects them.
+        var normalized = dsRequest;
+        if (dsRequest.operationType === 'fetch') {
+          normalized = Object.assign({}, dsRequest, {
+            criteria: dsRequest.criteria || dsRequest.data || null,
+            data: undefined,
+          });
+        }
+        sendDSRequest(normalized).then(function (resp) {
           this.processResponse(dsRequest.requestId, {
             status: resp.status || 0,
             data: resp.data,
@@ -958,6 +1008,37 @@ function createComponent(node, nodePath) {
 
   // Wire actions after creation (needs component reference)
   wireAction(component, node);
+
+  // _replayInto: when a row is clicked on a history grid, populate one or
+  // more forms with that record's sharedIn snapshot. Optionally switch to
+  // a named tab via _replaySwitchTab: ["tabsetId", "tabIdOrIndex"].
+  // Used by the plugin run-history grids to "replay" a prior run.
+  if (Array.isArray(node._replayInto) && component.addProperties) {
+    component.addProperties({
+      recordClick: function (viewer, record) {
+        if (!record) return;
+        var src = record.sharedIn;
+        if (typeof src === 'string') {
+          try { src = JSON.parse(src); } catch (e) { src = {}; }
+        }
+        if (!src || typeof src !== 'object') return;
+        // Format array values back to comma-separated strings — text
+        // inputs hold strings, the flow's prep splits on commas.
+        var formValues = {};
+        for (var k in src) {
+          formValues[k] = Array.isArray(src[k]) ? src[k].join(', ') : src[k];
+        }
+        for (var i = 0; i < node._replayInto.length; i++) {
+          var form = resolveRef(node._replayInto[i]);
+          if (form && form.setValues) form.setValues(formValues);
+        }
+        if (Array.isArray(node._replaySwitchTab) && node._replaySwitchTab.length >= 2) {
+          var tabset = resolveRef(node._replaySwitchTab[0]);
+          if (tabset && tabset.selectTab) tabset.selectTab(node._replaySwitchTab[1]);
+        }
+      },
+    });
+  }
 
   // Inspector click-to-select: attach mouseDown handler for components with IDs
   if (node.ID && component.addProperties && node._nodePath) {

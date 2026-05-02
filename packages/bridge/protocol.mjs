@@ -117,6 +117,11 @@ export const MSG = {
   // LLM completions (route through Claude Code — uses CLI auth, no API key needed)
   BRIDGE_LLM_COMPLETE: 'BRIDGE_LLM_COMPLETE',                // generic completion: { system, prompt, model?, schema?, timeout? } → { result }
 
+  // PocketFlow flows (Python orchestration via vendored 99-line framework)
+  BRIDGE_FLOW_DEFINE: 'BRIDGE_FLOW_DEFINE',                  // { name, source } → { success, path }
+  BRIDGE_FLOW_RUN:    'BRIDGE_FLOW_RUN',                     // { name, shared?, timeout? } → { success, shared, stderr? }
+  BRIDGE_FLOW_LIST:   'BRIDGE_FLOW_LIST',                    // → { flows: [{ name, path, size, modifiedAt }] }
+
   // Run plans — composable multi-step automation pipelines (TreeGrid editor in dashboard)
   BRIDGE_RUN_PLAN_LIST: 'BRIDGE_RUN_PLAN_LIST',              // → { plans: [...] }
   BRIDGE_RUN_PLAN_GET: 'BRIDGE_RUN_PLAN_GET',                // { id } → { plan }
