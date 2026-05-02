@@ -15,6 +15,27 @@ Implementation of the [CSSZ × SmartClient evaluation](./evaluation.html) — a 
 | `evaluation.html` | — | Full strategic doc — read this for the *why* (capability matrix, risks, phased plan). |
 | `showcase.html` | — | Visual reference: three SC layout templates with classic ↔ modern toggle. |
 
+## Deploy to sc-mortgage-demo
+
+After editing any skin file in this directory, run:
+
+```
+cd ~/repos/agentidev
+npm run build:mortgage-skin
+```
+
+The script syncs `sc-cssz-adapter.css`, `theme-modern.css`, and `theme-sunset.css` from this dir into the `sc-mortgage-demo` deploy clone. Idempotent — re-running with no source changes prints "Already in sync." Default location: tries `experiments/mortgage-calculator/dist/` (in-tree) first, then `~/repos/sc-mortgage-demo/`. Override via `SC_MORTGAGE_DEMO_DIR=...` env var if your clone lives elsewhere.
+
+The script doesn't touch git — commit + push in the deploy repo manually after verifying the diff:
+
+```
+cd <deploy-clone>
+git diff skin/
+git add skin/ && git commit -m '...' && git push
+```
+
+CF Pages auto-deploys ~30s after push.
+
 ## Quick start (recommended path: adapter + theme)
 
 ```html
