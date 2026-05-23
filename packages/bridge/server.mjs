@@ -1159,6 +1159,26 @@ async function startServer() {
       return;
     }
 
+    // ---- Health probe: GET /health ----
+    // Plain-HTTP liveness check used by external callers (e.g. dddlens'
+    // routeOp probeHome) that need a sub-second reachability signal
+    // before trying a real /plugin-message request. Returns 200 with a
+    // small JSON body when the bridge is up; reports extension presence
+    // separately so callers can decide whether to forward work.
+    if (urlPath === '/health' || urlPath === '/health/') {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Content-Type', 'application/json');
+      if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
+      const extConnected = !!findClientByRole(ROLES.EXTENSION);
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        ok: true,
+        role: 'agentidev-bridge',
+        extensionConnected: extConnected,
+      }));
+      return;
+    }
+
     // ---- Plugin message relay: POST /plugin-message/<handler> ----
     // HTTP → bridge → extension SW → handlers[handler]. Lets external callers
     // (typically a Worker reached over cloudflared) invoke service-worker
@@ -1180,6 +1200,15 @@ async function startServer() {
         return;
       }
 
+      // Auth model:
+      //   - If BRIDGE_OPERATOR_KEY is set, require matching `x-operator-key`
+      //     header on every request. This is the only safe mode when the
+      //     bridge is exposed via a tunnel (cloudflared, ngrok, etc).
+      //   - If not set, only allow direct-loopback callers. We detect
+      //     tunnel-wrapped callers by the presence of forwarded-for headers
+      //     (cloudflared adds Cf-Connecting-Ip + X-Forwarded-For; reverse
+      //     proxies add X-Forwarded-For) — these mean SOMEONE non-loopback
+      //     reached us, even if the socket itself terminates on 127.0.0.1.
       const operatorKey = process.env.BRIDGE_OPERATOR_KEY || '';
       if (operatorKey) {
         const supplied = req.headers['x-operator-key'] || '';
@@ -1190,14 +1219,20 @@ async function startServer() {
         }
       } else {
         const remoteAddr = req.socket?.remoteAddress || '';
-        const isLoopback = remoteAddr === '127.0.0.1'
+        const isSocketLoopback = remoteAddr === '127.0.0.1'
           || remoteAddr === '::1'
           || remoteAddr === '::ffff:127.0.0.1';
-        if (!isLoopback) {
+        const hasProxyHeader = !!(
+          req.headers['x-forwarded-for']
+          || req.headers['cf-connecting-ip']
+          || req.headers['x-real-ip']
+          || req.headers['forwarded']
+        );
+        if (!isSocketLoopback || hasProxyHeader) {
           res.writeHead(401);
           res.end(JSON.stringify({
             success: false,
-            error: 'remote callers must set BRIDGE_OPERATOR_KEY and send x-operator-key header',
+            error: 'remote/proxied callers must set BRIDGE_OPERATOR_KEY and send x-operator-key header',
           }));
           return;
         }

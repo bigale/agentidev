@@ -29,7 +29,8 @@ Browser automation through a Node-side bridge server. Lets users (or AI agents, 
 - WebSocket on `ws://localhost:9876` — primary protocol surface.
 - HTTP on `:9876/ds/<EntityDS>` — owned by Zato Integration, not Automation (lives in the same Node process but is a separate concern).
 - HTTP on `:9876/llm` — calls Claude Code via local subprocess for non-WebSocket clients (PocketFlow flows etc).
-- HTTP on `:9876/plugin-message/<handler>` — POST forwards a JSON body to the extension SW via the existing WebSocket and returns the SW handler's reply. Used by external callers (e.g. a Cloudflare Worker reached through a cloudflared tunnel) to invoke SW-side plugin handlers that they couldn't reach directly. Auth: requires matching `x-operator-key` header when `BRIDGE_OPERATOR_KEY` env is set; falls back to loopback-only when unset.
+- HTTP on `:9876/health` — GET liveness probe used by external callers before forwarding work. Returns `{ ok, role, extensionConnected }`.
+- HTTP on `:9876/plugin-message/<handler>` — POST forwards a JSON body to the extension SW via the existing WebSocket and returns the SW handler's reply. Used by external callers (e.g. a Cloudflare Worker reached through a cloudflared tunnel) to invoke SW-side plugin handlers that they couldn't reach directly. Auth: requires matching `x-operator-key` header when `BRIDGE_OPERATOR_KEY` env is set. When unset, only direct-loopback callers with no forwarded-for / cf-connecting-ip headers are allowed — so a tunnel-exposed bridge fails closed by default (cloudflared connects from 127.0.0.1 but adds forwarded headers we detect).
 - CLI: `node packages/bridge/claude-client.mjs <command> [json-payload]` (alias: `bcli`).
 - Extension consumes via `extension/lib/bridge-client.js` with callback arrays (`onScriptUpdate`, `onRunComplete`, `onFileChanged`, `onPluginMessage`).
 
