@@ -1400,15 +1400,28 @@ async function startServer() {
     const now = Date.now();
     const durationMs = script.duration || (now - script.startedAt);
 
+    // Helper: persist an inline-data artifact to disk and push the manifest
+    // entry with a non-null diskPath, so the SQLite dual-write further down
+    // records a recoverable path. Matches what BRIDGE_SCRIPT_ADD_ARTIFACT
+    // does for script-emitted artifacts.
+    const _pushInlineArtifact = (a) => {
+      let diskPath = null;
+      try {
+        diskPath = persistInlineArtifact(a, scriptId, ARTIFACTS_DIR);
+      } catch (err) {
+        console.warn(`[Bridge] Failed to persist run-complete artifact (${a.type}): ${err.message}`);
+      }
+      script.artifacts.push({ ...a, diskPath });
+    };
+
     // Add console buffer as artifact
     if (script.consoleBuffer && script.consoleBuffer.length > 0) {
-      script.artifacts.push({
+      _pushInlineArtifact({
         type: 'console',
         label: 'Console output',
         timestamp: now,
         size: script.consoleBuffer.length,
         data: script.consoleBuffer,
-        diskPath: null,
         contentType: 'text/plain',
       });
     }
@@ -1416,13 +1429,12 @@ async function startServer() {
     // Add script results as artifact if available
     if (script.results) {
       const resultsStr = typeof script.results === 'string' ? script.results : JSON.stringify(script.results, null, 2);
-      script.artifacts.push({
+      _pushInlineArtifact({
         type: 'result',
         label: 'Script results',
         timestamp: now,
         size: resultsStr.length,
         data: resultsStr,
-        diskPath: null,
         contentType: 'application/json',
       });
     }
