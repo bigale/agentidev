@@ -70,6 +70,7 @@ export const MSG = {
   BRIDGE_SCRIPT_ARTIFACT: 'BRIDGE_SCRIPT_ARTIFACT',              // broadcast: artifact captured during execution
   BRIDGE_SCRIPT_ADD_ARTIFACT: 'BRIDGE_SCRIPT_ADD_ARTIFACT',      // script→bridge: register artifact (file or inline data)
   BRIDGE_SCRIPT_GET_ARTIFACT: 'BRIDGE_SCRIPT_GET_ARTIFACT',      // request: read artifact file from disk → base64
+  BRIDGE_SCRIPT_GET_RUN: 'BRIDGE_SCRIPT_GET_RUN',                // request: { scriptId } → { run, artifacts } from SQLite
 
   // Scheduling (server-side auto-launch)
   BRIDGE_SCHEDULE_CREATE: 'BRIDGE_SCHEDULE_CREATE',
