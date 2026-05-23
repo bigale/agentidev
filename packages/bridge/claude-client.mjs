@@ -337,6 +337,8 @@ const CLI_COMMANDS = {
   'script:launch':      (p) => _sendRequest(MSG.BRIDGE_SCRIPT_LAUNCH, p),
   // script:run accepts either '{"scriptId":"..."}' or the bare scriptId as a string.
   'script:run':         (p) => _sendRequest(MSG.BRIDGE_SCRIPT_GET_RUN, typeof p === 'string' ? { scriptId: p } : p),
+  // script:get-artifact accepts either '{"diskPath":"..."}' or a bare path string.
+  'script:get-artifact':(p) => _sendRequest(MSG.BRIDGE_SCRIPT_GET_ARTIFACT, typeof p === 'string' ? { diskPath: p } : p),
   'script:cancel':      (p) => _sendRequest(MSG.BRIDGE_SCRIPT_CANCEL, p),
   'script:pause':       (p) => _sendRequest(MSG.BRIDGE_SCRIPT_PAUSE, p),
   'script:resume':      (p) => _sendRequest(MSG.BRIDGE_SCRIPT_RESUME, p),
@@ -384,8 +386,13 @@ async function runCLI() {
     // sc:generate accepts a plain-text prompt (not JSON)
     if (command === 'sc:generate') {
       payload = { prompt: payloadStr };
-    } else if (command === 'script:run' && !payloadStr.trim().startsWith('{')) {
-      // script:run accepts a bare scriptId for convenience: `script:run abc_001`.
+    } else if (
+      (command === 'script:run' || command === 'script:get-artifact') &&
+      !payloadStr.trim().startsWith('{')
+    ) {
+      // Both accept a bare positional arg for convenience:
+      //   script:run abc_001
+      //   script:get-artifact /home/me/.agentidev/artifacts/abc_001/x.json
       payload = payloadStr;
     } else {
       try {
