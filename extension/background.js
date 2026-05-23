@@ -226,6 +226,20 @@ chrome.runtime.onMessage.addListener(createMessageRouter(handlers));
 // chrome.runtime.sendMessage-to-self is filtered out by MV3.
 globalThis.__handlers = handlers;
 
+// Dispatch BRIDGE_PLUGIN_MESSAGE relays. Bridge HTTP route
+// POST /plugin-message/<handler> forwards here over WebSocket; we look up
+// `handlers[name]` and invoke it with the message shape the handler expects
+// (top-level args alongside `type`). MV3 SW filters
+// chrome.runtime.sendMessage-to-self, so we have to call handlers directly
+// from this closure rather than re-dispatching through createMessageRouter.
+bridgeClient.onPluginMessage(async (handlerName, args) => {
+  const handler = handlers[handlerName];
+  if (typeof handler !== 'function') {
+    throw new Error(`unknown handler: ${handlerName}`);
+  }
+  return await handler({ type: handlerName, ...args });
+});
+
 // ============================================================
 // Snapshot store initialization & bridge event callbacks
 // ============================================================

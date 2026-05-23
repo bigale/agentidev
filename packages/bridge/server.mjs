@@ -1159,6 +1159,101 @@ async function startServer() {
       return;
     }
 
+    // ---- Plugin message relay: POST /plugin-message/<handler> ----
+    // HTTP → bridge → extension SW → handlers[handler]. Lets external callers
+    // (typically a Worker reached over cloudflared) invoke service-worker
+    // plugin handlers that they otherwise couldn't reach. Body is the args
+    // object passed to the handler; reply is the handler's return value.
+    //
+    // Auth: if BRIDGE_OPERATOR_KEY is set in env, requires matching
+    // `x-operator-key` header. If unset, only loopback callers are allowed
+    // (so cloudflared-exposed bridges fail closed by default).
+    if (urlPath.startsWith('/plugin-message/')) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-operator-key');
+      res.setHeader('Content-Type', 'application/json');
+      if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
+      if (req.method !== 'POST') {
+        res.writeHead(405);
+        res.end(JSON.stringify({ success: false, error: 'POST only' }));
+        return;
+      }
+
+      const operatorKey = process.env.BRIDGE_OPERATOR_KEY || '';
+      if (operatorKey) {
+        const supplied = req.headers['x-operator-key'] || '';
+        if (supplied !== operatorKey) {
+          res.writeHead(401);
+          res.end(JSON.stringify({ success: false, error: 'invalid operator key' }));
+          return;
+        }
+      } else {
+        const remoteAddr = req.socket?.remoteAddress || '';
+        const isLoopback = remoteAddr === '127.0.0.1'
+          || remoteAddr === '::1'
+          || remoteAddr === '::ffff:127.0.0.1';
+        if (!isLoopback) {
+          res.writeHead(401);
+          res.end(JSON.stringify({
+            success: false,
+            error: 'remote callers must set BRIDGE_OPERATOR_KEY and send x-operator-key header',
+          }));
+          return;
+        }
+      }
+
+      const handlerName = urlPath.replace(/^\/plugin-message\//, '').replace(/\/$/, '');
+      if (!handlerName || handlerName.includes('/')) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ success: false, error: 'usage: POST /plugin-message/<handler>' }));
+        return;
+      }
+
+      try {
+        const chunks = [];
+        for await (const chunk of req) chunks.push(chunk);
+        const bodyText = Buffer.concat(chunks).toString('utf-8');
+        const args = bodyText ? JSON.parse(bodyText) : {};
+        const timeoutMs = Number.isFinite(args.__timeoutMs) ? args.__timeoutMs : 60000;
+        if (args && typeof args === 'object') delete args.__timeoutMs;
+
+        const ext = findClientByRole(ROLES.EXTENSION);
+        if (!ext) {
+          res.writeHead(503);
+          res.end(JSON.stringify({ success: false, error: 'no extension connected' }));
+          return;
+        }
+
+        console.log(`[Bridge] /plugin-message/${handlerName} → SW (timeout ${timeoutMs}ms)`);
+        const reply = await awaitRelay(
+          ROLES.EXTENSION,
+          MSG.BRIDGE_PLUGIN_MESSAGE,
+          { handler: handlerName, args },
+          timeoutMs,
+        );
+
+        if (!reply || Object.keys(reply).length === 0) {
+          res.writeHead(504);
+          res.end(JSON.stringify({ success: false, error: `SW handler ${handlerName} timed out after ${timeoutMs}ms` }));
+          return;
+        }
+        if (reply.error) {
+          res.writeHead(500);
+          res.end(JSON.stringify({ success: false, error: reply.error }));
+          return;
+        }
+
+        res.writeHead(200);
+        res.end(JSON.stringify({ success: true, result: reply.result }));
+      } catch (err) {
+        console.error('[Bridge] /plugin-message error:', err.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+      return;
+    }
+
     // Serve web UI static files
     const filePath = pathResolve(WEB_UI_DIR, '.' + urlPath);
 

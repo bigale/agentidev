@@ -35,6 +35,14 @@ import { register as registerPfResumeParser } from './pf-resume-parser/handlers.
 import { register as registerPfHelloWorld } from './pf-hello-world/handlers.js';
 import { register as registerPfJudge } from './pf-judge/handlers.js';
 import { register as registerPfMajorityVote } from './pf-majority-vote/handlers.js';
+// lens: in-tree plugin from dddlens. Source lives in
+// dddlens/agentidev-plugin/lens-first-try; operators copy it (NOT symlink —
+// Chrome's extension loader doesn't reliably follow symlinks) into
+// extension/apps/lens/. The lens/ dir itself is gitignored on this side per
+// the `extension/apps/*` rule; only this registration entry is committed.
+// See dddlens/docs/specs/dddlens-as-external-agentidev-plugin-slices.md
+// (LP-1 fork-branch resolution) for why in-tree instead of external.
+import { register as registerLens } from './lens/handlers.js';
 
 export const PLUGIN_REGISTRARS = {
   'hello-runtime': registerHelloRuntime,
@@ -45,4 +53,5 @@ export const PLUGIN_REGISTRARS = {
   'pf-hello-world': registerPfHelloWorld,
   'pf-judge': registerPfJudge,
   'pf-majority-vote': registerPfMajorityVote,
+  'lens': registerLens,
 };

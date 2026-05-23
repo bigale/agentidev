@@ -118,6 +118,13 @@ export const MSG = {
   // LLM completions (route through Claude Code — uses CLI auth, no API key needed)
   BRIDGE_LLM_COMPLETE: 'BRIDGE_LLM_COMPLETE',                // generic completion: { system, prompt, model?, schema?, timeout? } → { result }
 
+  // Plugin message relay (HTTP → bridge → extension SW → handlers[handler])
+  // Used by external callers (e.g. a Worker reached via cloudflared) to invoke
+  // a service-worker plugin handler without needing chrome.runtime.sendMessage
+  // access. Payload: { handler, args }. The SW dispatches by `handler` against
+  // its handler registry and returns the result via WS reply.
+  BRIDGE_PLUGIN_MESSAGE: 'BRIDGE_PLUGIN_MESSAGE',
+
   // PocketFlow flows (Python orchestration via vendored 99-line framework)
   BRIDGE_FLOW_DEFINE: 'BRIDGE_FLOW_DEFINE',                  // { name, source } → { success, path }
   BRIDGE_FLOW_RUN:    'BRIDGE_FLOW_RUN',                     // { name, shared?, timeout? } → { success, shared, stderr? }

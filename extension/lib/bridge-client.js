@@ -42,6 +42,7 @@ const callbacks = {
   onArtifact: [],
   onIdbRestore: [],
   onPublishPlugin: [],
+  onPluginMessage: [],
 };
 
 /**
@@ -801,6 +802,18 @@ export function onPublishPlugin(cb) {
   callbacks.onPublishPlugin.push(cb);
 }
 
+/**
+ * Register a handler for BRIDGE_PLUGIN_MESSAGE relays. The callback receives
+ * `(handlerName, args)` and must return (or resolve to) the handler's result.
+ * Only one is supported — last registration wins for the active dispatch slot.
+ *
+ * Background.js registers a single callback that looks up `handlers[name]` and
+ * invokes it with `{ type: name, ...args }`.
+ */
+export function onPluginMessage(cb) {
+  callbacks.onPluginMessage[0] = cb;
+}
+
 export function onIdbRestore(cb) {
   callbacks.onIdbRestore.push(cb);
 }
@@ -911,6 +924,51 @@ function _handleBroadcast(msg) {
     case 'BRIDGE_INDEX_CONTENT':
       _handleIndexRequest(msg);
       break;
+    case 'BRIDGE_PLUGIN_MESSAGE':
+      _handlePluginMessage(msg);
+      break;
+  }
+}
+
+/**
+ * Handle a plugin-message request relayed from the bridge server.
+ *
+ * Payload shape: { handler, args }. Calls the first registered onPluginMessage
+ * callback (background.js registers one that dispatches by handler name against
+ * the SW handler registry). Replies via WS with `{ result }` on success or
+ * `{ error }` on failure.
+ *
+ * This exists because chrome.runtime.sendMessage-from-SW-to-self is filtered
+ * in MV3 — so the bridge can't just relay a `{ type: 'LENS_EXTRACT', ... }`
+ * message and expect createMessageRouter to dispatch it. We have to call the
+ * handler function directly from a callback that has closure over `handlers`.
+ */
+async function _handlePluginMessage(msg) {
+  const { handler, args } = msg.payload || {};
+  console.log(`[BridgeClient] Plugin message: ${handler}`);
+
+  const baseReply = {
+    id: `ext_${Date.now()}_${++_msgCounter}`,
+    type: 'BRIDGE_PLUGIN_MESSAGE',
+    source: 'extension',
+    timestamp: Date.now(),
+    replyTo: msg.id,
+  };
+
+  try {
+    const cb = callbacks.onPluginMessage[0];
+    if (!cb) throw new Error('no onPluginMessage handler registered');
+    const result = await cb(handler, args || {});
+    const reply = { ...baseReply, payload: { result } };
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(reply));
+    }
+  } catch (err) {
+    console.error(`[BridgeClient] Plugin message ${handler} failed:`, err);
+    const reply = { ...baseReply, payload: { error: err.message } };
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(reply));
+    }
   }
 }
 
