@@ -10,7 +10,8 @@
   "scripts": {
     "build": "webpack --mode production",
     "dev": "webpack --mode development --watch",
-    "test": "jest",
+    "test": "jest && npm run test:bridge",
+    "test:bridge": "node --test tests/bridge-runs-store.test.mjs",
     "lint": "eslint extension/**/*.js",
     "format": "prettier --write \"**/*.{js,json,md}\"",
     "bridge": "node packages/bridge/server.mjs",

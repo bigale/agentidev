@@ -335,6 +335,8 @@ const CLI_COMMANDS = {
   'session:eval':       (p) => _sendRequest(MSG.BRIDGE_EVAL, p),
   'script:list':        () => _sendRequest(MSG.BRIDGE_SCRIPT_LIST, {}),
   'script:launch':      (p) => _sendRequest(MSG.BRIDGE_SCRIPT_LAUNCH, p),
+  // script:run accepts either '{"scriptId":"..."}' or the bare scriptId as a string.
+  'script:run':         (p) => _sendRequest(MSG.BRIDGE_SCRIPT_GET_RUN, typeof p === 'string' ? { scriptId: p } : p),
   'script:cancel':      (p) => _sendRequest(MSG.BRIDGE_SCRIPT_CANCEL, p),
   'script:pause':       (p) => _sendRequest(MSG.BRIDGE_SCRIPT_PAUSE, p),
   'script:resume':      (p) => _sendRequest(MSG.BRIDGE_SCRIPT_RESUME, p),
@@ -382,6 +384,9 @@ async function runCLI() {
     // sc:generate accepts a plain-text prompt (not JSON)
     if (command === 'sc:generate') {
       payload = { prompt: payloadStr };
+    } else if (command === 'script:run' && !payloadStr.trim().startsWith('{')) {
+      // script:run accepts a bare scriptId for convenience: `script:run abc_001`.
+      payload = payloadStr;
     } else {
       try {
         payload = JSON.parse(payloadStr);

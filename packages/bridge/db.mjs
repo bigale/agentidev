@@ -6,23 +6,29 @@
 
 import Database from 'better-sqlite3';
 import { resolve as pathResolve } from 'path';
-import { mkdirSync } from 'fs';
+import { mkdirSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 
 const DATA_DIR = pathResolve(homedir(), '.agentidev');
 const DB_PATH  = pathResolve(DATA_DIR, 'data.sqlite');
 
 let _db = null;
+let _activeDbPath = null;
 
 /**
  * Open (or create) the SQLite database and run schema migrations.
- * Safe to call multiple times — idempotent.
+ * Safe to call multiple times — idempotent (returns the cached connection on
+ * subsequent calls). Tests can pass `{ dbPath }` to direct the singleton at a
+ * temp file; production callers pass nothing and get `~/.agentidev/data.sqlite`.
  */
-export function initDB() {
+export function initDB(opts = {}) {
   if (_db) return _db;
 
-  mkdirSync(DATA_DIR, { recursive: true });
-  _db = new Database(DB_PATH);
+  const dbPath = opts.dbPath || DB_PATH;
+  const dataDir = pathResolve(dbPath, '..');
+  mkdirSync(dataDir, { recursive: true });
+  _db = new Database(dbPath);
+  _activeDbPath = dbPath;
 
   // WAL mode for better concurrent read performance
   _db.pragma('journal_mode = WAL');
@@ -67,7 +73,7 @@ export function initDB() {
     CREATE INDEX IF NOT EXISTS idx_idb_store      ON idb_stores (store);
   `);
 
-  console.log(`[DB] SQLite opened: ${DB_PATH}`);
+  console.log(`[DB] SQLite opened: ${_activeDbPath}`);
   return _db;
 }
 
@@ -207,6 +213,79 @@ export function listRuns(criteria = {}) {
 /** Get all artifact rows for a given run. */
 export function getArtifacts(runId) {
   return db().prepare('SELECT * FROM script_artifacts WHERE run_id = ? ORDER BY timestamp ASC').all(runId);
+}
+
+/**
+ * Return a run record joined with its artifact rows. Returns null if no run
+ * matches `scriptId`. Artifacts are ordered by timestamp ASC (same as
+ * `getArtifacts`). Used by the `script:run` CLI to render a completed run's
+ * full state from SQLite — no in-memory bridge state required.
+ */
+export function getRunWithArtifacts(scriptId) {
+  const run = db()
+    .prepare('SELECT * FROM script_runs WHERE script_id = ?')
+    .get(scriptId);
+  if (!run) return null;
+  const artifacts = getArtifacts(scriptId);
+  return { run, artifacts };
+}
+
+// ---------------------------------------------------------------------------
+// Inline artifact disk persistence
+// ---------------------------------------------------------------------------
+
+// Pick a sensible file extension from a contentType. Falls back to .bin so the
+// artifact is still readable as binary if the type is unknown.
+const _EXT_BY_CONTENT_TYPE = {
+  'application/json': '.json',
+  'text/plain':       '.txt',
+  'text/markdown':    '.md',
+  'text/html':        '.html',
+  'text/csv':         '.csv',
+  'image/png':        '.png',
+  'image/jpeg':       '.jpg',
+  'image/gif':        '.gif',
+  'video/webm':       '.webm',
+  'application/zip':  '.zip',
+};
+
+function _pickExt(artifact) {
+  const ct = (artifact.contentType || '').toLowerCase();
+  return _EXT_BY_CONTENT_TYPE[ct] || '.bin';
+}
+
+function _sanitizeLabel(label) {
+  return String(label || 'artifact')
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'artifact';
+}
+
+/**
+ * Write an inline-data artifact to disk under `<artifactsDir>/<scriptId>/`
+ * and return the resolved file path. The bridge calls this on
+ * BRIDGE_SCRIPT_ADD_ARTIFACT so SQLite's disk_path column is populated for
+ * inline artifacts the same way it is for filePath-based ones — making them
+ * recoverable after a bridge restart via the existing
+ * BRIDGE_SCRIPT_GET_ARTIFACT contract.
+ *
+ * @param {object} artifact - { type, label, data, contentType, timestamp }.
+ * @param {string} scriptId
+ * @param {string} artifactsDir - absolute path to the artifacts root.
+ * @returns {string} absolute path to the written file.
+ */
+export function persistInlineArtifact(artifact, scriptId, artifactsDir) {
+  const ts = artifact.timestamp || Date.now();
+  const dir = pathResolve(artifactsDir, scriptId);
+  mkdirSync(dir, { recursive: true });
+  const ext = _pickExt(artifact);
+  const label = _sanitizeLabel(artifact.label || artifact.type);
+  const filename = `${artifact.type || 'artifact'}_${label}_${ts}${ext}`;
+  const diskPath = pathResolve(dir, filename);
+  writeFileSync(diskPath, artifact.data ?? '');
+  return diskPath;
 }
 
 /** Get all records for a named IDB store. */

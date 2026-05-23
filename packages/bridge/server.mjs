@@ -25,7 +25,7 @@ import { MSG, buildMessage, buildReply, buildError, ROLES } from './protocol.mjs
 import { PlaywrightSession, SESSION_STATE } from './playwright-session.mjs';
 import { InspectorClient, parseInspectorUrl } from './inspector-client.mjs';
 import { actionToCommandArgs } from './cli-commands.mjs';
-import { initDB, saveRun, saveArtifact, upsertStore, exportAll } from './db.mjs';
+import { initDB, saveRun, saveArtifact, upsertStore, exportAll, getRunWithArtifacts, persistInlineArtifact } from './db.mjs';
 import { initEmbeddings, isEmbeddingReady } from './embeddings.mjs';
 import { initVectorDB, addPage as vectorAddPage, search as vectorSearch, getStats as vectorGetStats } from './vectordb.mjs';
 import { validatePayload } from './handler-schemas.mjs';
@@ -2563,7 +2563,10 @@ async function startServer() {
           sendTo(ws, buildError('Invalid artifact', msg.id));
           return;
         }
-        // If artifact has a filePath, copy it to the artifacts dir
+        // If artifact has a filePath, copy it to the artifacts dir.
+        // If artifact has inline `data` and no diskPath / filePath, persist
+        // that to disk so SQLite carries a non-null disk_path for post-restart
+        // retrieval via BRIDGE_SCRIPT_GET_ARTIFACT.
         const timestamp = artifact.timestamp || Date.now();
         let diskPath = artifact.diskPath || null;
         if (artifact.filePath) {
@@ -2576,6 +2579,16 @@ async function startServer() {
             copyFileSync(artifact.filePath, diskPath);
           } catch (err) {
             console.warn(`[Bridge] Failed to copy artifact file: ${err.message}`);
+          }
+        } else if (!diskPath && artifact.data) {
+          try {
+            diskPath = persistInlineArtifact(
+              { ...artifact, timestamp },
+              scriptId,
+              ARTIFACTS_DIR,
+            );
+          } catch (err) {
+            console.warn(`[Bridge] Failed to persist inline artifact: ${err.message}`);
           }
         }
         const a = {
@@ -3114,6 +3127,25 @@ async function startServer() {
           }
         } catch (err) {
           sendTo(ws, buildError(`Cannot read artifact: ${err.message}`, msg.id));
+        }
+        break;
+      }
+
+      case MSG.BRIDGE_SCRIPT_GET_RUN: {
+        const { scriptId } = msg.payload || {};
+        if (!scriptId) {
+          sendTo(ws, buildError('scriptId required', msg.id));
+          return;
+        }
+        try {
+          const result = getRunWithArtifacts(scriptId);
+          if (!result) {
+            sendTo(ws, buildReply(msg, { success: false, error: 'not_found', scriptId }));
+            return;
+          }
+          sendTo(ws, buildReply(msg, { success: true, ...result }));
+        } catch (err) {
+          sendTo(ws, buildError(`Cannot get run: ${err.message}`, msg.id));
         }
         break;
       }
