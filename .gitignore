@@ -94,3 +94,7 @@ nul
 
 # Zato SQLite backups (binary, created by backup command)
 docker/zato/sql/petstore-backup.db
+docker/zato/sql/petstore-prereset-*.db
+
+# WSL Mark-of-the-Web sidecar files
+*:Zone.Identifier
