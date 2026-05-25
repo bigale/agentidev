@@ -267,17 +267,40 @@ var ACTION_MAP = {
     component.click = function () {
       var grid = resolveRef(node._targetGrid);
       if (!grid) return;
+      // Optional Label/HTMLFlow that gets fetch-status feedback.
+      // Without this, fetch errors only surface in DevTools console.
+      var statusTarget = node._statusTarget ? resolveRef(node._statusTarget) : null;
+      var setStatus = function (msg) {
+        if (!statusTarget) return;
+        if (statusTarget.setContents) statusTarget.setContents(msg);
+        else if (statusTarget.setValue) statusTarget.setValue(msg);
+      };
       // No filter form provided -> re-fetch with the grid's existing
       // criteria (initialCriteria from the config). fetchData({}) would
       // clobber initialCriteria and return everything, which is wrong for
       // a "Refresh" button on a per-plugin filtered grid.
       if (!node._payloadFrom) {
+        setStatus('Refreshing…');
         grid.invalidateCache();
+        // No callback hook here — invalidateCache is sync; trust the grid's own state.
         return;
       }
       var source = resolveRef(node._payloadFrom);
       var criteria = (source && source.getValues) ? (source.getValues() || {}) : {};
-      grid.fetchData(criteria);
+      setStatus('Fetching…');
+      grid.fetchData(criteria, function (dsResponse, data, dsRequest) {
+        if (!dsResponse) {
+          setStatus('Error: no response');
+          return;
+        }
+        if (dsResponse.status === 0 || dsResponse.status == null) {
+          var n = (data && data.length != null) ? data.length : (dsResponse.totalRows || 0);
+          setStatus(n + ' row' + (n === 1 ? '' : 's'));
+        } else {
+          var msg = (dsResponse.data && typeof dsResponse.data === 'string') ? dsResponse.data : ('status ' + dsResponse.status);
+          setStatus('Error: ' + msg);
+        }
+      });
     };
   },
   'dsAdd': function (component, node) {
