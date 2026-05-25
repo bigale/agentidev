@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Agentidev — BrowserPod Petstore Proxy</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+    h1 { color: #4a90d9; margin-bottom: 8px; }
+    .subtitle { color: #888; margin-bottom: 20px; }
+    .config { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+    .config label { color: #aaa; font-size: 14px; }
+    .config input { background: #2a2a4a; border: 1px solid #444; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; font-size: 14px; }
+    #zatoUrl { width: 280px; }
+    #apiKey { width: 400px; }
+    button { background: #4a90d9; color: white; border: none; padding: 8px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+    button:hover { background: #3a7bc8; }
+    button:disabled { background: #555; cursor: not-allowed; }
+    #log { background: #0d0d1a; border: 1px solid #333; border-radius: 6px; padding: 12px; font-family: monospace; font-size: 13px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; margin-bottom: 16px; }
+    .log-info { color: #7ed321; }
+    .log-warn { color: #f5a623; }
+    .log-error { color: #e74c3c; }
+    .log-portal { color: #d97ab5; font-weight: bold; font-size: 15px; }
+    #portal-box { display: none; background: #1e3a5f; border: 2px solid #4a90d9; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    #portal-box a { color: #58a6ff; font-size: 18px; }
+    #portal-box .hint { color: #888; font-size: 13px; margin-top: 8px; }
+    #terminal { background: #000; border: 1px solid #333; border-radius: 6px; height: 300px; overflow-y: auto; padding: 8px; font-family: monospace; font-size: 12px; display: none; }
+    .section-title { color: #4a90d9; font-size: 14px; margin: 12px 0 6px; text-transform: uppercase; letter-spacing: 1px; }
+  </style>
+</head>
+<body>
+  <h1>BrowserPod Petstore Proxy</h1>
+  <p class="subtitle">Boots a Node.js pod in-browser, runs Express to proxy Zato Petstore API, exposes via Portal URL</p>
+
+  <div class="config">
+    <label>Zato URL:</label>
+    <input id="zatoUrl" value="http://localhost:11223" />
+    <label>API Key:</label>
+    <input id="apiKey" type="password" placeholder="bp1_..." />
+    <button id="btnBoot" onclick="bootPod()">Boot Pod</button>
+    <button id="btnStop" onclick="location.reload()" disabled>Stop</button>
+  </div>
+
+  <div id="portal-box">
+    <div>Portal URL: <a id="portal-link" href="#" target="_blank"></a></div>
+    <div class="hint">This URL is publicly accessible — anyone can reach the Petstore API through it.</div>
+    <div class="hint" style="margin-top:4px;">
+      Try: <code id="portal-test-url"></code>
+    </div>
+  </div>
+
+  <div class="section-title">Setup Log</div>
+  <div id="log"></div>
+
+  <div class="section-title">Pod Terminal</div>
+  <div id="terminal"></div>
+
+  <script type="module">
+    // Load BrowserPod from CDN
+    const { BrowserPod } = await import("https://rt.browserpod.io/2.3.0/browserpod.js");
+    window.BrowserPod = BrowserPod;
+
+    const logEl = document.getElementById('log');
+    function log(msg, cls = 'log-info') {
+      const line = document.createElement('div');
+      line.className = cls;
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    window.log = log;
+
+    // Pre-fill API key from URL param or localStorage
+    const params = new URLSearchParams(location.search);
+    const savedKey = params.get('key') || localStorage.getItem('bp_api_key') || '';
+    if (savedKey) document.getElementById('apiKey').value = savedKey;
+
+    window.bootPod = async function() {
+      const apiKey = document.getElementById('apiKey').value.trim();
+      const zatoUrl = document.getElementById('zatoUrl').value.trim();
+
+      if (!apiKey) { log('API key is required', 'log-error'); return; }
+
+      // Save key for convenience
+      localStorage.setItem('bp_api_key', apiKey);
+
+      const btnBoot = document.getElementById('btnBoot');
+      const btnStop = document.getElementById('btnStop');
+      btnBoot.disabled = true;
+      btnStop.disabled = false;
+
+      log(`Booting BrowserPod (Node.js)...`);
+      log(`Zato target: ${zatoUrl}`);
+
+      try {
+        const pod = await BrowserPod.boot({ apiKey });
+        log('Pod booted successfully.');
+
+        // Show terminal
+        const termEl = document.getElementById('terminal');
+        termEl.style.display = 'block';
+        const terminal = await pod.createDefaultTerminal(termEl);
+        log('Terminal attached.');
+
+        // Listen for portal
+        pod.onPortal(({ url, port }) => {
+          log(`PORTAL ACTIVE on port ${port}: ${url}`, 'log-portal');
+          const portalBox = document.getElementById('portal-box');
+          const portalLink = document.getElementById('portal-link');
+          const testUrl = document.getElementById('portal-test-url');
+          portalBox.style.display = 'block';
+          portalLink.href = url;
+          portalLink.textContent = url;
+          testUrl.textContent = `curl ${url}/api/pet/findByStatus?status=available`;
+        });
+
+        // Create the Express proxy server
+        log('Creating proxy server...');
+
+        const serverCode = `
+const http = require('http');
+const PORT = 3000;
+
+const ZATO_URL = '${zatoUrl}';
+
+const server = http.createServer(async (req, res) => {
+  // CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  // Health check
+  if (req.url === '/' || req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'ok',
+      service: 'agentidev-browserpod-proxy',
+      zato: ZATO_URL,
+      uptime: process.uptime()
+    }));
+    return;
+  }
+
+  // Proxy /api/* and /zato/* to Zato
+  if (req.url.startsWith('/api/') || req.url.startsWith('/zato/')) {
+    const targetUrl = ZATO_URL + req.url;
+    console.log(req.method + ' ' + req.url + ' -> ' + targetUrl);
+
+    try {
+      let body = '';
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        body = await new Promise((resolve, reject) => {
+          let data = '';
+          req.on('data', chunk => data += chunk);
+          req.on('end', () => resolve(data));
+          req.on('error', reject);
+        });
+      }
+
+      const fetchOpts = {
+        method: req.method,
+        headers: { 'Content-Type': 'application/json' },
+      };
+      if (body) fetchOpts.body = body;
+
+      const resp = await fetch(targetUrl, fetchOpts);
+      const respBody = await resp.text();
+
+      res.writeHead(resp.status, {
+        'Content-Type': resp.headers.get('content-type') || 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(respBody);
+    } catch (err) {
+      console.error('Proxy error:', err.message);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Proxy error', message: err.message, target: targetUrl }));
+    }
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'Not found', hint: 'Try /api/pet/findByStatus?status=available' }));
+});
+
+server.listen(PORT, () => {
+  console.log('Petstore proxy listening on port ' + PORT);
+  console.log('Proxying to Zato at ' + ZATO_URL);
+});
+`;
+
+        // Write server file
+        const file = await pod.createFile('/server.js', 'utf-8');
+        await file.write(serverCode);
+        await file.close();
+        log('Created /server.js');
+
+        // Run the server
+        log('Starting proxy server on port 3000...');
+        const proc = await pod.run('node', ['/server.js'], {
+          terminal,
+        });
+
+        log('Server process started. Waiting for portal URL...');
+
+      } catch (err) {
+        log('Boot failed: ' + err.message, 'log-error');
+        console.error(err);
+        btnBoot.disabled = false;
+        btnStop.disabled = true;
+      }
+    };
+  </script>
+</body>
+</html>
