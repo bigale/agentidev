@@ -1288,12 +1288,21 @@ async function startServer() {
         // Shell out to Allosaurus. Default model is uni2005 (multilingual).
         // Allosaurus emits IPA tokens to stdout, whitespace-separated.
         // ModuleNotFoundError → 503 with install hint.
+        //
+        // UC-016 — pass `-T 1` (top-1 topk) to get per-phoneme confidence:
+        //   without -T:  p e r o
+        //   with -T 1:   p:0.987 e:0.953 r:0.621 o:0.991
+        // Parser handles both shapes — pairs split into parallel ipa /
+        // confidences arrays; bare phonemes (older Allosaurus) leave
+        // confidences absent. Singalang's BridgePhonemeTranscriber treats
+        // missing confidences as the pre-UC-016 case (no dampening).
         const start = Date.now();
-        const ipa = await new Promise((resolve, reject) => {
+        const { ipa, confidences } = await new Promise((resolve, reject) => {
           const proc = spawn('python', [
             '-m', 'allosaurus.run',
             '-l', language,
             '-i', tmpfile,
+            '-T', '1',
           ]);
           const out = [];
           const err = [];
@@ -1313,16 +1322,43 @@ async function startServer() {
               reject(new Error(`allosaurus exited ${code}: ${stderr.slice(0, 200)}`));
               return;
             }
-            resolve(stdout.split(/\s+/).filter(Boolean));
+            const tokens = stdout.split(/\s+/).filter(Boolean);
+            const parsedIpa = [];
+            const parsedConfidences = [];
+            let allHaveConfidence = true;
+            for (const tok of tokens) {
+              const i = tok.lastIndexOf(':');
+              if (i > 0) {
+                const phoneme = tok.slice(0, i);
+                const conf = parseFloat(tok.slice(i + 1));
+                if (phoneme && Number.isFinite(conf)) {
+                  parsedIpa.push(phoneme);
+                  parsedConfidences.push(conf);
+                  continue;
+                }
+              }
+              // Bare phoneme (pre-UC-016 Allosaurus or unparseable pair).
+              parsedIpa.push(tok);
+              allHaveConfidence = false;
+            }
+            resolve({
+              ipa: parsedIpa,
+              confidences: allHaveConfidence && parsedConfidences.length === parsedIpa.length
+                ? parsedConfidences
+                : null,
+            });
           });
         });
         const durationMs = Date.now() - start;
         console.log(
           `[Bridge] /phoneme-transcribe (allosaurus, ${language}): ` +
-          `${durationMs}ms → [${ipa.join(' ')}]`,
+          `${durationMs}ms → [${ipa.join(' ')}]` +
+          (confidences ? ` conf=[${confidences.map((c) => c.toFixed(2)).join(' ')}]` : ''),
         );
         res.writeHead(200);
-        res.end(JSON.stringify({ capturedIpa: ipa, engine: 'allosaurus-uni2005' }));
+        const responseBody = { capturedIpa: ipa, engine: 'allosaurus-uni2005' };
+        if (confidences) responseBody.confidences = confidences;
+        res.end(JSON.stringify(responseBody));
       } catch (err) {
         if (err && err.message === 'engine_not_installed') {
           console.error('[Bridge] /phoneme-transcribe: allosaurus not installed');

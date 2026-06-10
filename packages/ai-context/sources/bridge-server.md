@@ -62,7 +62,7 @@ Screenshots captured at checkpoints, console buffer always collected, run archiv
 The bridge runs both a WebSocket server and an HTTP server on port 9876. Routes:
 
 - `POST /llm` — LLM completion wrapping `BRIDGE_LLM_COMPLETE`. Body: `{ prompt, system?, model?, schema?, timeout? }`. Reply: `{ success, result, error? }`. Uses Claude CLI via `spawnClaude()`.
-- `POST /phoneme-transcribe` — Singalang UC-015.x acoustic phoneme transcription. Multipart body: `audio` File + `language` form field. Shells out to Allosaurus (`python -m allosaurus.run -l <lang> -i <tmpfile>`). Reply: `{ capturedIpa: string[], engine: "allosaurus-uni2005" }` on 200; `{ error: "engine_not_installed", install_hint: "pip install allosaurus" }` on 503 when Allosaurus is missing. Requires `pip install allosaurus` on the bridge host.
+- `POST /phoneme-transcribe` — Singalang UC-015.x + UC-016 acoustic phoneme transcription. Multipart body: `audio` File + `language` form field. Shells out to Allosaurus (`python -m allosaurus.run -l <lang> -i <tmpfile> -T 1`). UC-016 adds the `-T 1` flag so Allosaurus emits `phoneme:confidence` pairs (e.g. `p:0.987 e:0.953 r:0.621 o:0.991`); parser splits into parallel `capturedIpa` + `confidences` arrays. Reply: `{ capturedIpa: string[], confidences?: number[], engine: "allosaurus-uni2005" }` on 200; `{ error: "engine_not_installed", install_hint: "pip install allosaurus" }` on 503 when Allosaurus is missing. `confidences` omitted when older Allosaurus versions emit bare phonemes without colons. Requires `pip install allosaurus` on the bridge host.
 - `GET /health` — Liveness probe. Returns 200 with extension-presence info.
 - `POST /script-launch` and others — script lifecycle wrappers (see Script Lifecycle above).
 
