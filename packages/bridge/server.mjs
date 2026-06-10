@@ -370,6 +370,64 @@ function discoverBrowserProcesses(scripts) {
  * @param {number} [options.timeout=60000] - Process timeout in ms
  * @returns {Promise<string>} Raw stdout from claude process
  */
+/**
+ * parseMultipart — minimal multipart/form-data parser tailored to the
+ * /phoneme-transcribe contract (one audio file + small text fields).
+ * Not general-purpose; doesn't handle nested multipart or rich
+ * Content-Transfer-Encoding. Returns an object keyed by field name
+ * where text fields hold strings and file fields hold
+ * { filename, contentType, data: Buffer }.
+ *
+ * Singalang UC-015.x — keeps the bridge dep-free for this route.
+ */
+function parseMultipart(body, boundary) {
+  const fields = {};
+  const boundaryBuf = Buffer.from(`--${boundary}`);
+  const CRLFCRLF = Buffer.from('\r\n\r\n');
+  let cursor = 0;
+  while (cursor < body.length) {
+    const partStart = body.indexOf(boundaryBuf, cursor);
+    if (partStart === -1) break;
+    let partBegin = partStart + boundaryBuf.length;
+    // Skip trailing "--" (final boundary marker) or CRLF after boundary.
+    if (body[partBegin] === 0x2d && body[partBegin + 1] === 0x2d) break;
+    if (body[partBegin] === 0x0d && body[partBegin + 1] === 0x0a) partBegin += 2;
+    const headerEnd = body.indexOf(CRLFCRLF, partBegin);
+    if (headerEnd === -1) break;
+    const headersText = body.slice(partBegin, headerEnd).toString('utf-8');
+    const bodyBegin = headerEnd + CRLFCRLF.length;
+    const nextBoundary = body.indexOf(boundaryBuf, bodyBegin);
+    if (nextBoundary === -1) break;
+    // Trim trailing CRLF before the next boundary.
+    const dataEnd = nextBoundary - 2; // strip the CRLF
+    const partData = body.slice(bodyBegin, dataEnd);
+
+    const dispositionMatch = headersText.match(
+      /content-disposition:\s*form-data;\s*([^\r\n]+)/i,
+    );
+    if (dispositionMatch) {
+      const params = dispositionMatch[1];
+      const nameMatch = params.match(/name="([^"]+)"/);
+      const filenameMatch = params.match(/filename="([^"]+)"/);
+      if (nameMatch) {
+        const name = nameMatch[1];
+        if (filenameMatch) {
+          const ctMatch = headersText.match(/content-type:\s*([^\r\n]+)/i);
+          fields[name] = {
+            filename: filenameMatch[1],
+            contentType: ctMatch ? ctMatch[1].trim() : 'application/octet-stream',
+            data: Buffer.from(partData),
+          };
+        } else {
+          fields[name] = partData.toString('utf-8');
+        }
+      }
+    }
+    cursor = nextBoundary;
+  }
+  return fields;
+}
+
 function spawnClaude(model, systemPrompt, userPrompt, options = {}) {
   const timeout = options.timeout || 60000;
   return new Promise((resolve, reject) => {
@@ -1155,6 +1213,132 @@ async function startServer() {
         console.error('[Bridge] /llm error:', err.message);
         res.writeHead(500);
         res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+      return;
+    }
+
+    // ---- Acoustic phoneme transcription: POST /phoneme-transcribe ----
+    // Singalang UC-015.x — wraps Allosaurus (`pip install allosaurus`) for
+    // real acoustic phoneme recognition. Multipart body: `audio` File +
+    // `language` form field. Returns { capturedIpa: string[], engine }.
+    // 503 with `engine_not_installed` when Allosaurus isn't on $PATH.
+    // See singalang/docs/specs/articulation-transcriber-bridge-phoneme.md.
+    if (urlPath === '/phoneme-transcribe' || urlPath === '/phoneme-transcribe/') {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Content-Type', 'application/json');
+      if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
+      if (req.method !== 'POST') {
+        res.writeHead(405);
+        res.end(JSON.stringify({ error: 'POST only' }));
+        return;
+      }
+      const contentType = req.headers['content-type'] || '';
+      if (!contentType.toLowerCase().startsWith('multipart/form-data')) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'multipart/form-data required' }));
+        return;
+      }
+      const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+      const boundary = boundaryMatch ? (boundaryMatch[1] || boundaryMatch[2]).trim() : null;
+      if (!boundary) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'multipart boundary missing' }));
+        return;
+      }
+
+      const tmpdir = (await import('node:os')).tmpdir();
+      const path = await import('node:path');
+      const fs = await import('node:fs/promises');
+      const cryptoMod = await import('node:crypto');
+      const { spawn } = await import('node:child_process');
+      const tmpfile = path.join(
+        tmpdir,
+        `bridge-phoneme-${cryptoMod.randomBytes(8).toString('hex')}.webm`,
+      );
+
+      try {
+        // Buffer the whole request body. Audio uploads are small (v1
+        // capped at 5s of opus, ~50 KB typical) so simple buffering is
+        // fine; revisit if larger uploads matter.
+        const chunks = [];
+        for await (const chunk of req) chunks.push(chunk);
+        const body = Buffer.concat(chunks);
+
+        // Inline multipart parser — splits the body on the boundary,
+        // walks each part's headers + body. Handles the contract this
+        // route advertises (audio File + small text fields); not a
+        // general-purpose multipart implementation.
+        const fields = parseMultipart(body, boundary);
+        if (!fields.audio || !Buffer.isBuffer(fields.audio.data)) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'audio field required' }));
+          return;
+        }
+        if (typeof fields.language !== 'string' || !fields.language.length) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'language field required' }));
+          return;
+        }
+
+        const language = fields.language;
+        await fs.writeFile(tmpfile, fields.audio.data);
+
+        // Shell out to Allosaurus. Default model is uni2005 (multilingual).
+        // Allosaurus emits IPA tokens to stdout, whitespace-separated.
+        // ModuleNotFoundError → 503 with install hint.
+        const start = Date.now();
+        const ipa = await new Promise((resolve, reject) => {
+          const proc = spawn('python', [
+            '-m', 'allosaurus.run',
+            '-l', language,
+            '-i', tmpfile,
+          ]);
+          const out = [];
+          const err = [];
+          proc.stdout.on('data', (d) => out.push(d));
+          proc.stderr.on('data', (d) => err.push(d));
+          proc.on('error', (e) => reject(e));
+          proc.on('close', (code) => {
+            const stdout = Buffer.concat(out).toString('utf-8').trim();
+            const stderr = Buffer.concat(err).toString('utf-8').trim();
+            if (code !== 0) {
+              // ModuleNotFoundError surfaces in stderr as the Python
+              // traceback's last line. Treat as engine_not_installed.
+              if (/ModuleNotFoundError|No module named ['"]allosaurus['"]/i.test(stderr)) {
+                reject(new Error('engine_not_installed'));
+                return;
+              }
+              reject(new Error(`allosaurus exited ${code}: ${stderr.slice(0, 200)}`));
+              return;
+            }
+            resolve(stdout.split(/\s+/).filter(Boolean));
+          });
+        });
+        const durationMs = Date.now() - start;
+        console.log(
+          `[Bridge] /phoneme-transcribe (allosaurus, ${language}): ` +
+          `${durationMs}ms → [${ipa.join(' ')}]`,
+        );
+        res.writeHead(200);
+        res.end(JSON.stringify({ capturedIpa: ipa, engine: 'allosaurus-uni2005' }));
+      } catch (err) {
+        if (err && err.message === 'engine_not_installed') {
+          console.error('[Bridge] /phoneme-transcribe: allosaurus not installed');
+          res.writeHead(503);
+          res.end(JSON.stringify({
+            error: 'engine_not_installed',
+            install_hint: 'pip install allosaurus',
+          }));
+          return;
+        }
+        console.error('[Bridge] /phoneme-transcribe error:', err.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: err.message }));
+      } finally {
+        try { await (await import('node:fs/promises')).unlink(tmpfile); }
+        catch { /* tmpfile may not exist; ignore */ }
       }
       return;
     }

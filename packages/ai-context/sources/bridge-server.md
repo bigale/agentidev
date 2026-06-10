@@ -56,3 +56,14 @@ Server creates `node_modules` symlink in scripts dir pointing to nearest `node_m
 ## Artifacts
 
 Screenshots captured at checkpoints, console buffer always collected, run archive saved on completion via `BRIDGE_SCRIPT_RUN_COMPLETE`.
+
+## HTTP Endpoints
+
+The bridge runs both a WebSocket server and an HTTP server on port 9876. Routes:
+
+- `POST /llm` — LLM completion wrapping `BRIDGE_LLM_COMPLETE`. Body: `{ prompt, system?, model?, schema?, timeout? }`. Reply: `{ success, result, error? }`. Uses Claude CLI via `spawnClaude()`.
+- `POST /phoneme-transcribe` — Singalang UC-015.x acoustic phoneme transcription. Multipart body: `audio` File + `language` form field. Shells out to Allosaurus (`python -m allosaurus.run -l <lang> -i <tmpfile>`). Reply: `{ capturedIpa: string[], engine: "allosaurus-uni2005" }` on 200; `{ error: "engine_not_installed", install_hint: "pip install allosaurus" }` on 503 when Allosaurus is missing. Requires `pip install allosaurus` on the bridge host.
+- `GET /health` — Liveness probe. Returns 200 with extension-presence info.
+- `POST /script-launch` and others — script lifecycle wrappers (see Script Lifecycle above).
+
+`/phoneme-transcribe` parses multipart inline via the `parseMultipart()` helper at the top of `server.mjs` — no dependency added. The handler writes the audio to a tmpfile, spawns Allosaurus, parses whitespace-separated IPA tokens from stdout, cleans up in `finally`. `ModuleNotFoundError` from Python surfaces as the 503 install-hint response so Singalang's `BridgePhonemeTranscriber` can degrade gracefully into its cascade fallback.
